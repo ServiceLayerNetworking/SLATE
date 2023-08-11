@@ -7,5 +7,6 @@ There are three major components:
 - cluster-controller (Go gRPC service)
 - global-controller (G gRPC service)
 
+`protos/` contains all the protobuf definitions for the gRPC services (proxy <-> cluster-controller, cluster-controller <-> global-controller).
 
-
+The cluster controller exposes a service that the proxies talk tom and the global controller exposes a service cluster controllers talk to.
