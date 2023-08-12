@@ -1,0 +1,24 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: hello-local-vs
+spec:
+  hosts:
+  - helloworld.sample.svc.cluster.local
+  http:
+  - name: "cluster-1-local"
+    match:
+    - sourceLabels:
+        version: "v1"
+    route:
+    - destination:
+        host: helloworld.sample.svc.cluster.local 
+        subset: west
+  - name: "cluster-2-local"
+    match:
+    - sourceLabels:
+        version: "v2"
+    route:
+    - destination:
+        host: helloworld.sample.svc.cluster.local 
+        subset: east

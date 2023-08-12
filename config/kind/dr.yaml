@@ -1,0 +1,13 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: helloworld
+spec:
+  host: helloworld.sample.svc.cluster.local
+  subsets:
+  - name: west
+    labels:
+      version: v1
+  - name: east
+    labels:
+      version: v2
