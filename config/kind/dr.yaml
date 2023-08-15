@@ -7,7 +7,7 @@ spec:
   subsets:
   - name: west
     labels:
-      version: v1
+      topology.istio.io/network: network1
   - name: east
     labels:
-      version: v2
+      topology.istio.io/network: network2

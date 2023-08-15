@@ -8,8 +8,9 @@ spec:
   http:
   - name: "cluster-1-local"
     match:
-    - sourceLabels:
-        version: "v1"
+    - headers:
+        foo:
+          exact: bar
     route:
     - destination:
         host: helloworld.sample.svc.cluster.local 
@@ -17,8 +18,12 @@ spec:
   - name: "cluster-2-local"
     match:
     - sourceLabels:
-        version: "v2"
+        topology.istio.io/network: network2
     route:
     - destination:
         host: helloworld.sample.svc.cluster.local 
         subset: east
+  - name: "the-rest"
+    route:
+    - destination:
+        host: helloworld.sample.svc.cluster.local 

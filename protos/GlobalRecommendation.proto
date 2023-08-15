@@ -24,6 +24,8 @@ message ClusterWorkloadStats {
 
 message ClusterRecommendation {
   string cluster_id = 1;
+  // x-slate-recommended
+  string attachHeader = 2;
 }
 
 service GlobalRecommendationService {
