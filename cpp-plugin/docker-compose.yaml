@@ -1,0 +1,16 @@
+services:
+  wasm_compile_update:
+    build:
+      context: ./build
+    command: >
+      bash -c "
+      bazel build --experimental_repository_downloader_retries=2 --disk_cache=/tmp/disk_cache --repository_cache=/tmp/repository_cache --experimental_repository_cache_hardlinks //examples/wasm-cc:slate.wasm
+      && cp -a bazel-bin/examples/wasm-cc/slate.wasm /output"
+    entrypoint: /source/examples/shared/build/build-entrypoint.sh
+    environment:
+    - BUILD_UID=${UID:-1000}
+    - TEST_TMPDIR=/tmp
+    working_dir: /source
+    volumes:
+    - /home/adiprerepa/envoy:/source
+    - ./lib:/output

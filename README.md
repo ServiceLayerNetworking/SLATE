@@ -10,5 +10,6 @@ There are three major components:
 `protos/` contains all the protobuf definitions for the gRPC services (proxy <-> cluster-controller, cluster-controller <-> global-controller).
 
 `config/` contains various configs needed to run the system.
+`cpp-plugin/` is the C++ prototype, doesn't work as of now.
 
 The cluster controller exposes a service that the proxies talk to and the global controller exposes a service cluster controllers talk to.
