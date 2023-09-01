@@ -7,4 +7,10 @@ spec:
   selector:
     matchLabels:
       app: httpbin
-  url: oci://ghcr.io/adiprerepa/slate-plugin-cpp:latest
+  url: oci://ghcr.io/adiprerepa/slate-plugin:latest
+  vmConfig:
+    env:
+      - name: HOSTNAME
+        valueFrom: HOST
+      - name: WORKLOAD_NAME
+        valueFrom: ISTIO_META_WORKLOAD_NAME

@@ -60,6 +60,9 @@ func (*vmContext) OnVMStart(vmConfigurationSize int) types.OnVMStartStatus {
 type pluginContext struct {
 	types.DefaultPluginContext
 
+	podName     string
+	serviceName string
+
 	rpsThresholds []RpsThreshold
 }
 
@@ -68,6 +71,16 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 		proxywasm.LogCriticalf("unable to set tick period: %v", err)
 		return types.OnPluginStartStatusFailed
 	}
+	service := os.Getenv("WORKLOAD_NAME")
+	if service == "" {
+		service = "SLATE_UNKNOWN_SVC"
+	}
+	pod := os.Getenv("HOSTNAME")
+	if pod == "" {
+		pod = "SLATE_UNKNOWN_POD"
+	}
+	p.podName = pod
+	p.serviceName = service
 	return types.OnPluginStartStatusOK
 }
 
@@ -136,18 +149,14 @@ func (p *pluginContext) OnTick() {
 		latencyAvg = 0
 	}
 
-	service := os.Getenv("HOSTNAME")
-	if service == "" {
-		service = "SLATE_UNKNOWN"
-	}
-
 	// print ontick results
 	proxywasm.LogCriticalf("request count: %d, latency avg: %d", reqCount, latencyAvg)
 	controllerHeaders := [][2]string{
 		{":method", "POST"},
 		{":path", "/proxyLoad"},
 		{":authority", "slate-controller.default.svc.cluster.local"},
-		{"x-slate-podname", service},
+		{"x-slate-podname", p.podName},
+		{"x-slate-servicename", p.serviceName},
 	}
 	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
 		[]byte(fmt.Sprintf("%d %d", reqCount, latencyAvg)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
@@ -221,6 +230,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	for _, thresh := range thresholds {
 		if reqCount > thresh.Threshold {
 			// set header
+			proxywasm.LogCriticalf("exceeded thresh %d, setting request header to %s", thresh.Threshold, thresh.HeaderValue)
 			if err := proxywasm.AddHttpRequestHeader(SLATE_REMOTE_CLUSTER_HEADER_KEY, thresh.HeaderValue); err != nil {
 				proxywasm.LogCriticalf("Couldn't set request header SLATE_REMOTE_CLUSTER_HEADER_KEY: %v", err)
 				return types.ActionContinue
@@ -268,6 +278,12 @@ func (ctx *httpContext) OnHttpStreamDone() {
 
 func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 	// receive RPS thresholds, set shared data accordingly
+	hdrs, err := proxywasm.GetHttpCallResponseHeaders()
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get http call response headers: %v", err)
+		return
+	}
+	proxywasm.LogCriticalf("received http call response, status %v body size: %d", hdrs, bodySize)
 	if bodySize == 0 {
 		return
 	}
