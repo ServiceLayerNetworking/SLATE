@@ -8,7 +8,18 @@ import (
 	"strings"
 )
 
-var ()
+/*
+/proxyLoad is expected to return http text/plain in the following format:
+
+<requests per second> <header>
+<requests per second_2> <header_2>
+...
+<requests per second_n> <header_n>
+
+where <header> is a string that can be used to identify the remote cluster to route to.
+where <requests per second_n-1> > <requests per second_n>
+(requests_per_second entries are sorted in descending order)
+*/
 
 func main() {
 	r := gin.New()

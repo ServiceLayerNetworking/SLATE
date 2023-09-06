@@ -1,29 +1,39 @@
 package main
 
 import (
+	"crypto/md5"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
-	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
+	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
 )
 
 const (
 	KEY_REQUEST_COUNT  = "slate_request_count"
 	KEY_LAST_RESET     = "slate_last_reset"
 	KEY_RPS_THRESHOLDS = "slate_rps_threshold"
+	KEY_HASH_MOD       = "slate_hash_mod"
 	// this is in millis
 	AGGREGATE_REQUEST_LATENCY       = "slate_last_second_latency_avg"
 	TICK_PERIOD                     = 1000
 	SLATE_REMOTE_CLUSTER_HEADER_KEY = "x-slate-remotecluster"
 )
 
+/*
+todo(adiprerepa)
+  lots of bloat due to the fact that we can't share data between plugins.
+  to sync data, we need to use shared data, which is a pretty bloated api for a simple k/v store.
+  create getorfail() and setorfail() methods to reduce the amount of code duplication.
+*/
+
 var (
-	ALL_KEYS = []string{KEY_REQUEST_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, AGGREGATE_REQUEST_LATENCY}
+	ALL_KEYS = []string{KEY_REQUEST_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY}
 )
 
 func main() {
@@ -54,6 +64,12 @@ func (*vmContext) OnVMStart(vmConfigurationSize int) types.OnVMStartStatus {
 			proxywasm.LogCriticalf("unable to set shared data: %v", err)
 		}
 	}
+	// set default hash mod
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(2))
+	if err := proxywasm.SetSharedData(KEY_HASH_MOD, buf, 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data: %v", err)
+	}
 	return true
 }
 
@@ -71,7 +87,7 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 		proxywasm.LogCriticalf("unable to set tick period: %v", err)
 		return types.OnPluginStartStatusFailed
 	}
-	service := os.Getenv("WORKLOAD_NAME")
+	service := os.Getenv("ISTIO_META_WORKLOAD_NAME")
 	if service == "" {
 		service = "SLATE_UNKNOWN_SVC"
 	}
@@ -177,31 +193,51 @@ type httpContext struct {
 
 func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 
-	// increment request count
-	data, cas, err := proxywasm.GetSharedData(KEY_REQUEST_COUNT)
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
-		return types.ActionContinue
-	}
-	buf := make([]byte, 8)
-	reqCount := binary.LittleEndian.Uint64(data) + 1
-	binary.LittleEndian.PutUint64(buf, reqCount)
-	if err := proxywasm.SetSharedData(KEY_REQUEST_COUNT, buf, cas); err != nil {
-		if !errors.Is(err, types.ErrorStatusCasMismatch) {
-			proxywasm.LogCriticalf("unable to set shared data: %v", err)
-		}
-	}
-
-	// set time we received this x-request-id
+	// first check if this is a response (i.e. x-request-id has already been set)
+	/*
+		todo(aditya)
+			figure out how to evict entries manually (or if we have to)
+	*/
 	reqId, err := proxywasm.GetHttpRequestHeader("x-request-id")
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return types.ActionContinue
 	}
+	IncrementSharedData(inboundCountKey(reqId), 1)
+
+	_, cas, err := proxywasm.GetSharedData(reqId)
+	if err == nil {
+		// we've been set
+		return types.ActionContinue
+	}
+
+	// increment request count
+	//proxywasm.LogCriticalf("OnHttpRequestHeaders called\n")
+	IncrementSharedData(KEY_REQUEST_COUNT, 1)
+	//data, cas, err := proxywasm.GetSharedData(KEY_REQUEST_COUNT)
+	//if err != nil {
+	//	proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
+	//	return types.ActionContinue
+	//}
+	//buf := make([]byte, 8)
+	//reqCount := binary.LittleEndian.Uint64(data) + 1
+	//binary.LittleEndian.PutUint64(buf, reqCount)
+	//if err := proxywasm.SetSharedData(KEY_REQUEST_COUNT, buf, cas); err != nil {
+	//	if !errors.Is(err, types.ErrorStatusCasMismatch) {
+	//		proxywasm.LogCriticalf("unable to set shared data: %v", err)
+	//	}
+	//}
+
+	if tracedRequest(reqId) {
+		// we need to record start and end time
+		proxywasm.LogCriticalf("tracing request: %s", reqId)
+	}
+
+	// set time we received this x-request-id
 	currentMillis := time.Now().UnixMilli()
-	buf = make([]byte, 8)
+	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(currentMillis))
-	if err := proxywasm.SetSharedData(reqId, buf, 0); err != nil {
+	if err := proxywasm.SetSharedData(reqId, buf, cas); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data for x-request-id: %v", err)
 		return types.ActionContinue
 	}
@@ -211,7 +247,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	//   the downside is requests will not be evenly "distributed" - 0->thresh requests go to one pod, thresh->thresh2 go
 	//   to another, but sequentially, not uniformly.
 
-	data, _, err = proxywasm.GetSharedData(KEY_RPS_THRESHOLDS)
+	data, _, err := proxywasm.GetSharedData(KEY_RPS_THRESHOLDS)
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
 		return types.ActionContinue
@@ -225,7 +261,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
 		return types.ActionContinue
 	}
-	reqCount = binary.LittleEndian.Uint64(data)
+	reqCount := binary.LittleEndian.Uint64(data)
 
 	for _, thresh := range thresholds {
 		if reqCount > thresh.Threshold {
@@ -251,6 +287,13 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return
 	}
+	inbound, err := GetUint64SharedData(inboundCountKey(reqId))
+	if inbound != 1 {
+		// decrement and get out
+		IncrementSharedData(inboundCountKey(reqId), -1)
+		return
+	}
+
 	data, _, err := proxywasm.GetSharedData(reqId)
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
@@ -259,7 +302,7 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	startTime := int64(binary.LittleEndian.Uint64(data))
 	currentTime := time.Now().UnixMilli()
 	requestDuration := uint64(currentTime - startTime)
-	//proxywasm.LogCriticalf("request duration: %d", requestDuration)
+	proxywasm.LogCriticalf("request duration: %d", requestDuration)
 
 	data, _, err = proxywasm.GetSharedData(AGGREGATE_REQUEST_LATENCY)
 	if err != nil {
@@ -283,7 +326,22 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 		proxywasm.LogCriticalf("Couldn't get http call response headers: %v", err)
 		return
 	}
-	proxywasm.LogCriticalf("received http call response, status %v body size: %d", hdrs, bodySize)
+	var status int
+	status = 200
+	for _, hdr := range hdrs {
+		if hdr[0] == ":status" {
+			status, err = strconv.Atoi(hdr[1])
+			if err != nil {
+				proxywasm.LogCriticalf("Couldn't parse :status header: %v", err)
+				return
+			}
+		}
+	}
+	// todo log on error status code
+	//proxywasm.LogCriticalf("received http call response, status %v body size: %d", hdrs, bodySize)
+	if status >= 400 {
+		proxywasm.LogCriticalf("received ERROR http call response, status %v body size: %d", hdrs, bodySize)
+	}
 	if bodySize == 0 {
 		return
 	}
@@ -292,7 +350,7 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 		proxywasm.LogCriticalf("Couldn't get http call response body: %v", err)
 		return
 	}
-	proxywasm.LogCriticalf("setting rps thresholds: %s", string(respBody))
+	//proxywasm.LogCriticalf("setting rps thresholds: %s", string(respBody))
 	// set thresholds
 	if err := proxywasm.SetSharedData(KEY_RPS_THRESHOLDS, respBody, 0); err != nil {
 		proxywasm.LogCriticalf("Couldn't set shared data for rps thresholds: %v", err)
@@ -300,6 +358,48 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 	}
 }
 
+// IncrementSharedData increments the value of the shared data at the given key. The data is
+// stored as a little endian uint64. if the key doesn't exist, it is created with the value 1.
+func IncrementSharedData(key string, amount int) {
+	data, cas, err := proxywasm.GetSharedData(key)
+	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
+		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
+	}
+	var val uint64
+	if len(data) == 0 {
+		val = uint64(amount)
+	} else {
+		// hopefully we don't overflow...
+		val = uint64(int(binary.LittleEndian.Uint64(data)) + amount)
+	}
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, val)
+	if err := proxywasm.SetSharedData(key, buf, cas); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data: %v", err)
+	}
+}
+
+func GetUint64SharedData(key string) (uint64, error) {
+	data, _, err := proxywasm.GetSharedData(key)
+	if err != nil {
+		return 0, err
+	}
+	if len(data) == 0 {
+		return 0, nil
+	}
+	return binary.LittleEndian.Uint64(data), nil
+}
+
+/*
+Expects thresholds in the following form:
+
+<RPS> <header value>
+<RPS_2> <header value 2>
+...
+<RPS_i> <header value i>
+
+where RPS_i-1 > RPS_i
+*/
 func ParseThresholds(rawThresh string) (thresholds []RpsThreshold) {
 	for _, thresh := range strings.Split(rawThresh, "\n") {
 		rpsToHeaderRaw := strings.Split(thresh, " ")
@@ -314,4 +414,28 @@ func ParseThresholds(rawThresh string) (thresholds []RpsThreshold) {
 		thresholds = append(thresholds, RpsThreshold{Threshold: uint64(rps), HeaderValue: header})
 	}
 	return
+}
+
+func inboundCountKey(traceId string) string {
+	return traceId + "-inbound-request-count"
+}
+
+func tracedRequest(traceId string) bool {
+	// use md5 for speed
+	hash := md5Hash(traceId)
+	modBytes, _, err := proxywasm.GetSharedData(KEY_HASH_MOD)
+	var mod uint32
+	if err != nil {
+		// assume 10
+		mod = 2
+	} else {
+		mod = binary.LittleEndian.Uint32(modBytes)
+	}
+	return hash%int(mod) == 0
+}
+
+func md5Hash(s string) int {
+	h := md5.New()
+	h.Write([]byte(s))
+	return int(binary.LittleEndian.Uint64(h.Sum(nil)))
 }
