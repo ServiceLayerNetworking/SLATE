@@ -66,7 +66,7 @@ func (*vmContext) OnVMStart(vmConfigurationSize int) types.OnVMStartStatus {
 	}
 	// set default hash mod
 	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(2))
+	binary.LittleEndian.PutUint64(buf, uint64(10))
 	if err := proxywasm.SetSharedData(KEY_HASH_MOD, buf, 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data: %v", err)
 	}
@@ -198,7 +198,9 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		todo(aditya)
 			figure out how to evict entries manually (or if we have to)
 	*/
-	reqId, err := proxywasm.GetHttpRequestHeader("x-request-id")
+	// log headers
+
+	reqId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return types.ActionContinue
@@ -212,25 +214,12 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	}
 
 	// increment request count
-	//proxywasm.LogCriticalf("OnHttpRequestHeaders called\n")
 	IncrementSharedData(KEY_REQUEST_COUNT, 1)
-	//data, cas, err := proxywasm.GetSharedData(KEY_REQUEST_COUNT)
-	//if err != nil {
-	//	proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
-	//	return types.ActionContinue
-	//}
-	//buf := make([]byte, 8)
-	//reqCount := binary.LittleEndian.Uint64(data) + 1
-	//binary.LittleEndian.PutUint64(buf, reqCount)
-	//if err := proxywasm.SetSharedData(KEY_REQUEST_COUNT, buf, cas); err != nil {
-	//	if !errors.Is(err, types.ErrorStatusCasMismatch) {
-	//		proxywasm.LogCriticalf("unable to set shared data: %v", err)
-	//	}
-	//}
 
 	if tracedRequest(reqId) {
 		// we need to record start and end time
 		proxywasm.LogCriticalf("tracing request: %s", reqId)
+
 	}
 
 	// set time we received this x-request-id
@@ -282,7 +271,7 @@ when we get the response headers, we can calculate the duration of the request.
 */
 func (ctx *httpContext) OnHttpStreamDone() {
 	// get x-request-id from request headers and lookup entry time
-	reqId, err := proxywasm.GetHttpRequestHeader("x-request-id")
+	reqId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return
@@ -427,7 +416,7 @@ func tracedRequest(traceId string) bool {
 	var mod uint32
 	if err != nil {
 		// assume 10
-		mod = 2
+		mod = 10
 	} else {
 		mod = binary.LittleEndian.Uint32(modBytes)
 	}
