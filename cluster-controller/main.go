@@ -47,6 +47,6 @@ func HandleProxyLoad(c *gin.Context) {
 	}
 	podName := c.Request.Header.Get("x-slate-podname")
 	svcName := c.Request.Header.Get("x-slate-servicename")
-	fmt.Printf("POD %v SVC %v STATS: RPS %d, LATENCY: %d\n", podName, svcName, rps, latency)
+	fmt.Printf("POD %v SVC %v STATS: RPS %x, LATENCY: %d\n", podName, svcName, rps, latency)
 	c.Status(200)
 }

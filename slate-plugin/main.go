@@ -298,6 +298,9 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 		proxywasm.LogCriticalf("Couldn't get http call response body: %v", err)
 		return
 	}
+	if status >= 400 {
+		proxywasm.LogCriticalf("received ERROR http call response body: %s", string(respBody))
+	}
 	//proxywasm.LogCriticalf("setting rps thresholds: %s", string(respBody))
 	// set thresholds
 	if err := proxywasm.SetSharedData(KEY_RPS_THRESHOLDS, respBody, 0); err != nil {
