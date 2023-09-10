@@ -23,7 +23,7 @@ const (
 	// this is in millis
 	AGGREGATE_REQUEST_LATENCY       = "slate_last_second_latency_avg"
 	TICK_PERIOD                     = 1000
-	DEFAULT_HASH_MOD                = 10
+	DEFAULT_HASH_MOD                = 1
 	SLATE_REMOTE_CLUSTER_HEADER_KEY = "x-slate-remotecluster"
 )
 
@@ -510,8 +510,7 @@ func tracedRequest(traceId string) bool {
 	modBytes, _, err := proxywasm.GetSharedData(KEY_HASH_MOD)
 	var mod uint32
 	if err != nil {
-		// assume 10
-		mod = 10
+		mod = DEFAULT_HASH_MOD
 	} else {
 		mod = binary.LittleEndian.Uint32(modBytes)
 	}
