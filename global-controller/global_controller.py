@@ -19,7 +19,7 @@ traces = {}
 svc_to_rps = {}
 
 
-@app.route("/proxyLoad", methods=["POST"])
+@app.route("/clusterLoad    ", methods=["POST"])
 def proxy_load():
     body = request.get_json(force=True)
     cluster = body["clusterId"]

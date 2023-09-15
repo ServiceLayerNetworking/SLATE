@@ -68,7 +68,7 @@ apiVersion: extensions.istio.io/v1alpha1
 kind: WasmPlugin
 metadata:
   name: slate-wasm-plugin
-  namespace: default
+  namespace: productpage,reviews,ratings,details
 spec:
   selector:
     matchLabels:
