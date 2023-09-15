@@ -71,16 +71,8 @@ metadata:
   namespace: default
 spec:
   selector:
-    matchExpressions:
-      - key: app
-        operator: In
-        values:
-          - productpage
-          - reviews
-          - ratings
-          - details
-#    matchLabels:
-#      app: productpage,reviews,ratings,details
+    matchLabels:
+      tier: prod
   url: oci://ghcr.io/adiprerepa/slate-plugin:latest
   vmConfig:
     env:
