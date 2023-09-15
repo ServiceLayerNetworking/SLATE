@@ -68,11 +68,11 @@ apiVersion: extensions.istio.io/v1alpha1
 kind: WasmPlugin
 metadata:
   name: slate-wasm-plugin
-  namespace: productpage,reviews,ratings,details
+  namespace: default
 spec:
   selector:
     matchLabels:
-      app: productpage
+      app: productpage,reviews,ratings,details
   url: oci://ghcr.io/adiprerepa/slate-plugin:latest
   vmConfig:
     env:
