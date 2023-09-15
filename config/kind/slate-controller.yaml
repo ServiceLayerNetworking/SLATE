@@ -64,3 +64,20 @@ spec:
           ports:
             - containerPort: 8080
 ---
+apiVersion: extensions.istio.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: slate-wasm-plugin
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: productpage
+  url: oci://ghcr.io/adiprerepa/slate-plugin:latest
+  vmConfig:
+    env:
+      - name: HOSTNAME
+        valueFrom: HOST
+      - name: ISTIO_META_WORKLOAD_NAME
+        valueFrom: HOST
+---
