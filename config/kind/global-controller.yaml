@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: slate-global-controller-sa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: slate-global-controller-cr
+rules:
+  - apiGroups: [""]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: slate-global-controller-crb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: slate-global-controller-cr
+subjects:
+  - kind: ServiceAccount
+    name: slate-global-controller-sa
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: slate-global-controller
+  labels:
+    app: slate-global-controller
+    service: slate-global-controller
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: slate-global-controller
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slate-global-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: slate-global-controller
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: slate-global-controller
+        version: v1
+    spec:
+      serviceAccountName: slate-global-controller-sa
+      containers:
+        - image: ghcr.io/adiprerepa/slate-global-controller:latest # todo change
+          imagePullPolicy: Always
+          name: slate-global-controller
+          ports:
+            - containerPort: 8080
+---

@@ -5,8 +5,8 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY cluster_controller.py .
+COPY global_controller.py .
 
-CMD ["python", "cluster_controller.py"]
+CMD ["python", "global_controller.py"]
 
 EXPOSE 8080

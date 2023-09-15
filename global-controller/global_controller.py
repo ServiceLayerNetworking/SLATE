@@ -15,14 +15,18 @@ f85116460cc0c607a484d0521e62fb19 7c30eb0e856124df a484d0521e62fb19 1694378625363
 Root svc will have no parent span id
 """
 
+traces = {}
+svc_to_rps = {}
+
+
 @app.route("/proxyLoad", methods=["POST"])
 def proxy_load():
-    stats = request.data.decode(encoding="utf-8")
-    if len(stats) == 0:
-        return ""
-    pod = request.headers.get("x-slate-podname")
-    svc = request.headers.get("x-slate-servicename")
-    app.logger.info("recieved stats from service %s: %s", svc, stats)
+    body = request.get_json(force=True)
+    cluster = body["clusterId"]
+    pod = body["podName"]
+    svc = body["serviceName"]
+    stats = body["body"]
+    app.logger.info(f"Received proxy load for {cluster} {pod} {svc} {stats}")
     return ""
 
 if __name__ == "__main__":

@@ -241,6 +241,10 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	return types.ActionContinue
 }
 
+/*
+todo adiprerepa add call size
+*/
+
 // OnHttpStreamDone is called when the stream is about to close.
 // We use this to record the end time of the traced request.
 // Since all responses are treated equally, regardless of whether
