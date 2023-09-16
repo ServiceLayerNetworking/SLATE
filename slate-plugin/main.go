@@ -61,6 +61,7 @@ type TracedRequestStats struct {
 	parentSpanId string
 	startTime    int64
 	endTime      int64
+	bodySize     int64
 }
 
 // Override types.DefaultVMContext.
@@ -165,7 +166,8 @@ func (p *pluginContext) OnTick() {
 	// unbelievably shitty but what can you do if you don't have gRPC :)
 	requestStatsStr := ""
 	for _, stat := range requestStats {
-		requestStatsStr += fmt.Sprintf("%s %s %s %d %d\n", stat.traceId, stat.spanId, stat.parentSpanId, stat.startTime, stat.endTime)
+		requestStatsStr += fmt.Sprintf("%s %s %s %d %d %d\n", stat.traceId, stat.spanId, stat.parentSpanId,
+			stat.startTime, stat.endTime, stat.bodySize)
 	}
 
 	// reset stats
@@ -241,6 +243,23 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	return types.ActionContinue
 }
 
+func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.Action {
+	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
+		return types.ActionContinue
+	}
+
+	proxywasm.LogCriticalf("request body size: %d", bodySize)
+
+	bodySizeBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(bodySizeBytes, uint64(bodySize))
+	if err := proxywasm.SetSharedData(bodySizeKey(traceId), bodySizeBytes, 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data for traceId %v bodySize: %v %v", traceId, bodySize, err)
+	}
+	return types.ActionContinue
+}
+
 /*
 todo adiprerepa add call size
 */
@@ -265,9 +284,11 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	}
 
 	currentTime := time.Now().UnixMilli()
-	if err := SetTracedRequestEndTime(reqId, currentTime); err != nil {
-		proxywasm.LogCriticalf("Couldn't set traced request end time: %v", err)
-		return
+
+	endTimeBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(endTimeBytes, uint64(currentTime))
+	if err := proxywasm.SetSharedData(endTimeKey(reqId), endTimeBytes, 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data for traceId %v endTime: %v %v", reqId, currentTime, err)
 	}
 }
 
@@ -389,7 +410,7 @@ func AddTracedRequest(traceId, spanId, parentSpanId string, startTime int64) err
 		return err
 	}
 	// set spanId, parentSpanId, and startTime for this traceId
-	proxywasm.LogCriticalf("spanId: %v parentSpanId: %v startTime: %v", spanId, parentSpanId, startTime)
+	//proxywasm.LogCriticalf("spanId: %v parentSpanId: %v startTime: %v", spanId, parentSpanId, startTime)
 	if err := proxywasm.SetSharedData(spanIdKey(traceId), []byte(spanId), 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v spanId: %v %v", traceId, spanId, err)
 		return err
@@ -406,18 +427,6 @@ func AddTracedRequest(traceId, spanId, parentSpanId string, startTime int64) err
 	binary.LittleEndian.PutUint64(startTimeBytes, uint64(startTime))
 	if err := proxywasm.SetSharedData(startTimeKey(traceId), startTimeBytes, 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v startTime: %v %v", traceId, startTime, err)
-		return err
-	}
-	return nil
-}
-
-// SetTracedRequestEndTime sets the endTime for the traced request with the given traceId.
-// to be used in the OnHttpStreamDone() callback.
-func SetTracedRequestEndTime(traceId string, endTime int64) error {
-	endTimeBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(endTimeBytes, uint64(endTime))
-	if err := proxywasm.SetSharedData(endTimeKey(traceId), endTimeBytes, 0); err != nil {
-		proxywasm.LogCriticalf("unable to set shared data for traceId %v endTime: %v %v", traceId, endTime, err)
 		return err
 	}
 	return nil
@@ -467,6 +476,14 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 			// request hasn't completed yet, so just disregard.
 			continue
 		}
+		var bodySize int64
+		bodySizeBytes, _, err := proxywasm.GetSharedData(bodySizeKey(traceId))
+		if err != nil {
+			// if we have an end time but no body size, set 0 to body, req just had headers
+			bodySize = 0
+		} else {
+			bodySize = int64(binary.LittleEndian.Uint64(bodySizeBytes))
+		}
 		endTime := int64(binary.LittleEndian.Uint64(endTimeBytes))
 		tracedRequestStats = append(tracedRequestStats, TracedRequestStats{
 			traceId:      traceId,
@@ -474,6 +491,7 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 			parentSpanId: parentSpanId,
 			startTime:    startTime,
 			endTime:      endTime,
+			bodySize:     bodySize,
 		})
 	}
 	return tracedRequestStats, nil
@@ -497,6 +515,10 @@ func startTimeKey(traceId string) string {
 
 func endTimeKey(traceId string) string {
 	return traceId + "-endTime"
+}
+
+func bodySizeKey(traceId string) string {
+	return traceId + "-bodySize"
 }
 
 func emptyBytes(b []byte) bool {

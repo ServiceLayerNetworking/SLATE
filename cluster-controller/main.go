@@ -46,6 +46,7 @@ func main() {
 }
 
 func HandleProxyLoad(c *gin.Context) {
+	fmt.Printf("HJERE\n")
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(c.Request.Body); err != nil {
 		fmt.Printf("error reading from request body %v", err)
