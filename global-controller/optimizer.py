@@ -801,7 +801,32 @@ def run_optimizer(traces, NUM_REQUESTS):
     model.setParam('NonConvex', 2)
     solve_start_time = time.time()
     model.update()
+    
+    #########################################################
+    # option 1
+    #with gp.Env(params=options) as env, gp.Model(env=env) as model:
+    #    # Formulate problem
+    #    model.optimize()
+
+    # option 2 # it requires gurobi.lic file
+    # Where should we store the gurobi.lic file?
+    # - https://support.gurobi.com/hc/en-us/articles/360013417211
+    # How can we use gurobi WLS license?
+    # - https://support.gurobi.com/hc/en-us/articles/13232844297489-How-do-I-set-up-a-Web-License-Service-WLS-client-license-
+    
+    options = {
+        "WLSACCESSID": "550eb070-b4aa-491d-b81e-38edc474fa10",
+        "WLSSECRET": "aea5168e-aa53-44e6-a8f0-8676d3ecc701",
+        "LICENSEID": 2415150,
+    }
+    env = gp.Env(params=options)
+    gp.Model(env=env)
     model.optimize()
+
+    # option 3
+    #model.optimize()
+    #########################################################
+    
     solve_end_time = time.time()
     LOG_TIMESTAMP("MODEL OPTIMIZE")
 
