@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"k8s.io/client-go/rest"
 	"net/http"
 	"os"
 )
@@ -23,12 +24,15 @@ where <requests per second_n-1> > <requests per second_n>
 */
 
 var clusterId string
+var ic *IstioController
 
 func init() {
 	clusterId = os.Getenv("CLUSTER_ID")
 	if clusterId == "" {
 		clusterId = "unknown-cluster"
 	}
+	//cli, err := rest.InClusterConfig()
+	
 }
 
 type ClusterControllerRequest struct {
@@ -36,6 +40,16 @@ type ClusterControllerRequest struct {
 	PodName     string `json:"podName"`
 	ServiceName string `json:"serviceName"`
 	Body        string `json:"body"`
+}
+
+type IstioController struct {
+	client *rest.RESTClient
+}
+
+func (ic *IstioController) UpdatePolicy(routingPcts map[string]string) map[string]string {
+	// somehow map subset->cluster
+
+	return nil
 }
 
 func main() {
@@ -69,9 +83,27 @@ func HandleProxyLoad(c *gin.Context) {
 		return
 	}
 	fmt.Printf("cluster controller request body: %s", string(globalControllerReqBody))
-	_, err = http.Post("http://slate-global-controller:8080/clusterLoad", "application/json", bytes.NewBuffer(globalControllerReqBody))
+	resp, err := http.Post("http://slate-global-controller:8080/clusterLoad", "application/json", bytes.NewBuffer(globalControllerReqBody))
 	if err != nil {
 		fmt.Printf("error posting to global controller %v", err)
+		return
+	}
+	// print response body
+	buf = new(bytes.Buffer)
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		fmt.Printf("error reading from response body %v", err)
+		return
+	}
+	respBody := buf.String()
+	fmt.Printf("global controller response body: %s", respBody)
+	var recommendations map[string]string
+	if err = json.Unmarshal([]byte(respBody), &recommendations); err != nil {
+		fmt.Printf("error unmarshalling global controller response %v", err)
+		return
+	}
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		fmt.Printf("error getting in cluster config %v", err)
 		return
 	}
 	c.Status(200)

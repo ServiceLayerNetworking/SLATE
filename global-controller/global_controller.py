@@ -115,21 +115,6 @@ def proxy_load():
     pod = body["podName"]
     svc = body["serviceName"]
     stats = body["body"]
-    # if svc == "productpage-v1":
-    #     num_req = stats.split("\n")[0]
-    #     sum = 0
-    #     num_p = 0
-    #     for s in stats.split("\n")[1:]:
-    #
-    #         ss = s.split(" ")
-    #         if len(ss) >= 3:
-    #             start = int(ss[-3])
-    #             end = int(ss[-2])
-    #             sum += (end - start)
-    #             num_p += 1
-    #
-    #     if num_p > 0:
-    #         app.logger.info(f"{num_req} requests, avg latency {sum/num_p} ms")
     if cluster not in svc_to_rps:
         svc_to_rps[cluster] = {}
     svc_to_rps[cluster][svc] = int(stats.split("\n")[0])
