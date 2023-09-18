@@ -1,5 +1,6 @@
 from flask import Flask, request
 import logging
+from threading import Lock
 import atexit
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -20,6 +21,7 @@ Root svc will have no parent span id
 traces = {}
 svc_to_rps = {}
 
+stats_mutex = Lock()
 stats_arr = []
 
 
@@ -69,12 +71,13 @@ def parse_stats_into_spans(stats, cluster_id, service):
 
 # Runs every few seconds
 def optimizer_entrypoint():
-    for k, v in traces.items():
-        for trace_id, spans in v.items():
-            app.logger.info(f"Trace {trace_id} has {len(spans)} spans:")
-            for span in spans:
-                app.logger.info(f"\t{span}")
-    traces.clear()
+    with stats_mutex:
+        for k, v in traces.items():
+            for trace_id, spans in v.items():
+                app.logger.info(f"Trace {trace_id} has {len(spans)} spans:")
+                for svc, span in spans.items():
+                    app.logger.info(f"\t{span}")
+        traces.clear()
 
 
 @app.route("/clusterLoad", methods=["POST"])
@@ -100,12 +103,13 @@ def proxy_load():
     #     if num_p > 0:
     #         app.logger.info(f"{num_req} requests, avg latency {sum/num_p} ms")
     spans = parse_stats_into_spans(stats, cluster, svc)
-    for span in spans:
-        if span.cluster_id not in traces:
-            traces[span.cluster_id] = {}
-        if span.trace_id not in traces[span.cluster_id]:
-            traces[span.cluster_id][span.trace_id] = []
-        traces[span.cluster_id][span.trace_id].append(span)
+    with stats_mutex:
+        for span in spans:
+            if span.cluster_id not in traces:
+                traces[span.cluster_id] = {}
+            if span.trace_id not in traces[span.cluster_id]:
+                traces[span.cluster_id][span.trace_id] = {}
+            traces[span.cluster_id][span.trace_id][span.svc] = span
 
     stats_arr.append(f"{cluster} {pod} {svc} {stats}\n")
 
