@@ -24,6 +24,10 @@ svc_to_rps = {}
 
 stats_mutex = Lock()
 stats_arr = []
+# in form of [cluster_id][dest cluster] = pct
+# to be applied by cluster controller
+cluster_pcts = {}
+
 
 
 class Span:
@@ -78,20 +82,31 @@ def optimizer_entrypoint():
                 app.logger.info(f"Trace {trace_id} has {len(spans)} spans:")
                 for svc, span in spans.items():
                     app.logger.info(f"\t{span}")
-                    
-        #######################################################
-        #######################################################
-        ## Lock traces object
-        cluster_1_num_req = 10 # TODO
-        cluster_2_num_req = 50 # TODO
+        # todo this should be ingressgateway. hardcoding for now
+        cluster_1_num_req = svc_to_rps["us-west"]["productpage-v1"]
+        cluster_2_num_req = svc_to_rps["us-east"]["productpage-v1"]
+        reqs = {"us-west": cluster_1_num_req, "us-east": cluster_2_num_req}
         num_requests = [cluster_1_num_req, cluster_2_num_req]
-        assert len(num_requests) == len(traces)
+        # assert len(num_requests) == len(traces)
         percentage_df = opt.run_optimizer(traces, num_requests)
-        #######################################################
-        #######################################################
-        
+        igw_rows = percentage_df.iloc[percentage_df['src'] == "ingress_gw"]
+        total_reqs = 0
+        for idx, row in igw_rows.iterrows():
+            total_reqs += int(row['flow'])
+            src_cluster = row['src_cid']
+            dst_cluster = row['dst_cid']
+            if src_cluster not in cluster_pcts:
+                cluster_pcts[src_cluster] = {}
+            if src_cluster != dst_cluster:
+                # flow to another cluster
+                pct = int(row['flow']) / reqs[src_cluster]
+                cluster_pcts[src_cluster][dst_cluster] = pct
+        app.logger.info(cluster_pcts)
         traces.clear()
 
+# TODO
+def retrain_service_models():
+    pass
 
 @app.route("/clusterLoad", methods=["POST"])
 def proxy_load():
@@ -115,6 +130,9 @@ def proxy_load():
     #
     #     if num_p > 0:
     #         app.logger.info(f"{num_req} requests, avg latency {sum/num_p} ms")
+    if cluster not in svc_to_rps:
+        svc_to_rps[cluster] = {}
+    svc_to_rps[cluster][svc] = int(stats.split("\n")[0])
     spans = parse_stats_into_spans(stats, cluster, svc)
     with stats_mutex:
         for span in spans:
@@ -127,12 +145,13 @@ def proxy_load():
     stats_arr.append(f"{cluster} {pod} {svc} {stats}\n")
 
     # print(f"Received proxy load for {cluster} {pod} {svc}\n{stats}")
-    return ""
+    return cluster_pcts[cluster]
 
 
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=3)
+    scheduler.add_job(func=retrain_service_models, trigger="interval", seconds=10)
     scheduler.start()
 
     atexit.register(lambda: scheduler.shutdown())

@@ -1,2 +1,7 @@
 flask
 apscheduler
+numpy
+pandas
+gurobipy
+sklearn
+gurobi_ml
