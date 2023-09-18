@@ -3,6 +3,7 @@ import logging
 from threading import Lock
 import atexit
 from apscheduler.schedulers.background import BackgroundScheduler
+import optimizer as opt
 
 app = Flask(__name__)
 app.logger.setLevel(logging.DEBUG)
@@ -77,6 +78,18 @@ def optimizer_entrypoint():
                 app.logger.info(f"Trace {trace_id} has {len(spans)} spans:")
                 for svc, span in spans.items():
                     app.logger.info(f"\t{span}")
+                    
+        #######################################################
+        #######################################################
+        ## Lock traces object
+        cluster_1_num_req = 10 # TODO
+        cluster_2_num_req = 50 # TODO
+        num_requests = [cluster_1_num_req, cluster_2_num_req]
+        assert len(num_requests) == len(traces)
+        percentage_df = opt.run_optimizer(traces, num_requests)
+        #######################################################
+        #######################################################
+        
         traces.clear()
 
 
