@@ -26,7 +26,6 @@ from gurobi_ml import add_predictor_constr
 import matplotlib.pyplot as plt
 import argparse
 from pprint import pprint
-from IPython.display import display
 
 import time_stitching_v2 as tst
 
@@ -127,6 +126,8 @@ def translate_to_percentage(df_req_flow):
         
     
 def run_optimizer(traces, NUM_REQUESTS):
+    if len(traces) == 0:
+        return None
     LOG_TIMESTAMP("optimizer start")
     NUM_CLUSTER = len(traces)
     
@@ -332,8 +333,8 @@ def run_optimizer(traces, NUM_REQUESTS):
     # with pd.option_context('display.max_rows', None):
     print_log(compute_time_observation[(compute_time_observation["service_name"]=="details-v1") & (compute_time_observation["cluster_id"]==0)])
     print_log(compute_time_observation[(compute_time_observation["service_name"]=="details-v1") & (compute_time_observation["cluster_id"]==1)])
-    with pd.option_context('display.max_rows', None):
-        display(compute_time_observation)
+    # with pd.option_context('display.max_rows', None):
+    #     display(compute_time_observation)
 
 
     # In[38]:

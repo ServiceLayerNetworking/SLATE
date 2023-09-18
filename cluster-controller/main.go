@@ -32,7 +32,7 @@ func init() {
 		clusterId = "unknown-cluster"
 	}
 	//cli, err := rest.InClusterConfig()
-	
+
 }
 
 type ClusterControllerRequest struct {

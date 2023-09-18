@@ -21,7 +21,7 @@ Root svc will have no parent span id
 
 traces = {}
 svc_to_rps = {}
-
+cluster_to_cid = {"us-west": 0, "us-east": 1}
 stats_mutex = Lock()
 stats_arr = []
 # in form of [cluster_id][dest cluster] = pct
@@ -83,12 +83,16 @@ def optimizer_entrypoint():
                 for svc, span in spans.items():
                     app.logger.info(f"\t{span}")
         # todo this should be ingressgateway. hardcoding for now
-        cluster_1_num_req = svc_to_rps["us-west"]["productpage-v1"]
-        cluster_2_num_req = svc_to_rps["us-east"]["productpage-v1"]
-        reqs = {"us-west": cluster_1_num_req, "us-east": cluster_2_num_req}
+        # cluster_1_num_req = svc_to_rps["us-west"]["productpage-v1"]
+        # cluster_2_num_req = svc_to_rps["us-east"]["productpage-v1"]
+        cluster_1_num_req = 100
+        cluster_2_num_req = 1000
+        reqs = {0: cluster_1_num_req, 1: cluster_2_num_req}
         num_requests = [cluster_1_num_req, cluster_2_num_req]
         # assert len(num_requests) == len(traces)
         percentage_df = opt.run_optimizer(traces, num_requests)
+        if percentage_df is None:
+            return
         igw_rows = percentage_df.iloc[percentage_df['src'] == "ingress_gw"]
         total_reqs = 0
         for idx, row in igw_rows.iterrows():
@@ -122,15 +126,17 @@ def proxy_load():
     with stats_mutex:
         for span in spans:
             if span.cluster_id not in traces:
-                traces[span.cluster_id] = {}
-            if span.trace_id not in traces[span.cluster_id]:
-                traces[span.cluster_id][span.trace_id] = {}
-            traces[span.cluster_id][span.trace_id][span.svc] = span
-
+                traces[cluster_to_cid[span.cluster_id]] = {}
+            if span.trace_id not in traces[cluster_to_cid[span.cluster_id]]:
+                traces[cluster_to_cid[span.cluster_id]][span.trace_id] = {}
+            traces[cluster_to_cid[span.cluster_id]][span.trace_id][span.svc] = span
+# cid -> trace id -> svc -> span
     stats_arr.append(f"{cluster} {pod} {svc} {stats}\n")
 
     # print(f"Received proxy load for {cluster} {pod} {svc}\n{stats}")
-    return cluster_pcts[cluster]
+    if cluster_to_cid[cluster] in cluster_pcts:
+        return cluster_pcts[cluster]
+    return ""
 
 
 if __name__ == "__main__":

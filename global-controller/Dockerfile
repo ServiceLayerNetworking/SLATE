@@ -19,7 +19,7 @@ COPY gurobi.lic ./
 # RUN gurobi1003/linux64/bin/grbgetkey 9ad8f131-3be3-4cfe-98de-32ddcf1c296b
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
 COPY *.py .
 

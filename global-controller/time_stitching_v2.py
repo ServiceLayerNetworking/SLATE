@@ -165,6 +165,7 @@ def remove_incomplete_trace(traces_):
         else:
             ret_traces_[cid][tid] = single_trace
     print("filter stats: ", what)
+    print(ret_traces_.keys())
     assert input_trace_len == ( len(ret_traces_[0]) + len(ret_traces_[1]) + len(removed_traces_[0]) + len(removed_traces_[0]) )
     print("#input trace: " + str(input_trace_len))
     print("#filtered trace: " + str(len(ret_traces_)))
