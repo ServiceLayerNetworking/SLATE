@@ -281,23 +281,25 @@ def run_optimizer(traces, NUM_REQUESTS):
     REGRESSOR_DEGREE = 1 # 1: linear, >2: polynomial
     if REAL_DATA:
         if SAME_COMPUTE_TIME:
-            for cid, tid in traces.items():
-                single_trace = traces[cid][tid]
-                for svc_name, span in single_trace.items():
-                    load.append(span.load)
-                    compute_time.append(span.xt)
-                    index_.append(span_to_compute_arc_var_name(span.svc_name, cid))
-                    service_name_.append(span.svc_name)
-                    cid_list.append(cid)
-                    ## Adding fake ingress gw latency/load data, same as frontend service
-                    if ENTRANCE == INGRESS_GW_NAME:
-                        if span.svc_name == tst.FRONTEND_svc:
-                            print_log("add ingress gw observation")
-                            load.append(span.load) ## will not be used
-                            compute_time.append(span.xt) ## will not be used
-                            index_.append(span_to_compute_arc_var_name(ENTRANCE, span.cluster_id))
-                            service_name_.append(ENTRANCE)
-                            cid_list.append(span.cluster_id)
+            for cid, trace in traces.items():
+                for tid, single_trace in traces[cid].items():
+                    for dummycid in range(NUM_CLUSTER):
+                        for svc_name, span in single_trace.items():
+                            load.append(span.load)
+                            compute_time.append(span.xt)
+                            index_.append(span_to_compute_arc_var_name(span.svc_name, dummycid))
+                            service_name_.append(span.svc_name)
+                            cid_list.append(dummycid)
+                            ## Adding fake ingress gw latency/load data, same as frontend service
+                            if ENTRANCE == INGRESS_GW_NAME:
+                                if span.svc_name == tst.FRONTEND_svc:
+                                    print_log("add ingress gw observation")
+                                    load.append(span.load) ## will not be used
+                                    # compute_time.append(span.xt) ## will not be used
+                                    compute_time.append(0) ## will not be used
+                                    index_.append(span_to_compute_arc_var_name(ENTRANCE, dummycid))
+                                    service_name_.append(ENTRANCE)
+                                    cid_list.append(dummycid)
         else:
             for cid, trace in traces.items():
                 for tid, single_trace in trace.items():
@@ -312,7 +314,8 @@ def run_optimizer(traces, NUM_REQUESTS):
                             if span.svc_name == tst.FRONTEND_svc:
                                 print_log("add ingress gw observation")
                                 load.append(span.load) ## will not be used
-                                compute_time.append(span.xt) ## will not be used
+                                # compute_time.append(span.xt) ## will not be used
+                                compute_time.append(0) ## will not be used
                                 index_.append(span_to_compute_arc_var_name(ENTRANCE, span.cluster_id))
                                 service_name_.append(ENTRANCE)
                                 cid_list.append(span.cluster_id)
