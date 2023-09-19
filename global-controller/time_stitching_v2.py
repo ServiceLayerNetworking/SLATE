@@ -113,57 +113,58 @@ def remove_incomplete_trace(traces_):
     ret_traces_ = dict()
     removed_traces_ = dict()
     input_trace_len = 0
-    for cid, tid in traces_.items():
+    # cid -> trace id -> svc -> span
+    for cid, trace in traces_.items():
         ret_traces_[cid] = dict()
         removed_traces_[cid] = dict()
         input_trace_len += len(traces_[cid])
-        single_trace = traces_[cid][tid]
-        if FRONTEND_svc not in single_trace or DETAIL_svc not in single_trace:
-            if FRONTEND_svc not in single_trace:
-                print("no frontend")
-            if DETAIL_svc not in single_trace:
-                print("no detail")
-            removed_traces_[cid][tid] = single_trace
-            for svc, sp in single_trace.items():
-                print(svc, " ")
-                sp.print()
-            print()
-            what[0] += 1
-        elif len(single_trace) < MIN_TRACE_LEN:
-            removed_traces_[cid][tid] = single_trace
-            what[1] += 1
-        elif len(single_trace) > MAX_TRACE_LEN:
-            removed_traces_[cid][tid] = single_trace
-            what[2] += 1
-        elif len(single_trace) == MIN_TRACE_LEN and (REVIEW_V1_svc not in single_trace or REVIEW_V2_svc in single_trace or REVIEW_V3_svc in single_trace):
-            removed_traces_[cid][tid] = single_trace
-            what[3] += 1
-        elif len(single_trace) == MAX_TRACE_LEN and REVIEW_V2_svc not in single_trace and REVIEW_V3_svc not in single_trace:
-            removed_traces_[cid][tid] = single_trace
-            what[4] += 1
-        elif single_trace[FRONTEND_svc].parent_span_id != span_id_of_FRONTEND_svc:
-            removed_traces_[cid][tid] = single_trace
-            what[5] += 1
-        elif FILTER_REVIEW_V1 and REVIEW_V1_svc in single_trace:
-            if len(single_trace) != 3:
-                print_single_trace(single_trace)
-            assert len(single_trace) == 3
-            removed_traces_[cid][tid] = single_trace
-            what[6] += 1
-        elif FILTER_REVIEW_V2 and REVIEW_V2_svc in single_trace:
-            if len(single_trace) != 4:
-                print_single_trace(single_trace)
-            assert len(single_trace) == 4
-            removed_traces_[cid][tid] = single_trace
-            what[7] += 1
-        elif FILTER_REVIEW_V3 and REVIEW_V3_svc in single_trace:
-            if len(single_trace) != 4:
-                print_single_trace(single_trace)
-            assert len(single_trace) == 4
-            removed_traces_[cid][tid] = single_trace
-            what[8] += 1
-        else:
-            ret_traces_[cid][tid] = single_trace
+        for tid, single_trace in traces_[cid].items():
+            if FRONTEND_svc not in single_trace or DETAIL_svc not in single_trace:
+                if FRONTEND_svc not in single_trace:
+                    print("no frontend")
+                if DETAIL_svc not in single_trace:
+                    print("no detail")
+                removed_traces_[cid][tid] = single_trace
+                for svc, sp in single_trace.items():
+                    print(svc, " ")
+                    sp.print()
+                print()
+                what[0] += 1
+            elif len(single_trace) < MIN_TRACE_LEN:
+                removed_traces_[cid][tid] = single_trace
+                what[1] += 1
+            elif len(single_trace) > MAX_TRACE_LEN:
+                removed_traces_[cid][tid] = single_trace
+                what[2] += 1
+            elif len(single_trace) == MIN_TRACE_LEN and (REVIEW_V1_svc not in single_trace or REVIEW_V2_svc in single_trace or REVIEW_V3_svc in single_trace):
+                removed_traces_[cid][tid] = single_trace
+                what[3] += 1
+            elif len(single_trace) == MAX_TRACE_LEN and REVIEW_V2_svc not in single_trace and REVIEW_V3_svc not in single_trace:
+                removed_traces_[cid][tid] = single_trace
+                what[4] += 1
+            elif single_trace[FRONTEND_svc].parent_span_id != span_id_of_FRONTEND_svc:
+                removed_traces_[cid][tid] = single_trace
+                what[5] += 1
+            elif FILTER_REVIEW_V1 and REVIEW_V1_svc in single_trace:
+                if len(single_trace) != 3:
+                    print_single_trace(single_trace)
+                assert len(single_trace) == 3
+                removed_traces_[cid][tid] = single_trace
+                what[6] += 1
+            elif FILTER_REVIEW_V2 and REVIEW_V2_svc in single_trace:
+                if len(single_trace) != 4:
+                    print_single_trace(single_trace)
+                assert len(single_trace) == 4
+                removed_traces_[cid][tid] = single_trace
+                what[7] += 1
+            elif FILTER_REVIEW_V3 and REVIEW_V3_svc in single_trace:
+                if len(single_trace) != 4:
+                    print_single_trace(single_trace)
+                assert len(single_trace) == 4
+                removed_traces_[cid][tid] = single_trace
+                what[8] += 1
+            else:
+                ret_traces_[cid][tid] = single_trace
     print("filter stats: ", what)
     print(ret_traces_.keys())
     assert input_trace_len == ( len(ret_traces_[0]) + len(ret_traces_[1]) + len(removed_traces_[0]) + len(removed_traces_[0]) )
