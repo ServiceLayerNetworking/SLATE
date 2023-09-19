@@ -344,7 +344,7 @@ def stitch_time(traces):
         for tid, single_trace in traces[cid].items():
             print("="*30)
             print("Trace: " + tid)
-            for svc, span in single_trace:
+            for svc, span in single_trace.items():
                 print(span)
             print("="*30)
     print()
