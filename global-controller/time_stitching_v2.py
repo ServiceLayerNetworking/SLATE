@@ -10,7 +10,7 @@ from global_controller import app
 LOG_PATH = "./modified_trace_and_load_log.txt"
 # LOG_PATH = "./call-logs-sept-16.txt"
 
-VERBOSITY=1
+VERBOSITY=0
 intra_cluster_network_rtt = 1
 inter_cluster_network_rtt = 1
 
@@ -120,17 +120,17 @@ def remove_incomplete_trace(traces_):
         removed_traces_[cid] = dict()
         input_trace_len += len(traces_[cid])
         for tid, single_trace in traces_[cid].items():
-            app.logger.info(f"trace: {single_trace.keys()}")
+            # app.logger.info(f"trace: {single_trace.keys()}")
             if FRONTEND_svc not in single_trace or DETAIL_svc not in single_trace:
                 if FRONTEND_svc not in single_trace:
                     app.logger.info("no frontend")
                 if DETAIL_svc not in single_trace:
                     app.logger.info("no detail")
                 removed_traces_[cid][tid] = single_trace
-                for svc, sp in single_trace.items():
-                    print(svc, " ")
-                    print(sp)
-                print()
+                # for svc, sp in single_trace.items():
+                #     print(svc, " ")
+                #     print(sp)
+                # print()
                 what[0] += 1
             elif len(single_trace) < MIN_TRACE_LEN:
                 removed_traces_[cid][tid] = single_trace
@@ -168,15 +168,15 @@ def remove_incomplete_trace(traces_):
             else:
                 # app.logger.info("complete trace: " + str(single_trace))
                 ret_traces_[cid][tid] = single_trace
-    app.logger.info(f"filter stats: {what}")
-    app.logger.info(ret_traces_.keys())
+    # app.logger.info(f"filter stats: {what}")
+    # app.logger.info(ret_traces_.keys())
     # assert input_trace_len == ( len(ret_traces_[0]) + len(ret_traces_[1]) + len(removed_traces_[0]) + len(removed_traces_[0]) )
-    app.logger.info("#input trace: " + str(input_trace_len))
+    # app.logger.info("#input trace: " + str(input_trace_len))
 
-    for cid, trace in ret_traces_.items():
-        app.logger.info("#returned trace for cid {}: {}".format(cid, len(ret_traces_[cid])))
-    for cid, trace in removed_traces_.items():
-        app.logger.info("#removed for cid {}: {}".format(cid, len(removed_traces_[cid])))
+    # for cid, trace in ret_traces_.items():
+    #     app.logger.info("#returned trace for cid {}: {}".format(cid, len(ret_traces_[cid])))
+    # for cid, trace in removed_traces_.items():
+    #     app.logger.info("#removed for cid {}: {}".format(cid, len(removed_traces_[cid])))
 
     return ret_traces_, removed_traces_
 
@@ -256,7 +256,7 @@ def calc_exclusive_time(single_trace_):
             continue
         exclude_child_rt = 0
         if  len(child_span_list) == 1:
-            print("parent: {}, child_1: {}, child_2: None, single child".format(parent_span.svc_name, child_span_list[0].svc_name))
+            # print("parent: {}, child_1: {}, child_2: None, single child".format(parent_span.svc_name, child_span_list[0].svc_name))
             exclude_child_rt = child_span_list[0].rt
         else: # else is redundant but still I leave it there to make the if/else logic easy to follow
             for i in range(len(child_span_list)):
@@ -265,17 +265,17 @@ def calc_exclusive_time(single_trace_):
                     if is_parallel == 1 or is_parallel == 2: # parallel execution
                         # TODO: parallel-1 and parallel-2 should be dealt with individually.
                         exclude_child_rt = max(child_span_list[i].rt, child_span_list[j].rt)
-                        print("parent: {}, child_1: {}, child_2: {}, parallel-{} sibling".format(parent_span.svc_name, child_span_list[i].svc_name, child_span_list[j].svc_name, is_parallel))
+                        # print("parent: {}, child_1: {}, child_2: {}, parallel-{} sibling".format(parent_span.svc_name, child_span_list[i].svc_name, child_span_list[j].svc_name, is_parallel))
                     else: # sequential execution
                         exclude_child_rt = child_span_list[i].rt + child_span_list[j].rt
-                        print("parent: {}, child_1:{}, child_2: {}, sequential sibling".format(parent_span.svc_name, child_span_list[i].svc_name, child_span_list[j].svc_name))
+                        # print("parent: {}, child_1:{}, child_2: {}, sequential sibling".format(parent_span.svc_name, child_span_list[i].svc_name, child_span_list[j].svc_name))
         parent_span.xt = parent_span.rt - exclude_child_rt
         if parent_span.xt < 0:
-            print("parent_span")
-            print(parent_span)
-            print("child_span_list")
-            for span in child_span_list:
-                print(span)
+            # print("parent_span")
+            # print(parent_span)
+            # print("child_span_list")
+            # for span in child_span_list:
+                # print(span)
             print_error("parent_span exclusive time cannot be negative value: {}".format(parent_span.xt))
     return single_trace_
 
@@ -283,14 +283,14 @@ def calc_exclusive_time(single_trace_):
 def traces_to_graphs_and_calc_exclusive_time(traces_):
     graph_dict = dict()
     for cid, trace in traces_.items():
-        app.logger.info(f"cid: {cid}, trace: {trace}")
+        # app.logger.info(f"cid: {cid}, trace: {trace}")
         for tid, single_trace in traces_[cid].items():
             # single_trace = traces_[cid][tid]
             callgraph, cg_key = single_trace_to_callgraph(single_trace)
-            app.logger.info(f"tid: {tid}, callgraph: {callgraph}, cg_key: {cg_key}")
+            # app.logger.info(f"tid: {tid}, callgraph: {callgraph}, cg_key: {cg_key}")
             single_trace_ex_time = calc_exclusive_time(single_trace)
             graph_dict[cg_key] = callgraph
-    app.logger.info(f"len: {len(graph_dict)}, graph_dict: {graph_dict}")
+    # app.logger.info(f"len: {len(graph_dict)}, graph_dict: {graph_dict}")
     assert len(graph_dict) == 1
     return callgraph
 
@@ -313,7 +313,7 @@ def traces_to_graphs_and_calc_exclusive_time(traces_):
 #         temp_str = ""
 #         for elem in temp_list:
 #             temp_str += elem + ","
-#         if temp_str not in unique_dags:
+#         if temp_str not in uni/que_dags:
 #             unique_dags[temp_str] = dag
 #     print(" --- unique dag list --- ")
 #     i = 0
@@ -332,24 +332,24 @@ def get_unique_svc_names_from_dag(dag_):
     return unique_svc_names
 
 def stitch_time(traces):
-    print_log("time stitching starts")
+    # print_log("time stitching starts")
     ts = time.time()
     traces, removed_traces = remove_incomplete_trace(traces)
     traces = change_to_relative_time(traces)
     call_graph = traces_to_graphs_and_calc_exclusive_time(traces)
     # add_child_services(graph_dict)
     
-    print("*"*50)
-    for cid, trace in traces.items():
-        for tid, single_trace in traces[cid].items():
-            print("="*30)
-            print("Trace: " + tid)
-            for svc, span in single_trace.items():
-                print(span)
-            print("="*30)
-    print()
-    print("num final valid traces: " + str(len(traces)))
-    
+    # print("*"*50)
+    # for cid, trace in traces.items():
+        # for tid, single_trace in traces[cid].items():
+            # print("="*30)
+            # print("Trace: " + tid)
+            # for svc, span in single_trace.items():
+            #     print(span)
+            # print("="*30)
+    # print()
+    # print("num final valid traces: " + str(len(traces)))
+    #
     print_log("time stitching done: {}s".format(time.time() - ts))
     return traces, call_graph
 

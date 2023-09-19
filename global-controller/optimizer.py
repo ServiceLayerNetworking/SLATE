@@ -26,6 +26,7 @@ from gurobi_ml import add_predictor_constr
 import matplotlib.pyplot as plt
 import argparse
 from pprint import pprint
+from global_controller import app, Span
 
 import time_stitching_v2 as tst
 
@@ -136,9 +137,9 @@ def run_optimizer(traces, NUM_REQUESTS):
     traces, callgraph = tst.stitch_time(traces)
         
     # In[33]:
-        
     INGRESS_GW_NAME = "ingress_gw"
-    # ENTRANCE = tst.FRONTEND_svc
+    ingress_span = Span(INGRESS_GW_NAME, 0, 0, 0, 0, 0, 0, 0, 0)
+# ENTRANCE = tst.FRONTEND_svc
     ENTRANCE = INGRESS_GW_NAME
     SAME_COMPUTE_TIME = False
     LOAD_IN = True
@@ -146,8 +147,9 @@ def run_optimizer(traces, NUM_REQUESTS):
     REAL_DATA=True
 
     if ENTRANCE == INGRESS_GW_NAME:
-        callgraph[INGRESS_GW_NAME] = list()
+        callgraph[ingress_span] = list()
         for parent_span, children in callgraph.items():
+            app.logger.info(f"parent_span: {parent_span}, children: :{children}")
             if parent_span.svc_name == tst.FRONTEND_svc:
                 callgraph[INGRESS_GW_NAME].append(parent_span)
         
