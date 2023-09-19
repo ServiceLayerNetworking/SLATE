@@ -48,27 +48,27 @@ def file_read(path_):
     return lines
 
 
-class Span:
-    def __init__(self, svc, my_span_id, parent_span_id, st, et, load, cluster_id):
-        self.svc_name = svc
-        self.child_spans = list()
-        self.cluster_id = cluster_id
-        self.name_cid = self.svc_name+"#"+str(self.cluster_id)
-        self.root = (parent_span_id=="")
+# class Span:
+#     def __init__(self, svc, my_span_id, parent_span_id, start, end, load, cluster_id):
+#         self.svc_name = svc
+#         self.child_spans = list()
+#         self.cluster_id = cluster_id
+#         self.name_cid = self.svc_name+"#"+str(self.cluster_id)
+#         self.root = (parent_span_id=="")
         
-        self.my_span_id = my_span_id
-        self.parent_span_id = parent_span_id
+#         self.my_span_id = my_span_id
+#         self.parent_span_id = parent_span_id
         
-        self.request_size_in_bytes = 10 # parent_span to this span
+#         self.request_size_in_bytes = 10 # parent_span to this span
         
-        self.st = st
-        self.et = et
-        self.rt = et - st
-        self.xt = 0
-        self.load = load
+#         self.start = start
+#         self.end = end
+#         self.rt = end - start
+#         self.xt = 0
+#         self.load = load
     
-    def print(self):
-        print("SPAN,{},{},{}->{},{},{},{},{},{}".format(self.svc_name, self.cluster_id, self.parent_span_id, self.my_span_id, self.st, self.et, self.rt, self.xt, self.load))
+#     def print(self):
+#         print("SPAN,{},{},{}->{},{},{},{},{},{}".format(self.svc_name, self.cluster_id, self.parent_span_id, self.my_span_id, self.start, self.end, self.rt, self.xt, self.load))
 
 # <Trace Id> <Span Id> <Parent Span Id> <Start Time> <End Time>
 # <Parent Span Id> will not exist for the frontend service. e.g., productpage service in bookinfo
@@ -81,17 +81,17 @@ if LOG_PATH == "./call-logs-sept-16.txt":
 else:
     SPAN_TOKEN_LEN = 5
 
-def parse_and_create_span(line, svc, load):
-    tokens = line.split(SPAN_DELIM)
-    if len(tokens) != SPAN_TOKEN_LEN:
-        print_error("Invalid token length in span line. len(tokens):{}, line: {}".format(len(tokens), line))
-    tid = tokens[0]
-    sid = tokens[1]
-    psid = tokens[2]
-    st = int(tokens[3])
-    et = int(tokens[4])
-    span = Span(svc, sid, psid, st, et, load, -1)
-    return tid, span
+# def parse_and_create_span(line, svc, load):
+#     tokens = line.split(SPAN_DELIM)
+#     if len(tokens) != SPAN_TOKEN_LEN:
+#         print_error("Invalid token length in span line. len(tokens):{}, line: {}".format(len(tokens), line))
+#     tid = tokens[0]
+#     sid = tokens[1]
+#     psid = tokens[2]
+#     start = int(tokens[3])
+#     end = int(tokens[4])
+#     span = Span(svc, sid, psid, start, end, load, -1)
+#     return tid, span
 
 FRONTEND_svc = "productpage-v1"
 span_id_of_FRONTEND_svc = ""
@@ -127,7 +127,7 @@ def remove_incomplete_trace(traces_):
                 removed_traces_[cid][tid] = single_trace
                 for svc, sp in single_trace.items():
                     print(svc, " ")
-                    sp.print()
+                    print(sp)
                 print()
                 what[0] += 1
             elif len(single_trace) < MIN_TRACE_LEN:
@@ -186,7 +186,7 @@ def change_to_relative_time(traces_):
 
 def print_single_trace(tra):
     for svc, span in tra.items():
-        span.print()
+        print(span)
 
 def print_dag(single_dag_):
     for parent_span, children in single_dag_.items():
@@ -205,14 +205,14 @@ parallel-2
 '''
 def is_parallel_execution(span_a, span_b):
     assert span_a.parent_span_id == span_b.parent_span_id
-    if span_a.st < span_b.st:
+    if span_a.start < span_b.start:
         earlier_start_span = span_a
         later_start_span = span_b
     else:
         earlier_start_span = span_b
         later_start_span = span_a
-    if earlier_start_span.et > later_start_span.st and later_start_span.et > earlier_start_span.st: # parallel execution
-        if earlier_start_span.st < later_start_span.st and earlier_start_span.et > later_start_span.et: # parallel-1
+    if earlier_start_span.end > later_start_span.start and later_start_span.end > earlier_start_span.start: # parallel execution
+        if earlier_start_span.start < later_start_span.start and earlier_start_span.end > later_start_span.end: # parallel-1
             return 1
         else: # parallel-2
             return 2
@@ -264,10 +264,10 @@ def calc_exclusive_time(single_trace_):
         parent_span.xt = parent_span.rt - exclude_child_rt
         if parent_span.xt < 0:
             print("parent_span")
-            parent_span.print()
+            print(parent_span)
             print("child_span_list")
             for span in child_span_list:
-                span.print()
+                print(span)
             print_error("parent_span exclusive time cannot be negative value: {}".format(parent_span.xt))
     return single_trace_
 
@@ -332,7 +332,7 @@ def stitch_time(traces):
         print("="*30)
         print("Trace: " + tid)
         for svc, span in traces[cid][tid]:
-                span.print()
+                print(span)
         print("="*30)
     print()
     print("num final valid traces: " + str(len(traces)))

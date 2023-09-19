@@ -31,19 +31,21 @@ cluster_pcts = {}
 
 
 class Span:
-    def __init__(self, svc, cluster_id, trace_id, span_id, parent_span_id, start, end, cur_load, call_size):
-        self.svc = svc
-        self.span_id = span_id
+    def __init__(self, svc_name, cluster_id, trace_id, my_span_id, parent_span_id, start, end, load, call_size):
+        self.svc_name = svc_name #
+        self.my_span_id = my_span_id #
         self.trace_id = trace_id
-        self.start = start
-        self.end = end
-        self.parent_span_id = parent_span_id
-        self.cur_load = cur_load
-        self.call_size = call_size
+        self.start = start #
+        self.end = end #
+        self.parent_span_id = parent_span_id #
+        self.load = load #
+        self.call_size = call_size ####
         self.cluster_id = cluster_id
+        self.xt = 0
+        self.rt = self.end - self.start
 
     def __str__(self):
-        return f"{self.svc} ({self.span_id}) took {self.end - self.start} ms, parent {self.parent_span_id}"
+        return f"{self.svc_name} ({self.my_span_id}) took {self.end - self.start} ms, parent {self.parent_span_id}"
 
 """
 parse_stats_into_spans will parse the stats string into a list of spans.
@@ -64,13 +66,13 @@ def parse_stats_into_spans(stats, cluster_id, service):
         if len(ss) < 6:
             continue
         trace_id = ss[0]
-        span_id = ss[1]
+        my_span_id = ss[1]
         # can be empty
         parent_span_id = ss[2]
         start = int(ss[3])
         end = int(ss[4])
         call_size = int(ss[5])
-        spans.append(Span(service, cluster_id, trace_id, span_id, parent_span_id, start, end, num_req, call_size))
+        spans.append(Span(service, cluster_id, trace_id, my_span_id, parent_span_id, start, end, num_req, call_size))
     return spans
 
 
@@ -80,7 +82,7 @@ def optimizer_entrypoint():
         for k, v in traces.items():
             for trace_id, spans in v.items():
                 app.logger.info(f"Trace {trace_id} has {len(spans)} spans:")
-                for svc, span in spans.items():
+                for svc_name, span in spans.items():
                     app.logger.info(f"\t{span}")
         # todo this should be ingressgateway. hardcoding for now
         # cluster_1_num_req = svc_to_rps["us-west"]["productpage-v1"]
@@ -117,23 +119,23 @@ def proxy_load():
     body = request.get_json(force=True)
     cluster = body["clusterId"]
     pod = body["podName"]
-    svc = body["serviceName"]
+    svc_name = body["serviceName"]
     stats = body["body"]
     if cluster not in svc_to_rps:
         svc_to_rps[cluster] = {}
-    svc_to_rps[cluster][svc] = int(stats.split("\n")[0])
-    spans = parse_stats_into_spans(stats, cluster, svc)
+    svc_to_rps[cluster][svc_name] = int(stats.split("\n")[0])
+    spans = parse_stats_into_spans(stats, cluster, svc_name)
     with stats_mutex:
         for span in spans:
             if span.cluster_id not in traces:
                 traces[cluster_to_cid[span.cluster_id]] = {}
             if span.trace_id not in traces[cluster_to_cid[span.cluster_id]]:
                 traces[cluster_to_cid[span.cluster_id]][span.trace_id] = {}
-            traces[cluster_to_cid[span.cluster_id]][span.trace_id][span.svc] = span
-# cid -> trace id -> svc -> span
-    stats_arr.append(f"{cluster} {pod} {svc} {stats}\n")
+            traces[cluster_to_cid[span.cluster_id]][span.trace_id][span.svc_name] = span
+# cid -> trace id -> svc_name -> span
+    stats_arr.append(f"{cluster} {pod} {svc_name} {stats}\n")
 
-    # print(f"Received proxy load for {cluster} {pod} {svc}\n{stats}")
+    # print(f"Received proxy load for {cluster} {pod} {svc_name}\n{stats}")
     if cluster_to_cid[cluster] in cluster_pcts:
         return cluster_pcts[cluster]
     return ""
