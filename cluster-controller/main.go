@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	versionedclient "istio.io/client-go/pkg/clientset/versioned"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"net/http"
 	"os"
@@ -32,6 +35,16 @@ func init() {
 		clusterId = "unknown-cluster"
 	}
 	//cli, err := rest.InClusterConfig()
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		fmt.Printf("error getting in cluster config %v", err)
+		return
+	}
+	ic, err := versionedclient.NewForConfig(config)
+	if err != nil {
+		fmt.Printf("error getting istio client %v", err)
+		return
+	}
 
 }
 
@@ -43,12 +56,12 @@ type ClusterControllerRequest struct {
 }
 
 type IstioController struct {
-	client *rest.RESTClient
+	istioClient *versionedclient.Clientset
 }
 
 func (ic *IstioController) UpdatePolicy(routingPcts map[string]string) map[string]string {
 	// somehow map subset->cluster
-
+	ic.istioClient.NetworkingV1alpha3().VirtualServices("sample").List(context.TODO(), v1.ListOptions{})
 	return nil
 }
 
@@ -101,10 +114,6 @@ func HandleProxyLoad(c *gin.Context) {
 		fmt.Printf("error unmarshalling global controller response %v", err)
 		return
 	}
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		fmt.Printf("error getting in cluster config %v", err)
-		return
-	}
+
 	c.Status(200)
 }
