@@ -147,11 +147,10 @@ def run_optimizer(traces, NUM_REQUESTS):
     REAL_DATA=True
 
     if ENTRANCE == INGRESS_GW_NAME:
-        callgraph[ingress_span] = list()
-        for parent_span, children in callgraph.items():
-            app.logger.info(f"parent_span: {parent_span}, children: :{children}")
-            if parent_span.svc_name == tst.FRONTEND_svc:
-                callgraph[INGRESS_GW_NAME].append(parent_span)
+        callgraph[INGRESS_GW_NAME] = list()
+        for parent_svc, children in callgraph.items():
+            if parent_svc == tst.FRONTEND_svc:
+                callgraph[INGRESS_GW_NAME].append(parent_svc)
         
     for parent_svc, child_svc_list in callgraph.item():
         print_log(parent_svc + ":", end="")
