@@ -3,6 +3,7 @@
 
 import time
 from pprint import pprint
+from global_controller import app
 
 # LOG_PATH = "./call-logs-sept-13.txt"
 # LOG_PATH = "./trace_and_load_log.txt"
@@ -101,9 +102,9 @@ REVIEW_V3_svc = "reviews-v3"
 RATING_svc = "ratings-v1"
 DETAIL_svc = "details-v1"
 ###############################
-FILTER_REVIEW_V1 = False # False
-FILTER_REVIEW_V2 = False # False
-FILTER_REVIEW_V3 = True # False
+FILTER_REVIEW_V1 = True # False
+FILTER_REVIEW_V2 = True # False
+FILTER_REVIEW_V3 = False # False
 ###############################
 # ratings-v1 and reviews-v1 should not exist in the same trace
 MIN_TRACE_LEN = 3
@@ -119,11 +120,12 @@ def remove_incomplete_trace(traces_):
         removed_traces_[cid] = dict()
         input_trace_len += len(traces_[cid])
         for tid, single_trace in traces_[cid].items():
+            app.logger.info(f"trace: {single_trace.keys()}")
             if FRONTEND_svc not in single_trace or DETAIL_svc not in single_trace:
                 if FRONTEND_svc not in single_trace:
-                    print("no frontend")
+                    app.logger.info("no frontend")
                 if DETAIL_svc not in single_trace:
-                    print("no detail")
+                    app.logger.info("no detail")
                 removed_traces_[cid][tid] = single_trace
                 for svc, sp in single_trace.items():
                     print(svc, " ")
@@ -164,28 +166,34 @@ def remove_incomplete_trace(traces_):
                 removed_traces_[cid][tid] = single_trace
                 what[8] += 1
             else:
+                # app.logger.info("complete trace: " + str(single_trace))
                 ret_traces_[cid][tid] = single_trace
-    print("filter stats: ", what)
-    print(ret_traces_.keys())
-    assert input_trace_len == ( len(ret_traces_[0]) + len(ret_traces_[1]) + len(removed_traces_[0]) + len(removed_traces_[0]) )
-    print("#input trace: " + str(input_trace_len))
-    print("#filtered trace: " + str(len(ret_traces_)))
-    print("#removed_traces trace: " + str(len(removed_traces_)))
+    app.logger.info(f"filter stats: {what}")
+    app.logger.info(ret_traces_.keys())
+    # assert input_trace_len == ( len(ret_traces_[0]) + len(ret_traces_[1]) + len(removed_traces_[0]) + len(removed_traces_[0]) )
+    app.logger.info("#input trace: " + str(input_trace_len))
+
+    for cid, trace in ret_traces_.items():
+        app.logger.info("#returned trace for cid {}: {}".format(cid, len(ret_traces_[cid])))
+    for cid, trace in removed_traces_.items():
+        app.logger.info("#removed for cid {}: {}".format(cid, len(removed_traces_[cid])))
+
     return ret_traces_, removed_traces_
 
 def change_to_relative_time(traces_):
-    for cid, tid in traces_.items():
-        for svc, span in traces_[cid][tid].items():
-            if svc == FRONTEND_svc:
-                base_t = span.start
-        for svc, span in traces_[cid][tid].items():
-            span.start -= base_t
-            span.end -= base_t
+    for cid, trace in traces_.items():
+        for tid, single_trace in traces_[cid].items():
+            for svc, span in traces_[cid][tid].items():
+                if svc == FRONTEND_svc:
+                    base_t = span.start
+            for svc, span in traces_[cid][tid].items():
+                span.start -= base_t
+                span.end -= base_t
     return traces_
 
 
-def print_single_trace(tra):
-    for svc, span in tra.items():
+def print_single_trace(single_trace):
+    for svc, span in single_trace.items():
         print(span)
 
 def print_dag(single_dag_):
@@ -274,11 +282,15 @@ def calc_exclusive_time(single_trace_):
 
 def traces_to_graphs_and_calc_exclusive_time(traces_):
     graph_dict = dict()
-    for cid, tid in traces_.items():
-        single_trace = traces_[cid][tid]
-        callgraph, cg_key = single_trace_to_callgraph(single_trace)
-        single_trace_ex_time = calc_exclusive_time(single_trace)
-        graph_dict[cg_key] = callgraph
+    for cid, trace in traces_.items():
+        app.logger.info(f"cid: {cid}, trace: {trace}")
+        for tid, single_trace in traces_[cid].items():
+            # single_trace = traces_[cid][tid]
+            callgraph, cg_key = single_trace_to_callgraph(single_trace)
+            app.logger.info(f"tid: {tid}, callgraph: {callgraph}, cg_key: {cg_key}")
+            single_trace_ex_time = calc_exclusive_time(single_trace)
+            graph_dict[cg_key] = callgraph
+    app.logger.info(f"len: {len(graph_dict)}, graph_dict: {graph_dict}")
     assert len(graph_dict) == 1
     return callgraph
 
@@ -328,12 +340,13 @@ def stitch_time(traces):
     # add_child_services(graph_dict)
     
     print("*"*50)
-    for cid, tid in traces.items():
-        print("="*30)
-        print("Trace: " + tid)
-        for svc, span in traces[cid][tid]:
+    for cid, trace in traces.items():
+        for tid, single_trace in traces[cid].items():
+            print("="*30)
+            print("Trace: " + tid)
+            for svc, span in single_trace:
                 print(span)
-        print("="*30)
+            print("="*30)
     print()
     print("num final valid traces: " + str(len(traces)))
     

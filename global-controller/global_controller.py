@@ -19,6 +19,7 @@ f85116460cc0c607a484d0521e62fb19 7c30eb0e856124df a484d0521e62fb19 1694378625363
 Root svc will have no parent span id
 """
 
+complete_traces = {}
 traces = {}
 svc_to_rps = {}
 cluster_to_cid = {"us-west": 0, "us-east": 1}
@@ -56,7 +57,7 @@ stats is in the format of:
 Root svc will have no parent span id
 If the span doesn't make sense, just ignore it.
 """
-def parse_stats_into_spans(stats, cluster_id, service):
+def parse_stats_into_spans(stats, cluster, service):
     spans = []
     lines = stats.split("\n")
     num_req = int(lines[0])
@@ -72,18 +73,19 @@ def parse_stats_into_spans(stats, cluster_id, service):
         start = int(ss[3])
         end = int(ss[4])
         call_size = int(ss[5])
-        spans.append(Span(service, cluster_id, trace_id, my_span_id, parent_span_id, start, end, num_req, call_size))
+        spans.append(Span(service, cluster_to_cid[cluster], trace_id, my_span_id, parent_span_id, start, end, num_req, call_size))
     return spans
 
 
 # Runs every few seconds
 def optimizer_entrypoint():
-    with stats_mutex:
-        for k, v in traces.items():
-            for trace_id, spans in v.items():
-                app.logger.info(f"Trace {trace_id} has {len(spans)} spans:")
-                for svc_name, span in spans.items():
-                    app.logger.info(f"\t{span}")
+    # with stats_mutex:
+    # for k, v in traces.items():
+    #     for trace_id, spans in v.items():
+    #         app.logger.info(f"Trace {trace_id} has {len(spans)} spans:")
+    #         for svc_name, span in spans.items():
+    #             app.logger.info(f"\t{span}")
+
         # todo this should be ingressgateway. hardcoding for now
         # cluster_1_num_req = svc_to_rps["us-west"]["productpage-v1"]
         # cluster_2_num_req = svc_to_rps["us-east"]["productpage-v1"]
@@ -92,7 +94,7 @@ def optimizer_entrypoint():
         reqs = {0: cluster_1_num_req, 1: cluster_2_num_req}
         num_requests = [cluster_1_num_req, cluster_2_num_req]
         # assert len(num_requests) == len(traces)
-        percentage_df = opt.run_optimizer(traces, num_requests)
+        percentage_df = opt.run_optimizer(complete_traces.copy(), num_requests)
         if percentage_df is None:
             return
         igw_rows = percentage_df.iloc[percentage_df['src'] == "ingress_gw"]
@@ -108,7 +110,7 @@ def optimizer_entrypoint():
                 pct = int(row['flow']) / reqs[src_cluster]
                 cluster_pcts[src_cluster][dst_cluster] = pct
         app.logger.info(cluster_pcts)
-        traces.clear()
+        # traces.clear()
 
 # TODO
 def retrain_service_models():
@@ -128,10 +130,16 @@ def proxy_load():
     with stats_mutex:
         for span in spans:
             if span.cluster_id not in traces:
-                traces[cluster_to_cid[span.cluster_id]] = {}
-            if span.trace_id not in traces[cluster_to_cid[span.cluster_id]]:
-                traces[cluster_to_cid[span.cluster_id]][span.trace_id] = {}
-            traces[cluster_to_cid[span.cluster_id]][span.trace_id][span.svc_name] = span
+                traces[span.cluster_id] = {}
+            if span.trace_id not in traces[span.cluster_id]:
+                traces[span.cluster_id][span.trace_id] = {}
+            traces[span.cluster_id][span.trace_id][span.svc_name] = span
+            if len(traces[span.cluster_id][span.trace_id]) == 4:
+                if span.cluster_id not in complete_traces:
+                    complete_traces[span.cluster_id] = {}
+                if span.trace_id not in complete_traces[span.cluster_id]:
+                    complete_traces[span.cluster_id][span.trace_id] = {}
+                complete_traces[span.cluster_id][span.trace_id] = traces[span.cluster_id][span.trace_id].copy()
 # cid -> trace id -> svc_name -> span
     stats_arr.append(f"{cluster} {pod} {svc_name} {stats}\n")
 
@@ -143,8 +151,8 @@ def proxy_load():
 
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
-    scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=3)
-    scheduler.add_job(func=retrain_service_models, trigger="interval", seconds=10)
+    scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=5)
+    # scheduler.add_job(func=retrain_service_models, trigger="interval", seconds=10)
     scheduler.start()
 
     atexit.register(lambda: scheduler.shutdown())
