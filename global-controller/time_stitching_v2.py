@@ -229,21 +229,21 @@ def is_parallel_execution(span_a, span_b):
     
 
 def single_trace_to_callgraph(single_trace_):
-    cg = dict()
+    callgraph = dict()
     svc_list = list()
-    for svc, parent_span in single_trace_.items():
-        svc_list.append(svc)
-        cg[parent_span] = list()
-        for svc, span in single_trace_.items():
+    for _, parent_span in single_trace_.items():
+        svc_list.append(parent_span.svc_name)
+        callgraph[parent_span.svc_name] = list()
+        for _, span in single_trace_.items():
             if span.parent_span_id == parent_span.my_span_id:
-                cg[parent_span].append(span)
-        if len(cg[parent_span]) == 0:
-            del cg[parent_span]
+                callgraph[parent_span.svc_name].append(span.svc_name)
+        if len(callgraph[parent_span.svc_name]) == 0:
+            del callgraph[parent_span.svc_name]
     svc_list.sort()
-    cg_key = ""
+    key_ = ""
     for svc in svc_list:
-        cg_key += svc+","
-    return cg, cg_key
+        key_ += svc+","
+    return callgraph, key_
 
                 
 def calc_exclusive_time(single_trace_):
