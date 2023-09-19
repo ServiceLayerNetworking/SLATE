@@ -97,19 +97,20 @@ def optimizer_entrypoint():
         percentage_df = opt.run_optimizer(complete_traces.copy(), num_requests)
         if percentage_df is None:
             return
-        igw_rows = percentage_df.iloc[percentage_df['src'] == "ingress_gw"]
+        app.logger.info(f"PERCENTAGE RULES: {percentage_df}")
+        igw_rows = percentage_df[percentage_df['src'] == "ingress_gw"]
         total_reqs = 0
         for idx, row in igw_rows.iterrows():
             total_reqs += int(row['flow'])
-            src_cluster = row['src_cid']
-            dst_cluster = row['dst_cid']
+            src_cluster = int(row['src_cid'])
+            dst_cluster = int(row['dst_cid'])
             if src_cluster not in cluster_pcts:
                 cluster_pcts[src_cluster] = {}
             if src_cluster != dst_cluster:
                 # flow to another cluster
                 pct = int(row['flow']) / reqs[src_cluster]
                 cluster_pcts[src_cluster][dst_cluster] = pct
-        app.logger.info(cluster_pcts)
+        app.logger.info(f"CLUSTER PERCENTAGE RULES: {cluster_pcts}");
         # traces.clear()
 
 # TODO
@@ -123,6 +124,7 @@ def proxy_load():
     pod = body["podName"]
     svc_name = body["serviceName"]
     stats = body["body"]
+    app.logger.info(f"Received stats from {cluster} {pod} {svc_name}")
     if cluster not in svc_to_rps:
         svc_to_rps[cluster] = {}
     svc_to_rps[cluster][svc_name] = int(stats.split("\n")[0])
@@ -135,6 +137,15 @@ def proxy_load():
                 traces[span.cluster_id][span.trace_id] = {}
             traces[span.cluster_id][span.trace_id][span.svc_name] = span
             if len(traces[span.cluster_id][span.trace_id]) == 4:
+                span_exists = []
+                ignore_cur = False
+                for svc_name, span in traces[span.cluster_id][span.trace_id].items():
+                    if span.my_span_id in span_exists:
+                        ignore_cur = True
+                        break
+                    span_exists.append(span.my_span_id)
+                if ignore_cur:
+                    continue
                 if span.cluster_id not in complete_traces:
                     complete_traces[span.cluster_id] = {}
                 if span.trace_id not in complete_traces[span.cluster_id]:
@@ -145,7 +156,7 @@ def proxy_load():
 
     # print(f"Received proxy load for {cluster} {pod} {svc_name}\n{stats}")
     if cluster_to_cid[cluster] in cluster_pcts:
-        return cluster_pcts[cluster]
+        return cluster_pcts[cluster_to_cid[cluster]]
     return ""
 
 

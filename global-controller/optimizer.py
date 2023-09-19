@@ -31,7 +31,7 @@ from global_controller import app, Span
 import time_stitching_v2 as tst
 
 OUTPUT_DIR = "./optimizer_output/"
-VERBOSITY=1
+VERBOSITY=0
 DELIMITER="#"
 
 timestamp_list = list()
@@ -63,11 +63,9 @@ def print_timestamp():
 def print_log(msg, obj=None):
     if VERBOSITY >= 1:
         if obj == None:
-            print("[LOG] ", end="")
-            print(msg)
+            app.logger.info(f"[LOG] {msg}")
         else:
-            print("[LOG] ", end="")
-            print(msg, obj)
+            app.logger.info(f"[LOG] {msg} {obj}")
         
 def print_error(msg):
     exit_time = 5
@@ -131,14 +129,22 @@ def run_optimizer(traces, NUM_REQUESTS):
         return None
     LOG_TIMESTAMP("optimizer start")
     NUM_CLUSTER = len(traces)
-    
+    app.logger.info(f"NUM_CLUSTER: {NUM_CLUSTER}")
+    if NUM_CLUSTER == 1:
+        app.logger.info(f"NUM_CLUSTER is 1. returns None... Do local routing.")
+        return None
+    assert NUM_CLUSTER == len(NUM_REQUESTS)
+
+    for cid, trace in traces.items():
+        if len(traces[cid]) == 0:
+            app.logger.info(f"trace for cluster {cid} is empty.")
+
     # In[31]:
     ## Time stitching
     traces, callgraph = tst.stitch_time(traces)
         
     # In[33]:
     INGRESS_GW_NAME = "ingress_gw"
-    ingress_span = Span(INGRESS_GW_NAME, 0, 0, 0, 0, 0, 0, 0, 0)
 # ENTRANCE = tst.FRONTEND_svc
     ENTRANCE = INGRESS_GW_NAME
     SAME_COMPUTE_TIME = False
@@ -152,8 +158,8 @@ def run_optimizer(traces, NUM_REQUESTS):
             if parent_svc == tst.FRONTEND_svc:
                 callgraph[INGRESS_GW_NAME].append(parent_svc)
         
-    for parent_svc, child_svc_list in callgraph.item():
-        print_log(parent_svc + ":", end="")
+    for parent_svc, child_svc_list in callgraph.items():
+        print_log(parent_svc + ":")
         print_log(child_svc_list)
         
     unique_services = list(callgraph.keys())
@@ -190,6 +196,7 @@ def run_optimizer(traces, NUM_REQUESTS):
     '''
     dummy_callsize = 10
     network_arc_var_name = dict()
+    app.logger.info(f"NUM_CLUSTER: {NUM_CLUSTER}")
     for parent_svc, children in callgraph.items():
         # leaf service to dst
         if len(children) == 0: # leaf service
@@ -211,14 +218,14 @@ def run_optimizer(traces, NUM_REQUESTS):
                         network_arc_var_name[tuple_var_name] = dummy_callsize
                     # entrance to other service
                     for dst_cid in range(NUM_CLUSTER):
-                        tuple_var_name = spans_to_network_arc_var_name(parent_span.svc_name, src_cid, child_svc, dst_cid)
+                        tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, child_svc, dst_cid)
                         if tuple_var_name not in network_arc_var_name:
                             network_arc_var_name[tuple_var_name] = dummy_callsize
             # service to service
             else:
                 for src_cid in range(NUM_CLUSTER):
                     for dst_cid in range(NUM_CLUSTER):
-                        tuple_var_name = spans_to_network_arc_var_name(parent_span.svc_name, src_cid, child_svc, dst_cid)
+                        tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, child_svc, dst_cid)
                         if tuple_var_name not in network_arc_var_name:
                             network_arc_var_name[tuple_var_name] = dummy_callsize
                             
@@ -292,23 +299,23 @@ def run_optimizer(traces, NUM_REQUESTS):
                             service_name_.append(ENTRANCE)
                             cid_list.append(span.cluster_id)
         else:
-            for cid, tid in traces.items():
-                single_trace = traces[cid][tid]
-                for svc_name, span in single_trace.items():
-                    load.append(span.load)
-                    compute_time.append(span.xt)
-                    index_.append(span_to_compute_arc_var_name(span.svc_name, span.cluster_id))
-                    service_name_.append(span.svc_name)
-                    cid_list.append(span.cluster_id)
-                    ## Adding fake ingress gw latency/load data, same as frontend service
-                    if ENTRANCE == INGRESS_GW_NAME:
-                        if span.svc_name == tst.FRONTEND_svc:
-                            print_log("add ingress gw observation")
-                            load.append(span.load) ## will not be used
-                            compute_time.append(span.xt) ## will not be used
-                            index_.append(span_to_compute_arc_var_name(ENTRANCE, span.cluster_id))
-                            service_name_.append(ENTRANCE)
-                            cid_list.append(span.cluster_id)
+            for cid, trace in traces.items():
+                for tid, single_trace in trace.items():
+                    for svc_name, span in single_trace.items():
+                        load.append(span.load)
+                        compute_time.append(span.xt)
+                        index_.append(span_to_compute_arc_var_name(span.svc_name, span.cluster_id))
+                        service_name_.append(span.svc_name)
+                        cid_list.append(span.cluster_id)
+                        ## Adding fake ingress gw latency/load data, same as frontend service
+                        if ENTRANCE == INGRESS_GW_NAME:
+                            if span.svc_name == tst.FRONTEND_svc:
+                                print_log("add ingress gw observation")
+                                load.append(span.load) ## will not be used
+                                compute_time.append(span.xt) ## will not be used
+                                index_.append(span_to_compute_arc_var_name(ENTRANCE, span.cluster_id))
+                                service_name_.append(ENTRANCE)
+                                cid_list.append(span.cluster_id)
     else:
         num_data_point = 100
         for cid in range(NUM_CLUSTER):
@@ -375,8 +382,8 @@ def run_optimizer(traces, NUM_REQUESTS):
             for i in range(len(temp_x)):
                 temp_x.iloc[i, 0] = i*5
             print_log("svc_name:", svc_name)
-            display(temp_x)
-            display(X)
+            # display(temp_x)
+            # display(X)
             
             max_load[svc_name] = 1000000
             max_compute_time[svc_name] = 1000000            
@@ -612,11 +619,10 @@ def run_optimizer(traces, NUM_REQUESTS):
     network_latency_sum = sum(network_latency.multiply(network_load))
     print_log("network_latency_sum")
     print_log(network_latency_sum)
-    print_log()
     for svc_name in unique_services:
         compute_latency_sum = sum(compute_time[svc_name].multiply(m_feats[svc_name]["load"])) # m_feats[svc_name]["load"] is identical to compute_load[svc_name]
         print_log("compute_latency_sum, ", svc_name)
-        display(compute_latency_sum)
+        # display(compute_latency_sum)
     total_latency_sum = network_latency_sum + compute_latency_sum
     print_log("\ntotal_latency_sum: ", total_latency_sum)
 
@@ -778,19 +784,19 @@ def run_optimizer(traces, NUM_REQUESTS):
     # In[49]:
 
 
-    varInfo = [(v.varName, v.LB, v.UB) for v in model.getVars() ]
-    df_var = pd.DataFrame(varInfo) # convert to pandas dataframe
-    df_var.columns=['Variable Name','LB','UB'] # Add column headers
-    df_var.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-variable.csv")
-    # with pd.option_context('display.max_colwidth', None):
-    #     with pd.option_context('display.max_rows', None):
-    #         display(df_var)
-
-
-    constrInfo = [(c.constrName, model.getRow(c), c.Sense, c.RHS) for c in model.getConstrs() ]
-    df_constr = pd.DataFrame(constrInfo)
-    df_constr.columns=['Constraint Name','Constraint equation', 'Sense','RHS']
-    df_constr.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-constraint.csv")
+    # varInfo = [(v.varName, v.LB, v.UB) for v in model.getVars() ]
+    # df_var = pd.DataFrame(varInfo) # convert to pandas dataframe
+    # df_var.columns=['Variable Name','LB','UB'] # Add column headers
+    # df_var.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-variable.csv")
+    # # with pd.option_context('display.max_colwidth', None):
+    # #     with pd.option_context('display.max_rows', None):
+    # #         display(df_var)
+    #
+    #
+    # constrInfo = [(c.constrName, model.getRow(c), c.Sense, c.RHS) for c in model.getConstrs() ]
+    # df_constr = pd.DataFrame(constrInfo)
+    # df_constr.columns=['Constraint Name','Constraint equation', 'Sense','RHS']
+    # df_constr.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-constraint.csv")
     # with pd.option_context('display.max_colwidth', None):
     #     with pd.option_context('display.max_rows', None):
     #         display(df_constr)
@@ -857,23 +863,22 @@ def run_optimizer(traces, NUM_REQUESTS):
         # with pd.option_context('display.max_colwidth', None):
             # with pd.option_context('display.max_rows', None):
                 # display(df_var)
-        print(df_constr)
+        # print(df_constr)
         
         model.computeIIS()
         model.write("model.ilp")
-        print('\nThe following constraints and variables are in the IIS:')
-        # for c in model.getConstrs():
-        #     if c.IISConstr: print(f'\t{c.constrname}: {model.getRow(c)} {c.Sense} {c.RHS}')
-        for v in model.getVars():
-            if v.IISLB: print(f'\t{v.varname} ≥ {v.LB}')
-            if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
+        # print('\nThe following constraints and variables are in the IIS:')
+        # # for c in model.getConstrs():
+        # #     if c.IISConstr: print(f'\t{c.constrname}: {model.getRow(c)} {c.Sense} {c.RHS}')
+        # for v in model.getVars():
+        #     if v.IISLB: print(f'\t{v.varname} ≥ {v.LB}')
+        #     if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
         return None
     else:
         print_log("ooooooooooooooooooooooo")
         print_log("oooo MODEL SOLVED! oooo")
         print_log("ooooooooooooooooooooooo")
-        print_log()
-        
+
         ## Model solved!
         ## print_log out the result
         optimize_end_time = time.time()
@@ -909,16 +914,16 @@ def run_optimizer(traces, NUM_REQUESTS):
         ## new
         # print("@@, app_name, num_constr, num_gurobi_var, compute_arc_var_name_list, network_arc_var_name_list, NUM_CLUSTER, total_num_svc, REGRESSOR_DEGREE, optimizer_runtime, solve_runtime")
         
-        print_log("@@, ",end="")
-        print_log(app_name + "," +str(num_constr) + "," +str(num_var) + "," +str(len(compute_arc_var_name_list)) + "," +str(len(network_arc_var_name_list)) + "," +str(NUM_CLUSTER) + "," +str(len(callgraph)) + "," +str(REGRESSOR_DEGREE) + "," +str(optimizer_runtime) + "," +str(solve_runtime) + ",",end="")
+        # print_log("@@, ")
+        # print_log(app_name + "," +str(num_constr) + "," +str(num_var) + "," +str(len(compute_arc_var_name_list)) + "," +str(len(network_arc_var_name_list)) + "," +str(NUM_CLUSTER) + "," +str(len(callgraph)) + "," +str(REGRESSOR_DEGREE) + "," +str(optimizer_runtime) + "," +str(solve_runtime) + ",",end="")
                 # str(flags.fan_out_degree) + "," + \
                 # str(flags.no_child_constant) + "," + \
                 # str(flags.depth) + "," + \
                 # total_num_svc_in_each_depth, \
                 # constraint_setup_time, \
                 # NUM_REQUESTS, \
-        prettyprint_timestamp()
-        print_timestamp()
+        # prettyprint_timestamp()
+        # print_timestamp()
         percentage_df = translate_to_percentage(request_flow)
         return percentage_df
 

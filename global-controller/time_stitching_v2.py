@@ -12,7 +12,7 @@ LOG_PATH = "./modified_trace_and_load_log.txt"
 
 VERBOSITY=0
 intra_cluster_network_rtt = 1
-inter_cluster_network_rtt = 1
+inter_cluster_network_rtt = 1.01
 
 """ Trace exampe line (Version 1 wo call size)
 2
@@ -237,8 +237,8 @@ def single_trace_to_callgraph(single_trace_):
         for _, span in single_trace_.items():
             if span.parent_span_id == parent_span.my_span_id:
                 callgraph[parent_span.svc_name].append(span.svc_name)
-        if len(callgraph[parent_span.svc_name]) == 0:
-            del callgraph[parent_span.svc_name]
+        # if len(callgraph[parent_span.svc_name]) == 0:
+            # del callgraph[parent_span.svc_name]
     svc_list.sort()
     key_ = ""
     for svc in svc_list:
@@ -336,6 +336,15 @@ def stitch_time(traces):
     ts = time.time()
     traces, removed_traces = remove_incomplete_trace(traces)
     traces = change_to_relative_time(traces)
+
+    app.logger.info("=============================asdf")
+    for cid, trace in traces.items():
+        for tid, single_trace in traces[cid].items():
+            for svc, span in single_trace.items():
+                if cid == 1:
+                    app.logger.info(span)
+    app.logger.info("=============================asdf")
+
     call_graph = traces_to_graphs_and_calc_exclusive_time(traces)
     # add_child_services(graph_dict)
     

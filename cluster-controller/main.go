@@ -40,12 +40,13 @@ func init() {
 		fmt.Printf("error getting in cluster config %v", err)
 		return
 	}
-	ic, err := versionedclient.NewForConfig(config)
+	cs, err := versionedclient.NewForConfig(config)
 	if err != nil {
 		fmt.Printf("error getting istio client %v", err)
 		return
 	}
-
+	ic = &IstioController{}
+	ic.istioClient = cs
 }
 
 type ClusterControllerRequest struct {
@@ -61,7 +62,7 @@ type IstioController struct {
 
 func (ic *IstioController) UpdatePolicy(routingPcts map[string]string) map[string]string {
 	// somehow map subset->cluster
-	ic.istioClient.NetworkingV1alpha3().VirtualServices("sample").List(context.TODO(), v1.ListOptions{})
+	ic.istioClient.NetworkingV1alpha3().VirtualServices("sample").G(context.TODO(), v1.ListOptions{})
 	return nil
 }
 
