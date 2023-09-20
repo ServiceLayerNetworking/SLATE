@@ -96,6 +96,12 @@ def optimizer_entrypoint():
         # assert len(num_requests) == len(traces)
         percentage_df = opt.run_optimizer(complete_traces.copy(), num_requests)
         if percentage_df is None:
+            # we don't know what ot do to stick to local routing
+            if 0 not in cluster_pcts:
+                cluster_pcts[0] = {1: "0.0"}
+            if 1 not in cluster_pcts:
+                cluster_pcts[1] = {0: "0.0"}
+            app.logger.info(f"RESET PERCENTAGE RULES: {cluster_pcts}")
             return
         app.logger.info(f"PERCENTAGE RULES: {percentage_df}")
         igw_rows = percentage_df[percentage_df['src'] == "ingress_gw"]

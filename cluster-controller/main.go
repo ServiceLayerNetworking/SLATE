@@ -59,37 +59,40 @@ func UpdatePolicy(routingPcts map[int]string) error {
 	// update routing percentages
 	if clusterId == "us-west" {
 		val, exists := routingPcts[1]
+		if !exists {
+			// nothing to update
+			return nil
+		}
 		raw, err := strconv.ParseFloat(val, 64)
 		if err != nil {
 			fmt.Printf("error parsing float %v", err)
 			return err
 		}
-		if exists {
-			for _, httpRoute := range vs.Spec.Http {
-				for _, route := range httpRoute.Route {
-					if route.Destination.Subset == "east" {
-						route.Weight = int32(raw * 100)
-					} else if route.Destination.Subset == "west" {
-						route.Weight = int32(100 - raw*100)
-					}
+		for _, httpRoute := range vs.Spec.Http {
+			for _, route := range httpRoute.Route {
+				if route.Destination.Subset == "east" {
+					route.Weight = int32(raw * 100)
+				} else if route.Destination.Subset == "west" {
+					route.Weight = int32(100 - raw*100)
 				}
 			}
 		}
 	} else {
 		val, exists := routingPcts[0]
+		if !exists {
+			return nil
+		}
 		raw, err := strconv.ParseFloat(val, 64)
 		if err != nil {
 			fmt.Printf("error parsing float %v", err)
 			return err
 		}
-		if exists {
-			for _, httpRoute := range vs.Spec.Http {
-				for _, route := range httpRoute.Route {
-					if route.Destination.Subset == "west" {
-						route.Weight = int32(raw * 100)
-					} else if route.Destination.Subset == "east" {
-						route.Weight = int32(100 - raw*100)
-					}
+		for _, httpRoute := range vs.Spec.Http {
+			for _, route := range httpRoute.Route {
+				if route.Destination.Subset == "west" {
+					route.Weight = int32(raw * 100)
+				} else if route.Destination.Subset == "east" {
+					route.Weight = int32(100 - raw*100)
 				}
 			}
 		}
@@ -128,7 +131,7 @@ func main() {
 	}
 	global_ic = ic
 
-	if err := UpdatePolicy(map[int]string{1: "0.7"}); err != nil {
+	if err := UpdatePolicy(map[int]string{0: "0.0", 1: "0.0"}); err != nil {
 		fmt.Printf("error updating policy %v", err)
 	}
 	r := gin.New()
