@@ -11,6 +11,7 @@ import (
 	"k8s.io/client-go/rest"
 	"net/http"
 	"os"
+	"strconv"
 )
 
 /*
@@ -27,26 +28,14 @@ where <requests per second_n-1> > <requests per second_n>
 */
 
 var clusterId string
-var ic *IstioController
+var global_ic *versionedclient.Clientset
 
 func init() {
 	clusterId = os.Getenv("CLUSTER_ID")
 	if clusterId == "" {
 		clusterId = "unknown-cluster"
 	}
-	//cli, err := rest.InClusterConfig()
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		fmt.Printf("error getting in cluster config %v", err)
-		return
-	}
-	cs, err := versionedclient.NewForConfig(config)
-	if err != nil {
-		fmt.Printf("error getting istio client %v", err)
-		return
-	}
-	ic = &IstioController{}
-	ic.istioClient = cs
+
 }
 
 type ClusterControllerRequest struct {
@@ -56,25 +45,98 @@ type ClusterControllerRequest struct {
 	Body        string `json:"body"`
 }
 
-type IstioController struct {
-	istioClient *versionedclient.Clientset
-}
+func UpdatePolicy(routingPcts map[int]string) error {
 
-func (ic *IstioController) UpdatePolicy(routingPcts map[string]string) map[string]string {
 	// somehow map subset->cluster
-	ic.istioClient.NetworkingV1alpha3().VirtualServices("sample").G(context.TODO(), v1.ListOptions{})
+	vs, err := global_ic.NetworkingV1alpha3().VirtualServices("default").Get(context.Background(), "bookinfo", v1.GetOptions{})
+	if err != nil {
+		fmt.Printf("error getting virtual service %v", err)
+		return err
+	}
+	fmt.Printf("GOT virtual service: %s\n", vs.Name)
+	// us-west is 0
+	// us-east is 1
+	// update routing percentages
+	if clusterId == "us-west" {
+		val, exists := routingPcts[1]
+		raw, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			fmt.Printf("error parsing float %v", err)
+			return err
+		}
+		if exists {
+			for _, httpRoute := range vs.Spec.Http {
+				for _, route := range httpRoute.Route {
+					if route.Destination.Subset == "east" {
+						route.Weight = int32(raw * 100)
+					} else if route.Destination.Subset == "west" {
+						route.Weight = int32(100 - raw*100)
+					}
+				}
+			}
+		}
+	} else {
+		val, exists := routingPcts[0]
+		raw, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			fmt.Printf("error parsing float %v", err)
+			return err
+		}
+		if exists {
+			for _, httpRoute := range vs.Spec.Http {
+				for _, route := range httpRoute.Route {
+					if route.Destination.Subset == "west" {
+						route.Weight = int32(raw * 100)
+					} else if route.Destination.Subset == "east" {
+						route.Weight = int32(100 - raw*100)
+					}
+				}
+			}
+		}
+	}
+	_, err = global_ic.NetworkingV1alpha3().VirtualServices("default").Update(context.Background(), vs, v1.UpdateOptions{})
+	if err != nil {
+		fmt.Printf("error updating virtual service %v", err)
+		return err
+	}
 	return nil
 }
 
 func main() {
+
+	// get all deployments in default namespace
+	//deployments, err := cs.NetworkingV1alpha3().VirtualServices("default").List(context.Background(), v1.ListOptions{})
+	//if err != nil {
+	//	fmt.Printf("error getting deployments %v", err)
+	//	return
+	//}
+	//fmt.Printf("LEN DEPLOY: %v", len(deployments.Items))
+	cc, err := rest.InClusterConfig()
+	if err != nil {
+		fmt.Printf("error getting in cluster config %v", err)
+		return
+	}
+	ic, err := versionedclient.NewForConfig(cc)
+	if err != nil {
+		fmt.Printf("error getting istio client %v", err)
+		return
+	}
+	_, err = ic.NetworkingV1alpha3().VirtualServices("default").Get(context.Background(), "bookinfo", v1.GetOptions{})
+	if err != nil {
+		fmt.Printf("error getting virtual service %v", err)
+		return
+	}
+	global_ic = ic
+
+	if err := UpdatePolicy(map[int]string{1: "0.7"}); err != nil {
+		fmt.Printf("error updating policy %v", err)
+	}
 	r := gin.New()
 	r.POST("/proxyLoad", HandleProxyLoad)
-
 	r.Run()
 }
 
 func HandleProxyLoad(c *gin.Context) {
-	fmt.Printf("HJERE\n")
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(c.Request.Body); err != nil {
 		fmt.Printf("error reading from request body %v", err)
@@ -96,7 +158,6 @@ func HandleProxyLoad(c *gin.Context) {
 		fmt.Printf("error marshalling cluster controller request %v", err)
 		return
 	}
-	fmt.Printf("cluster controller request body: %s", string(globalControllerReqBody))
 	resp, err := http.Post("http://slate-global-controller:8080/clusterLoad", "application/json", bytes.NewBuffer(globalControllerReqBody))
 	if err != nil {
 		fmt.Printf("error posting to global controller %v", err)
@@ -109,10 +170,17 @@ func HandleProxyLoad(c *gin.Context) {
 		return
 	}
 	respBody := buf.String()
+	if respBody == "" {
+		return
+	}
 	fmt.Printf("global controller response body: %s", respBody)
-	var recommendations map[string]string
+	var recommendations map[int]string
 	if err = json.Unmarshal([]byte(respBody), &recommendations); err != nil {
 		fmt.Printf("error unmarshalling global controller response %v", err)
+		return
+	}
+	if err := UpdatePolicy(recommendations); err != nil {
+		fmt.Printf("error updating policy %v", err)
 		return
 	}
 

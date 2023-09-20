@@ -109,7 +109,7 @@ def optimizer_entrypoint():
             if src_cluster != dst_cluster:
                 # flow to another cluster
                 pct = int(row['flow']) / reqs[src_cluster]
-                cluster_pcts[src_cluster][dst_cluster] = pct
+                cluster_pcts[src_cluster][dst_cluster] = str(pct)
         app.logger.info(f"CLUSTER PERCENTAGE RULES: {cluster_pcts}");
         # traces.clear()
 
