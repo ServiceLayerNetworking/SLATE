@@ -377,6 +377,13 @@ def run_optimizer(traces, NUM_REQUESTS):
             temp_x = X.copy()
             for i in range(len(temp_x)):
                 temp_x.iloc[i, 0] = i
+                
+            # if ENTRANCE == INGRESS_GW_NAME and svc_name == ENTRANCE:
+            # if tst.PRODUCTPAGE_ONLY and svc_name != tst.FRONTEND_svc:
+            #     max_compute_time[svc_name] = 0
+            # else:
+            #     max_compute_time[svc_name] = 1000000
+                
             print_log("svc_name:", svc_name)
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, train_size=0.95, random_state=1
@@ -498,8 +505,8 @@ def run_optimizer(traces, NUM_REQUESTS):
                 "min_load":[min_load] * len(per_service_compute_arc[svc_name]),
                 # "max_load":[max_load[svc_name]] * len(per_service_compute_arc[svc_name]),
                 "max_load":[max_load] * len(per_service_compute_arc[svc_name]),
-                "min_compute_time": [0] * len(per_service_compute_arc[svc_name]),
-                "max_compute_time": [max_compute_time[svc_name]] * len(per_service_compute_arc[svc_name]),
+                # "min_compute_time": [0] * len(per_service_compute_arc[svc_name]),
+                # "max_compute_time": [max_compute_time[svc_name]] * len(per_service_compute_arc[svc_name]),
             },
             index=per_service_compute_arc[svc_name]
         )
@@ -849,9 +856,9 @@ def run_optimizer(traces, NUM_REQUESTS):
     print_log("model.Status: ", model.Status)
 
     if model.Status != GRB.OPTIMAL:
-        print("XXXXXXXXXXXXXXXXXXXXXXXXXXX")
-        print("XXXX INFEASIBLE MODEL! XXXX")
-        print("XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        app.logger.info("XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        app.logger.info("XXXX INFEASIBLE MODEL! XXXX")
+        app.logger.info("XXXXXXXXXXXXXXXXXXXXXXXXXXX")
         # with pd.option_context('display.max_colwidth', None):
             # with pd.option_context('display.max_rows', None):
                 # display(df_var)
@@ -867,9 +874,9 @@ def run_optimizer(traces, NUM_REQUESTS):
         #     if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
         return None
     else:
-        print_log("ooooooooooooooooooooooo")
-        print_log("oooo MODEL SOLVED! oooo")
-        print_log("ooooooooooooooooooooooo")
+        app.logger.info("ooooooooooooooooooooooo")
+        app.logger.info("oooo MODEL SOLVED! oooo")
+        app.logger.info("ooooooooooooooooooooooo")
 
         ## Model solved!
         ## print_log out the result

@@ -29,9 +29,12 @@ stats_arr = []
 # to be applied by cluster controller
 cluster_pcts = {}
 
-prof_counter = 0
-prof_seconds = 100
-prof_done = False
+prof_start = {0: False, 1: False}
+counter = {0:0}
+prof_seconds = 35
+prof_done = {0:False}
+
+log_prefix = "[SLATE]"
 
 
 class Span:
@@ -80,14 +83,15 @@ def parse_stats_into_spans(stats, cluster, service):
     return spans
 
 def prof_phase():
-    prof_percentage = prof_counter/prof_seconds
-    app.logger.info(f"prof phase: {prof_percentage}% (elapsed seconds: {prof_counter} / required seconds: {prof_seconds}")
-    if prof_counter >= prof_seconds:
-        # prof_counter = 0 # reset the profiling
-        prof_done = True
-        app.logger.info(f"prof done")
-    else:
-        prof_counter += 1
+    if prof_start[0] and prof_start[1]:
+        app.logger.info(f"{log_prefix} Both clusters are ready to be profiled")
+        prof_percentage = int(counter[0]/prof_seconds)
+        app.logger.info(f"{log_prefix} Profiling phase: {prof_percentage*100}% (elapsed seconds: {counter[0]} / required seconds: {prof_seconds}\n")
+        if counter[0] >= prof_seconds:
+            # prof_counter = 0 # reset the profiling
+            prof_done[0] = True
+            app.logger.info(f"{log_prefix} Profiling already DONE")
+        counter[0] += 1
 
 
 # Runs every few seconds
@@ -95,16 +99,21 @@ def optimizer_entrypoint():
     # with stats_mutex:
     # for k, v in traces.items():
     #     for trace_id, spans in v.items():
-    #         app.logger.info(f"Trace {trace_id} has {len(spans)} spans:")
+    #         app.logger.info(f"{log_prefix} Trace {trace_id} has {len(spans)} spans:")
     #         for svc_name, span in spans.items():
-    #             app.logger.info(f"\t{span}")
+    #             app.logger.info(f"{log_prefix} \t{span}")
 
-        # todo this should be ingressgateway. hardcoding for now
-        # cluster_1_num_req = svc_to_rps["us-west"]["productpage-v1"]
-        # cluster_2_num_req = svc_to_rps["us-east"]["productpage-v1"]
-        if prof_done:
-            cluster_1_num_req = 100
-            cluster_2_num_req = 1000
+        if prof_done[0]:
+            app.logger.info(f"\n\n{log_prefix} Run Optimizer, number of traces (cluster 0: {len(complete_traces[0])}, cluster 1: {len(complete_traces[1])})\n")
+            
+            # TODO: this should be ingressgateway. hardcoding for now
+            cluster_1_num_req = svc_to_rps["us-west"]["productpage-v1"]
+            cluster_2_num_req = svc_to_rps["us-east"]["productpage-v1"]
+            app.logger.info(f"{log_prefix} LOAD cluster 0: {cluster_1_num_req}, cluster 1: {cluster_2_num_req})\n")
+            
+            # cluster_1_num_req = 100
+            # cluster_2_num_req = 1000
+            
             reqs = {0: cluster_1_num_req, 1: cluster_2_num_req}
             num_requests = [cluster_1_num_req, cluster_2_num_req]
             # assert len(num_requests) == len(traces)
@@ -115,9 +124,9 @@ def optimizer_entrypoint():
                     cluster_pcts[0] = {1: "0.0"}
                 if 1 not in cluster_pcts:
                     cluster_pcts[1] = {0: "0.0"}
-                app.logger.info(f"RESET PERCENTAGE RULES: {cluster_pcts}")
+                app.logger.info(f"{log_prefix}RESET PERCENTAGE RULES: {cluster_pcts}")
                 return
-            app.logger.info(f"PERCENTAGE RULES: {percentage_df}")
+            app.logger.info(f"{log_prefix}PERCENTAGE RULES: {percentage_df}")
             igw_rows = percentage_df[percentage_df['src'] == "ingress_gw"]
             total_reqs = 0
             for idx, row in igw_rows.iterrows():
@@ -130,10 +139,10 @@ def optimizer_entrypoint():
                     # flow to another cluster
                     pct = int(row['flow']) / reqs[src_cluster]
                     cluster_pcts[src_cluster][dst_cluster] = str(pct)
-            app.logger.info(f"CLUSTER PERCENTAGE RULES: {cluster_pcts}")
+            app.logger.info(f"{log_prefix} CLUSTER PERCENTAGE RULES: {cluster_pcts}")
             # traces.clear()
         else:
-            app.logger.info(f"prof is NOT done yet. still needs to collect more traces...")
+            app.logger.info(f"{log_prefix} prof is NOT done yet. still needs to collect more traces...")
             return
 # TODO
 def retrain_service_models():
@@ -142,22 +151,31 @@ def retrain_service_models():
 @app.route("/clusterLoad", methods=["POST"])
 def proxy_load():
     # print(f"Received proxy load for {cluster} {pod} {svc_name}\n{stats}")
-    if prof_done:
-        app.logger.info("Profiling was done. No more trace will be collected anymore.")
-        if cluster_to_cid[cluster] in cluster_pcts:
-            return cluster_pcts[cluster_to_cid[cluster]]
-        return ""
+    body = request.get_json(force=True)
+    cluster = body["clusterId"]
+    pod = body["podName"]
+    svc_name = body["serviceName"]
+    stats = body["body"]
+    app.logger.info(f"{log_prefix} Received stats from {cluster} {pod} {svc_name}")
+    # app.logger.info(f"Received stats from {cluster} {pod} {svc_name}")
+    if cluster not in svc_to_rps:
+        svc_to_rps[cluster] = {}
+    svc_to_rps[cluster][svc_name] = int(stats.split("\n")[0])
+    
+    if prof_done[0]:
+        app.logger.info(f"{log_prefix} Profiling was done. No more trace will be collected anymore.")
     else:
-        body = request.get_json(force=True)
-        cluster = body["clusterId"]
-        pod = body["podName"]
-        svc_name = body["serviceName"]
-        stats = body["body"]
-        app.logger.info(f"Received stats from {cluster} {pod} {svc_name}")
-        if cluster not in svc_to_rps:
-            svc_to_rps[cluster] = {}
-        svc_to_rps[cluster][svc_name] = int(stats.split("\n")[0])
         spans = parse_stats_into_spans(stats, cluster, svc_name)
+        # if len(spans) > 0 and spans[0].load > 0:
+        if prof_start[cluster_to_cid[cluster]] == True or (len(spans) > 0 and spans[0].load):
+            if prof_start[cluster_to_cid[cluster]] == False:
+                prof_start[cluster_to_cid[cluster]] = True
+                app.logger.info(f"{log_prefix} The FIRST proxy load for cluster {cluster}, {spans[0].cluster_id}.")
+                app.logger.info(f"{log_prefix} Start profiling for cluster {cluster}, {spans[0].cluster_id}.")
+            else:
+                app.logger.info(f"{log_prefix} Profiling for cluster {cluster} already started.")
+        else:
+            app.logger.info(f"{log_prefix} cluster {cluster}, {cluster_to_cid[cluster]} still have NOT received any proxy load. Hold off starting profiling.")
         with stats_mutex:
             for span in spans:
                 if span.cluster_id not in traces:
@@ -182,7 +200,21 @@ def proxy_load():
                     complete_traces[span.cluster_id][span.trace_id] = traces[span.cluster_id][span.trace_id].copy()
         # cid -> trace id -> svc_name -> span
         stats_arr.append(f"{cluster} {pod} {svc_name} {stats}\n")
-
+        # app.logger.info(f"{log_prefix} Profiling was done. No more trace will be collected anymore.")
+        
+        app.logger.info(f"{log_prefix} Cluster Percentage for {cluster} is NOT computed yet...")
+        for cid in range(2):
+            if cid not in cluster_pcts:
+                cluster_pcts[cid] = {}
+        cluster_pcts[0][0] = "1.0"
+        cluster_pcts[0][1] = "0.0"
+        
+        cluster_pcts[1][1] = "1.0"
+        cluster_pcts[1][0] = "0.0"
+        
+    if cluster_to_cid[cluster] in cluster_pcts:
+        return cluster_pcts[cluster_to_cid[cluster]]
+    
 
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
