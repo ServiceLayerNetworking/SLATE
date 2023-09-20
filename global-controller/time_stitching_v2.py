@@ -10,9 +10,10 @@ from global_controller import app
 LOG_PATH = "./modified_trace_and_load_log.txt"
 # LOG_PATH = "./call-logs-sept-16.txt"
 
+PRODUCTPAGE_ONLY = False
 VERBOSITY=0
 intra_cluster_network_rtt = 1
-inter_cluster_network_rtt = 1.01
+inter_cluster_network_rtt = 2
 
 """ Trace exampe line (Version 1 wo call size)
 2
@@ -168,7 +169,7 @@ def remove_incomplete_trace(traces_):
             else:
                 # app.logger.info("complete trace: " + str(single_trace))
                 ret_traces_[cid][tid] = single_trace
-    # app.logger.info(f"filter stats: {what}")
+    app.logger.info(f"[SLATE] Incomplete trace filter stats: {what}")
     # app.logger.info(ret_traces_.keys())
     # assert input_trace_len == ( len(ret_traces_[0]) + len(ret_traces_[1]) + len(removed_traces_[0]) + len(removed_traces_[0]) )
     # app.logger.info("#input trace: " + str(input_trace_len))
@@ -336,14 +337,41 @@ def stitch_time(traces):
     ts = time.time()
     traces, removed_traces = remove_incomplete_trace(traces)
     traces = change_to_relative_time(traces)
+    
+    ###################################################
+    # cid -> trace id -> svc_name -> span
+    pp_only_traces = dict()
+    if PRODUCTPAGE_ONLY:
+        for cid, trace in traces.items():
+            if cid not in pp_only_traces:
+                pp_only_traces[cid] = dict()
+            for tid, single_trace in traces[cid].items():
+                pp_single_trace = dict()
+                for svc, span in single_trace.items():
+                    if svc == FRONTEND_svc:
+                        pp_single_trace[svc] = span
+                assert FRONTEND_svc in pp_single_trace
+                
+                assert len(pp_single_trace) == 1
+                if len(pp_single_trace) == 1:
+                    if tid not in pp_only_traces[cid]:
+                        pp_only_traces[cid][tid] = dict()
+                    pp_only_traces[cid][tid] = pp_single_trace
+                    
+        assert len(pp_only_traces) > 0
+        assert len(pp_only_traces[0]) > 0
+        assert len(pp_only_traces[1]) > 0
+        app.logger.info(f"productpage")
+        traces = pp_only_traces
+    ###################################################
 
-    app.logger.info("=============================asdf")
-    for cid, trace in traces.items():
-        for tid, single_trace in traces[cid].items():
-            for svc, span in single_trace.items():
-                if cid == 1:
-                    app.logger.info(span)
-    app.logger.info("=============================asdf")
+    # app.logger.info("=============================asdf")
+    # for cid, trace in traces.items():
+    #     for tid, single_trace in traces[cid].items():
+    #         for svc, span in single_trace.items():
+    #             if cid == 1:
+    #                 app.logger.info(span)
+    # app.logger.info("=============================asdf")
 
     call_graph = traces_to_graphs_and_calc_exclusive_time(traces)
     # add_child_services(graph_dict)
