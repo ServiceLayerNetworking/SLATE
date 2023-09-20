@@ -10,6 +10,7 @@ from global_controller import app
 LOG_PATH = "./modified_trace_and_load_log.txt"
 # LOG_PATH = "./call-logs-sept-16.txt"
 
+PRODUCTPAGE_ONLY = True
 VERBOSITY=0
 intra_cluster_network_rtt = 1
 inter_cluster_network_rtt = 1.01
@@ -336,14 +337,27 @@ def stitch_time(traces):
     ts = time.time()
     traces, removed_traces = remove_incomplete_trace(traces)
     traces = change_to_relative_time(traces)
+    
+    ###################################################
+    pp_only_traces = dict()
+    if PRODUCTPAGE_ONLY:
+        for tid, spans in traces.items():
+            pp_only_spans = dict()
+            for svc, span in spans.items():
+                if svc == FRONTEND_svc:
+                    pp_only_spans[svc] = span
+            if len(pp_only_spans) > 0:
+                pp_only_traces[tid] = pp_only_spans
+    traces = pp_only_traces
+    ###################################################
 
-    app.logger.info("=============================asdf")
-    for cid, trace in traces.items():
-        for tid, single_trace in traces[cid].items():
-            for svc, span in single_trace.items():
-                if cid == 1:
-                    app.logger.info(span)
-    app.logger.info("=============================asdf")
+    # app.logger.info("=============================asdf")
+    # for cid, trace in traces.items():
+    #     for tid, single_trace in traces[cid].items():
+    #         for svc, span in single_trace.items():
+    #             if cid == 1:
+    #                 app.logger.info(span)
+    # app.logger.info("=============================asdf")
 
     call_graph = traces_to_graphs_and_calc_exclusive_time(traces)
     # add_child_services(graph_dict)
