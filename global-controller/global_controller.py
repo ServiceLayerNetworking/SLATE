@@ -111,6 +111,10 @@ def optimizer_entrypoint():
             cluster_2_num_req = svc_to_rps["us-east"]["productpage-v1"]
             app.logger.info(f"{log_prefix} LOAD cluster 0: {cluster_1_num_req}, cluster 1: {cluster_2_num_req})\n")
             
+            if cluster_1_num_req == 0 and cluster_2_num_req == 0:
+                app.logger.info(f"{log_prefix} NO LOAD. Skip Optimizer")
+                return
+            
             # cluster_1_num_req = 100
             # cluster_2_num_req = 1000
             
@@ -150,14 +154,12 @@ def retrain_service_models():
 
 @app.route("/clusterLoad", methods=["POST"])
 def proxy_load():
-    # print(f"Received proxy load for {cluster} {pod} {svc_name}\n{stats}")
     body = request.get_json(force=True)
     cluster = body["clusterId"]
     pod = body["podName"]
     svc_name = body["serviceName"]
     stats = body["body"]
-    app.logger.info(f"{log_prefix} Received stats from {cluster} {pod} {svc_name}")
-    # app.logger.info(f"Received stats from {cluster} {pod} {svc_name}")
+    # app.logger.info(f"{log_prefix} Received stats from {cluster} {pod} {svc_name}")
     if cluster not in svc_to_rps:
         svc_to_rps[cluster] = {}
     svc_to_rps[cluster][svc_name] = int(stats.split("\n")[0])
@@ -170,6 +172,10 @@ def proxy_load():
         if prof_start[cluster_to_cid[cluster]] == True or (len(spans) > 0 and spans[0].load):
             if prof_start[cluster_to_cid[cluster]] == False:
                 prof_start[cluster_to_cid[cluster]] = True
+                
+                # prof_start[0] = True
+                # prof_start[1] = True
+                
                 app.logger.info(f"{log_prefix} The FIRST proxy load for cluster {cluster}, {spans[0].cluster_id}.")
                 app.logger.info(f"{log_prefix} Start profiling for cluster {cluster}, {spans[0].cluster_id}.")
             else:

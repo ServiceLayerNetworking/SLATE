@@ -254,10 +254,8 @@ def calc_exclusive_time(single_trace_):
             if span.parent_span_id == parent_span.my_span_id:
                 child_span_list.append(span)
         if len(child_span_list) == 0:
-            continue
-        exclude_child_rt = 0
-        if  len(child_span_list) == 1:
-            # print("parent: {}, child_1: {}, child_2: None, single child".format(parent_span.svc_name, child_span_list[0].svc_name))
+            exclude_child_rt = 0
+        elif  len(child_span_list) == 1:
             exclude_child_rt = child_span_list[0].rt
         else: # else is redundant but still I leave it there to make the if/else logic easy to follow
             for i in range(len(child_span_list)):
@@ -271,13 +269,19 @@ def calc_exclusive_time(single_trace_):
                         exclude_child_rt = child_span_list[i].rt + child_span_list[j].rt
                         # print("parent: {}, child_1:{}, child_2: {}, sequential sibling".format(parent_span.svc_name, child_span_list[i].svc_name, child_span_list[j].svc_name))
         parent_span.xt = parent_span.rt - exclude_child_rt
-        if parent_span.xt < 0:
-            # print("parent_span")
-            # print(parent_span)
-            # print("child_span_list")
-            # for span in child_span_list:
-                # print(span)
+        # app.logger.info(f"Service: {parent_span.svc_name}, Exclusive time: {parent_span.xt}")
+        if parent_span.xt < 0.0:
             print_error("parent_span exclusive time cannot be negative value: {}".format(parent_span.xt))
+        if parent_span.svc_name == FRONTEND_svc:
+            assert parent_span.xt > 0.0
+            
+        ###########################################
+        if parent_span.svc_name == FRONTEND_svc:
+            parent_span.xt = parent_span.rt
+        else:
+            parent_span.xt = 0
+        ###########################################
+        
     return single_trace_
 
 
@@ -365,16 +369,18 @@ def stitch_time(traces):
         traces = pp_only_traces
     ###################################################
 
-    # app.logger.info("=============================asdf")
-    # for cid, trace in traces.items():
-    #     for tid, single_trace in traces[cid].items():
-    #         for svc, span in single_trace.items():
-    #             if cid == 1:
-    #                 app.logger.info(span)
-    # app.logger.info("=============================asdf")
 
     call_graph = traces_to_graphs_and_calc_exclusive_time(traces)
     # add_child_services(graph_dict)
+    
+    app.logger.info("==============TRACE===============")
+    for cid, trace in traces.items():
+        for tid, single_trace in traces[cid].items():
+            for svc, span in single_trace.items():
+                    if svc == FRONTEND_svc:
+                        app.logger.info(f"[SLATE], SPAN, {span.svc_name}, xt,{span.xt}, rt,{span.rt}, load,{span.load}")
+    app.logger.info("=================================")
+    
     
     # print("*"*50)
     # for cid, trace in traces.items():

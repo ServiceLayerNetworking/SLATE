@@ -149,7 +149,7 @@ def run_optimizer(traces, NUM_REQUESTS):
     ENTRANCE = INGRESS_GW_NAME
     if tst.PRODUCTPAGE_ONLY:
         assert ENTRANCE == INGRESS_GW_NAME
-    SAME_COMPUTE_TIME = False
+    SAME_COMPUTE_TIME = True
     LOAD_IN = True
     ALL_PRODUCTPAGE=False
     REAL_DATA=True
@@ -404,7 +404,7 @@ def run_optimizer(traces, NUM_REQUESTS):
                 
             ## Run prediction and compare it with the ground truth to see how accurate the trained model is
             y_pred = regressor_dict[svc_name].predict(X_test)
-            print_log("Service {}, model slope: {}, intercept: {}, R^2: {}".format(svc_name, regressor_dict[svc_name]["linearregression"].coef_, regressor_dict[svc_name]["linearregression"].intercept_, np.round(r2_score(y_test, y_pred),5)))
+            app.logger.info("[SLATE] Service {}, model slope: {}, intercept: {}, R^2: {}".format(svc_name, regressor_dict[svc_name]["linearregression"].coef_, regressor_dict[svc_name]["linearregression"].intercept_, np.round(r2_score(y_test, y_pred),5)))
 
             ## Plot
             row_idx = int(idx/num_subplot_col)
