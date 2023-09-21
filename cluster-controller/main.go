@@ -176,6 +176,10 @@ func HandleProxyLoad(c *gin.Context) {
 	if respBody == "" {
 		return
 	}
+	if resp.StatusCode != 200 {
+		fmt.Printf("error response from global controller %v", respBody)
+		return
+	}
 	fmt.Printf("global controller response body: %s", respBody)
 	var recommendations map[int]string
 	if err = json.Unmarshal([]byte(respBody), &recommendations); err != nil {
