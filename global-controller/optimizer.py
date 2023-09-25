@@ -26,14 +26,30 @@ from gurobi_ml import add_predictor_constr
 import matplotlib.pyplot as plt
 import argparse
 from pprint import pprint
+import global_controller as gc
 from global_controller import app, Span
-
 import time_stitching_v2 as tst
 
-OUTPUT_DIR = "./optimizer_output/"
+######################################################
 VERBOSITY=0
 DELIMITER="#"
+GRAPHVIZ=False
+OUTPUT_WRITE=False
+OUTPUT_DIR = "./optimizer_output/"
 
+INGRESS_GW_NAME = "ingress_gw"
+# ENTRANCE = tst.FRONTEND_svc
+ENTRANCE = INGRESS_GW_NAME
+if tst.PRODUCTPAGE_ONLY:
+    assert ENTRANCE == INGRESS_GW_NAME
+SAME_COMPUTE_TIME = True
+LOAD_IN = True
+ALL_PRODUCTPAGE=False
+REAL_DATA=False
+
+DUMMY_CALLSIZE = 10
+######################################################
+    
 timestamp_list = list()
 temp_timestamp_list = list()
 def LOG_TIMESTAMP(event_name):
@@ -63,9 +79,9 @@ def print_timestamp():
 def print_log(msg, obj=None):
     if VERBOSITY >= 1:
         if obj == None:
-            app.logger.info(f"[LOG] {msg}")
+            app.logger.info(f"{gc.log_prefix} {msg}")
         else:
-            app.logger.info(f"[LOG] {msg} {obj}")
+            app.logger.info(f"{gc.log_prefix} {msg} {obj}")
         
 def print_error(msg):
     exit_time = 5
@@ -122,37 +138,29 @@ def translate_to_percentage(df_req_flow):
     )
     return percentage_df
             
-        
     
 def run_optimizer(traces, NUM_REQUESTS):
+    assert type(traces) == dict()
+    assert type(NUM_REQUESTS) == list()
     if len(traces) == 0:
+        app.logger.info(f"{gc.log_prefix} Trace is empty. returns None... Do local routing.")
+        return None
+    assert len(traces) == len(NUM_REQUESTS)
+    if len(traces) == 1 or len(NUM_REQUESTS) == 1:
+        app.logger.info(f"{gc.log_prefix} the number of cluster is ONE. returns None... Do local routing.")
         return None
     LOG_TIMESTAMP("optimizer start")
+    app.logger.info(f"{gc.log_prefix} NUMBER OF CLUSTERS: {NUM_CLUSTER}")
     NUM_CLUSTER = len(traces)
-    app.logger.info(f"NUM_CLUSTER: {NUM_CLUSTER}")
-    if NUM_CLUSTER == 1:
-        app.logger.info(f"NUM_CLUSTER is 1. returns None... Do local routing.")
-        return None
-    assert NUM_CLUSTER == len(NUM_REQUESTS)
-
+    TOTAL_NUM_REQUEST = sum(NUM_REQUESTS)
     for cid, trace in traces.items():
         if len(traces[cid]) == 0:
-            app.logger.info(f"trace for cluster {cid} is empty.")
+            app.logger.info(f"{gc.log_prefix} trace for cluster {cid} is empty.")
 
-    # In[31]:
-    ## Time stitching
+    # Time stitching
     traces, callgraph = tst.stitch_time(traces)
         
     # In[33]:
-    INGRESS_GW_NAME = "ingress_gw"
-    # ENTRANCE = tst.FRONTEND_svc
-    ENTRANCE = INGRESS_GW_NAME
-    if tst.PRODUCTPAGE_ONLY:
-        assert ENTRANCE == INGRESS_GW_NAME
-    SAME_COMPUTE_TIME = True
-    LOAD_IN = True
-    ALL_PRODUCTPAGE=False
-    REAL_DATA=True
 
     if ENTRANCE == INGRESS_GW_NAME:
         callgraph[INGRESS_GW_NAME] = list()
@@ -196,9 +204,8 @@ def run_optimizer(traces, NUM_REQUESTS):
     - key: tuple(src_node_name, dst_node_name)
     - value: request_size_in_bytes
     '''
-    dummy_callsize = 10
     network_arc_var_name = dict()
-    app.logger.info(f"NUM_CLUSTER: {NUM_CLUSTER}")
+    app.logger.info(f"{gc.log_prefix} NUM_CLUSTER: {NUM_CLUSTER}")
     for parent_svc, children in callgraph.items():
         # leaf service to dst
         if len(children) == 0: # leaf service
@@ -208,28 +215,24 @@ def run_optimizer(traces, NUM_REQUESTS):
                 if tuple_var_name not in network_arc_var_name:
                     network_arc_var_name[tuple_var_name] = 0
         for child_svc in children:
-            ##################################################
-            # if parent_svc == tst.FRONTEND_svc:
-            # if parent_svc == INGRESS_GW_NAME:
             if parent_svc == ENTRANCE:
-            ##################################################
                 # src to entrance service
                 for src_cid in range(NUM_CLUSTER):
                     tuple_var_name = spans_to_network_arc_var_name(source_name, "*", parent_svc, src_cid)
                     if tuple_var_name not in network_arc_var_name:
-                        network_arc_var_name[tuple_var_name] = dummy_callsize
+                        network_arc_var_name[tuple_var_name] = DUMMY_CALLSIZE
                     # entrance to other service
                     for dst_cid in range(NUM_CLUSTER):
                         tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, child_svc, dst_cid)
                         if tuple_var_name not in network_arc_var_name:
-                            network_arc_var_name[tuple_var_name] = dummy_callsize
+                            network_arc_var_name[tuple_var_name] = DUMMY_CALLSIZE
             # service to service
             else:
                 for src_cid in range(NUM_CLUSTER):
                     for dst_cid in range(NUM_CLUSTER):
                         tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, child_svc, dst_cid)
                         if tuple_var_name not in network_arc_var_name:
-                            network_arc_var_name[tuple_var_name] = dummy_callsize
+                            network_arc_var_name[tuple_var_name] = DUMMY_CALLSIZE
                             
     print_log("len(network_arc_var_name)")
     print_log(len(network_arc_var_name))
@@ -275,8 +278,6 @@ def run_optimizer(traces, NUM_REQUESTS):
     print_log("num unique services: " + str(len(unique_services)))
     print_log("total number of valid spans should be " + str(len(traces) * len(unique_services)))
 
-
-    # In[37]:
     load = list()
     compute_time = list()
     service_name_ = list()
@@ -359,7 +360,7 @@ def run_optimizer(traces, NUM_REQUESTS):
     fig, (plot_list) = plt.subplots(num_subplot_row, num_subplot_col, figsize=(12,6))
     fig.tight_layout()
 
-    max_compute_time = dict()
+    # max_compute_time = dict()
     regressor_dict = dict()
     for cid in range(NUM_CLUSTER):
         cid_df =  compute_time_observation[compute_time_observation["cluster_id"]==cid]
@@ -377,20 +378,14 @@ def run_optimizer(traces, NUM_REQUESTS):
             temp_x = X.copy()
             for i in range(len(temp_x)):
                 temp_x.iloc[i, 0] = i
-                
-            # if ENTRANCE == INGRESS_GW_NAME and svc_name == ENTRANCE:
-            # if tst.PRODUCTPAGE_ONLY and svc_name != tst.FRONTEND_svc:
-            #     max_compute_time[svc_name] = 0
-            # else:
-            #     max_compute_time[svc_name] = 1000000
-                
+            # max_compute_time[svc_name] = 1000000
             print_log("svc_name:", svc_name)
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, train_size=0.95, random_state=1
             )
             feat_transform = make_column_transformer(
-                # (StandardScaler(), ["load"]),
-                ("passthrough", ["load"]),
+                (StandardScaler(), ["load"]),
+                # ("passthrough", ["load"]),
                 verbose_feature_names_out=False,
                 remainder='drop'
             )
@@ -401,19 +396,16 @@ def run_optimizer(traces, NUM_REQUESTS):
                 poly = PolynomialFeatures(degree=REGRESSOR_DEGREE, include_bias=True)
                 regressor_dict[svc_name] = make_pipeline(feat_transform, poly, LinearRegression())
                 regressor_dict[svc_name].fit(X_train, y_train)
-                
-            ## Run prediction and compare it with the ground truth to see how accurate the trained model is
             y_pred = regressor_dict[svc_name].predict(X_test)
+            assert regressor_dict[svc_name]["linearregression"].coef_ > 0
+            assert regressor_dict[svc_name]["linearregression"].intercept_ >= 0
             app.logger.info("[SLATE] Service {}, model slope: {}, intercept: {}, R^2: {}".format(svc_name, regressor_dict[svc_name]["linearregression"].coef_, regressor_dict[svc_name]["linearregression"].intercept_, np.round(r2_score(y_test, y_pred),5)))
 
             ## Plot
             row_idx = int(idx/num_subplot_col)
             col_idx = idx%num_subplot_col
-            # print(row_idx, col_idx)
-            # plot_list[row_idx][col_idx].plot(X["load"], y, 'ro', label="observation", alpha=0.2)
-            # plot_list[row_idx][col_idx].plot(X["load"], regressor_dict[svc_name].predict(X), 'b.', label="prediction", alpha=0.2)
             plot_list[row_idx][col_idx].plot(X, y, 'ro', label="observation", alpha=0.2)
-            # plot_list[row_idx][col_idx].plot(X, regressor_dict[svc_name].predict(X), 'b.', label="prediction", alpha=0.2)
+            plot_list[row_idx][col_idx].plot(X, regressor_dict[svc_name].predict(X), 'b.', label="prediction", alpha=0.2)
             plot_list[row_idx][col_idx].plot(temp_x, regressor_dict[svc_name].predict(temp_x), 'go', label="prediction", alpha=0.2)
             plot_list[row_idx][col_idx].legend()
             plot_list[row_idx][col_idx].set_title("Service " + svc_name)
@@ -424,13 +416,9 @@ def run_optimizer(traces, NUM_REQUESTS):
             idx += 1
     LOG_TIMESTAMP("train regression model")
 
-    # In[39]:
-    network_arc_var_name_list = list(network_arc_var_name.keys())
-    network_arc_var_name_list
-    network_arc_var_name
-
 
     # In[41]:
+    
     min_load = 0
     max_load = sum(NUM_REQUESTS)
     min_network_egress_cost = list()
@@ -478,6 +466,7 @@ def run_optimizer(traces, NUM_REQUESTS):
     network_egress_cost_data
 
     # In[42]:
+    
     min_compute_egress_cost = list()
     max_compute_egress_cost = list()
     compute_arc_var_name_list = list(compute_arc_var_name.keys())
@@ -503,7 +492,6 @@ def run_optimizer(traces, NUM_REQUESTS):
         compute_time_data[svc_name] = pd.DataFrame(
             data={
                 "min_load":[min_load] * len(per_service_compute_arc[svc_name]),
-                # "max_load":[max_load[svc_name]] * len(per_service_compute_arc[svc_name]),
                 "max_load":[max_load] * len(per_service_compute_arc[svc_name]),
                 # "min_compute_time": [0] * len(per_service_compute_arc[svc_name]),
                 # "max_compute_time": [max_compute_time[svc_name]] * len(per_service_compute_arc[svc_name]),
@@ -574,11 +562,11 @@ def run_optimizer(traces, NUM_REQUESTS):
     compute_load = dict()
     for svc_name in unique_services:
         print_log(svc_name)
-        # compute_time[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="compute_time", lb="min_compute_time", ub="max_compute_time")
         compute_time[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="compute_time")
-        compute_load[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="load_for_compute_edge", lb="min_load", ub="max_load")
-        # compute_load[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="load_for_compute_edge")
-    model.update()
+        compute_load[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="load_for_compute_edge")
+        # compute_time[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="compute_time", lb="min_compute_time", ub="max_compute_time")
+        # compute_load[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="load_for_compute_edge", lb="min_load", ub="max_load")
+    # model.update()
 
     m_feats = dict()
     idx = 0
@@ -596,8 +584,8 @@ def run_optimizer(traces, NUM_REQUESTS):
     model.update()
 
     network_latency = gppd.add_vars(model, network_latency_data, name="network_latency", lb="min_network_latency", ub="max_network_latency")
-    network_load = gppd.add_vars(model, network_latency_data, name="load_for_network_edge", lb="min_load", ub="max_load")
-    # network_load = gppd.add_vars(model, network_latency_data, name="load_for_network_edge")
+    # network_load = gppd.add_vars(model, network_latency_data, name="load_for_network_edge", lb="min_load", ub="max_load")
+    network_load = gppd.add_vars(model, network_latency_data, name="load_for_network_edge")
     model.update()
 
     network_egress_cost = gppd.add_vars(model, network_egress_cost_data, name="network_egress_cost", lb="min_network_egress_cost", ub="max_network_egress_cost")
@@ -652,10 +640,8 @@ def run_optimizer(traces, NUM_REQUESTS):
     ###################################################
     # Constraint 1: source
     source = dict()
-    TOTAL_NUM_REQUEST = sum(NUM_REQUESTS)
     source[source_node] = TOTAL_NUM_REQUEST
     src_keys = source.keys()
-
     # source(src_*_*) to *
     src_flow = model.addConstrs((gp.quicksum(aggregated_load.select(src, '*')) == source[src] for src in src_keys), name="source")
 
@@ -663,29 +649,16 @@ def run_optimizer(traces, NUM_REQUESTS):
     # * to frontend services start node
     if LOAD_IN == True:
         for cid in range(NUM_CLUSTER):
-            #############################################################################
-            # start_node = tst.FRONTEND_svc + DELIMITER + str(cid) + DELIMITER + "start"
-            # end_node = tst.FRONTEND_svc + DELIMITER + str(cid) + DELIMITER + "end"
             start_node = ENTRANCE + DELIMITER + str(cid) + DELIMITER + "start"
-            # end_node = INGRESS_GW_NAME + DELIMITER + str(cid) + DELIMITER + "end"
-            #############################################################################
-            
             per_cluster_load_in = model.addConstr((gp.quicksum(aggregated_load.select('*', start_node)) == NUM_REQUESTS[cid]), name="cluster_"+str(cid)+"_load_in")
-
-    # if ENTRANCE == INGRESS_GW_NAME:
-    #     # # frontend services end node to child nodes
-    #     for cid in range(NUM_CLUSTER):
-    #         ##################################
-    #         # start_node = tst.FRONTEND_svc + DELIMITER + str(cid) + DELIMITER + "start"
-    #         # end_node = tst.FRONTEND_svc + DELIMITER + str(cid) + DELIMITER + "end"
-    #         # start_node = INGRESS_GW_NAME + DELIMITER + str(cid) + DELIMITER + "start"
-    #         end_node = ENTRANCE + DELIMITER + str(cid) + DELIMITER + "end"
-    #         ##################################
-    #         per_cluster_load_out = model.addConstr((gp.quicksum(aggregated_load.select(end_node, '*')) == NUM_REQUESTS[cid]), name="cluster_"+str(cid)+"_load_out")
-        
+    if ENTRANCE == INGRESS_GW_NAME:
+        # entrance end node to child nodes
+        for cid in range(NUM_CLUSTER):
+            end_node = ENTRANCE + DELIMITER + str(cid) + DELIMITER + "end"
+            per_cluster_load_out = model.addConstr((gp.quicksum(aggregated_load.select(end_node, '*')) == NUM_REQUESTS[cid]), name="cluster_"+str(cid)+"_load_out")
     ####################################################################
 
-    model.update()
+    # model.update()
 
 
     # In[47]:
@@ -705,7 +678,7 @@ def run_optimizer(traces, NUM_REQUESTS):
     print_log("num_leaf_services: ", num_leaf_services)
 
     dst_flow = model.addConstrs((gp.quicksum(aggregated_load.select('*', dst)) == destination[dst]*num_leaf_services for dst in dest_keys), name="destination")
-    model.update()
+    # model.update()
 
     ###################################################
     # Constraint 3: flow conservation
@@ -740,7 +713,7 @@ def run_optimizer(traces, NUM_REQUESTS):
                     node_flow = model.addConstr((gp.quicksum(aggregated_load.select('*', end_node)) == out_sum), name="flow_conservation["+end_node+"]-nonleaf_endnode")
                     print_log("nonleaf end_node flow conservation")
                     print_log(end_node, child_list)
-    model.update()
+    # model.update()
 
 
     # In[48]:
@@ -758,7 +731,7 @@ def run_optimizer(traces, NUM_REQUESTS):
                 node_name = svc_name +DELIMITER + str(cid) + DELIMITER+"start"
                 sum_ += aggregated_load.sum('*', node_name)
             node_flow = model.addConstr(sum_ == TOTAL_NUM_REQUEST, name="tree_topo_conservation")
-    model.update()
+    # model.update()
 
     ###################################################
     # # Constraint 5: max throughput of service
@@ -783,22 +756,22 @@ def run_optimizer(traces, NUM_REQUESTS):
     # In[49]:
 
 
-    # varInfo = [(v.varName, v.LB, v.UB) for v in model.getVars() ]
-    # df_var = pd.DataFrame(varInfo) # convert to pandas dataframe
-    # df_var.columns=['Variable Name','LB','UB'] # Add column headers
-    # df_var.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-variable.csv")
-    # # with pd.option_context('display.max_colwidth', None):
-    # #     with pd.option_context('display.max_rows', None):
-    # #         display(df_var)
-    #
-    #
-    # constrInfo = [(c.constrName, model.getRow(c), c.Sense, c.RHS) for c in model.getConstrs() ]
-    # df_constr = pd.DataFrame(constrInfo)
-    # df_constr.columns=['Constraint Name','Constraint equation', 'Sense','RHS']
-    # df_constr.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-constraint.csv")
-    # with pd.option_context('display.max_colwidth', None):
-    #     with pd.option_context('display.max_rows', None):
-    #         display(df_constr)
+    if OUTPUT_WRITE:
+        varInfo = [(v.varName, v.LB, v.UB) for v in model.getVars() ]
+        df_var = pd.DataFrame(varInfo) # convert to pandas dataframe
+        df_var.columns=['Variable Name','LB','UB'] # Add column headers
+        df_var.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-variable.csv")
+        with pd.option_context('display.max_colwidth', None):
+            with pd.option_context('display.max_rows', None):
+                display(df_var)
+        
+        constrInfo = [(c.constrName, model.getRow(c), c.Sense, c.RHS) for c in model.getConstrs() ]
+        df_constr = pd.DataFrame(constrInfo)
+        df_constr.columns=['Constraint Name','Constraint equation', 'Sense','RHS']
+        df_constr.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-constraint.csv")
+        with pd.option_context('display.max_colwidth', None):
+            with pd.option_context('display.max_rows', None):
+                display(df_constr)
 
 
     # In[51]:
@@ -895,7 +868,6 @@ def run_optimizer(traces, NUM_REQUESTS):
         print_log("** model.objVal / total num requests: ", model.objVal/TOTAL_NUM_REQUEST)
         
         app_name = "bookinfo"
-        OUTPUT_WRITE=False
         request_flow = pd.DataFrame(columns=["From", "To", "Flow"])
         for arc in arcs:
             if aggregated_load[arc].x > 1e-6:
@@ -928,7 +900,6 @@ def run_optimizer(traces, NUM_REQUESTS):
 
 
     # In[52]:
-    GRAPHVIZ=False
     if GRAPHVIZ and model.Status == GRB.OPTIMAL:
         g_ = graphviz.Digraph()
         # The node() method takes a name identifier as first argument and an optional label.
