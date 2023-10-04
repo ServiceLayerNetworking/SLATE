@@ -4,7 +4,7 @@
 import time
 from pprint import pprint
 from global_controller import app
-import global_controller as gc
+# import global_controller as gc
 
 # LOG_PATH = "./call-logs-sept-13.txt"
 # LOG_PATH = "./trace_and_load_log.txt"
@@ -227,15 +227,18 @@ def exclusive_time(single_trace_):
             print_error("parent_span exclusive time cannot be negative value: {}".format(parent_span.xt))
         if parent_span.svc_name == FRONTEND_svc:
             assert parent_span.xt > 0.0
-            
+        app.logger.info(f"{gc.log_prefix} Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
         ###########################################
+        ###########################################
+        ## TODO: all non-frontend services' xt will be set to zero for now.
         if parent_span.svc_name == FRONTEND_svc:
             parent_span.xt = parent_span.rt
         else:
-            parent_span.xt = 0
+            parent_span.xt = 0 ######
         ###########################################
-        
+        ###########################################
     return single_trace_
+
 
 def traces_to_graphs(traces_):
     graph_dict = dict()
@@ -256,13 +259,15 @@ def calc_exclusive_time(traces_):
         for tid, single_trace in traces_[cid].items():
             single_trace_ex_time = exclusive_time(single_trace)
 
-def get_unique_svc_names_from_dag(dag_):
-    unique_svc_names = dict()
-    for parent_span, children in dag_.items():
-        for child_span in children:
-            unique_svc_names[parent_span.svc_name] = "xxxx"
-            unique_svc_names[child_span.svc_name] = "xxxx"
-    return unique_svc_names
+
+# def get_unique_svc_names_from_dag(dag_):
+#     unique_svc_names = dict()
+#     for parent_span, children in dag_.items():
+#         for child_span in children:
+#             unique_svc_names[parent_span.svc_name] = "xxxx"
+#             unique_svc_names[child_span.svc_name] = "xxxx"
+#     return unique_svc_names
+
 
 def print_all_trace(traces_):
     for cid, trace in traces_.items():
@@ -272,7 +277,7 @@ def print_all_trace(traces_):
             for svc, span in single_trace.items():
                 print(span)
             app.logger.info(f"{gc.log_prefix} ======================= ")
-    app.logger.info(f"{gc.log_prefix} Num final valid traces: {len(traces)}")
+    app.logger.info(f"{gc.log_prefix} Num final valid traces: {len(traces_)}")
     
 
 def stitch_time(traces):
