@@ -115,7 +115,7 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 // OnTick every second. Reset numRequests every tick and increment request on every http request.
 func (p *pluginContext) OnTick() {
 	/*
-			send current RPS and recieve RPS threshold
+			send current RPS and receive RPS threshold
 			this is called multiple times (due to the nature of the envoy threading model), so we need
 		 		to make sure we only send the request count once per tick.
 			check KEY_LAST_RESET (uint64 millis) to see if one of our peers already reached.
@@ -157,7 +157,6 @@ func (p *pluginContext) OnTick() {
 		}
 		return
 	}
-
 	requestStats, err := GetTracedRequestStats()
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get traced request stats: %v", err)
@@ -184,8 +183,19 @@ func (p *pluginContext) OnTick() {
 		{"x-slate-podname", p.podName},
 		{"x-slate-servicename", p.serviceName},
 	}
-	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
+
+	////////////////////////////////////////////////////////////////////////////////
+	// (gangmuk): how can I print/log in wasm-plugin?
+	// fmt.Printf("%s %s %s %d %d %d\n", stat.traceId, stat.spanId, stat.parentSpanId, stat.startTime, stat.endTime, stat.bodySize)
+	fmt.Printf("wasmwasm")
+	// (gangmuk): port was wrong.
+	// proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
+	// 	[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
+	proxywasm.DispatchHttpCall("outbound|8080||slate-controller.default.svc.cluster.local", controllerHeaders,
 		[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
+	// proxywasm.DispatchHttpCall("outbound|8080|west|slate-controller.default.svc.cluster.local", controllerHeaders,
+	// 	[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
+	////////////////////////////////////////////////////////////////////////////////
 }
 
 // Override types.DefaultPluginContext.
@@ -213,6 +223,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	_, _, err = proxywasm.GetSharedData(reqId)
 	if err == nil {
 		// we've been set, get out
+		fmt.Printf("OnhttpRequestHeaders, reqId: %d, we've been set, get out", reqId)
 		return types.ActionContinue
 	}
 
@@ -225,8 +236,10 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	}
 
 	// increment request count
+	// (gangmuk): it is load
 	IncrementSharedData(KEY_REQUEST_COUNT, 1)
 
+	// (gangmuk): suspicious...
 	if tracedRequest(reqId) {
 		// we need to record start and end time
 		proxywasm.LogCriticalf("tracing request: %s", reqId)
@@ -243,6 +256,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	return types.ActionContinue
 }
 
+// bodySize will be used as call size (request size)
 func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.Action {
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
@@ -269,6 +283,7 @@ todo adiprerepa add call size
 // Since all responses are treated equally, regardless of whether
 // they come from upstream or downstream, we need to do some clever
 // bookkeeping and only record the end time for the last response.
+// (gangmuk): when is it called? on every response?
 func (ctx *httpContext) OnHttpStreamDone() {
 	// get x-request-id from request headers and lookup entry time
 	reqId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
@@ -276,6 +291,8 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return
 	}
+	// TODO(gangmuk): Is it correct?
+	// endtime should be recorded when the LAST response is received not the first response. It seems like it records the endtime on the first response.
 	inbound, err := GetUint64SharedData(inboundCountKey(reqId))
 	if inbound != 1 {
 		// decrement and get out
@@ -530,6 +547,7 @@ func emptyBytes(b []byte) bool {
 	return true
 }
 
+// (gangmuk): need to double check to confirm it is correct.
 func tracedRequest(traceId string) bool {
 	// use md5 for speed
 	hash := md5Hash(traceId)
