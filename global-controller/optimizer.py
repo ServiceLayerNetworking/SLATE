@@ -1010,7 +1010,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
                 # total_num_svc_in_each_depth, \
                 # constraint_setup_time, \
                 # NUM_REQUEST, \
-        prettyprint_timestamp()
+        # prettyprint_timestamp()
 
         def translate_to_percentage(df_req_flow):
             src_list = list()

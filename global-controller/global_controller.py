@@ -36,7 +36,9 @@ stats_arr = []
 cluster_pcts = {} # TODO: It is currently dealing with ingress gateway only.
 
 prof_start = {0: False, 1: False}
-counter = {0:0, 1:0} # {cid:counter, ...}
+counter = dict()
+for cid in range(NUM_CLUSTER):
+    counter[cid] = 0 # = {0:0, 1:0} # {cid:counter, ...}
 PROF_DURATION = 30 # in seconds
 MIN_NUM_TRACE = 30
 load_bucket = dict()
@@ -98,11 +100,11 @@ def parse_stats_into_spans(stats, cluster, service):
         end = int(ss[4])
         call_size = int(ss[5])
         spans.append(sp.Span(service, cluster_to_cid[cluster], trace_id, my_span_id, parent_span_id, start, end, num_req, call_size))
-    if len(spans) > 0:
-        app.logger.info(f"{cf.log_prefix} ==================================")
-        for span in spans:
-            app.logger.info(f"{cf.log_prefix} {span}")
-        app.logger.info(f"{cf.log_prefix} ==================================")
+    # if len(spans) > 0:
+    #     app.logger.info(f"{cf.log_prefix} ==================================")
+    #     for span in spans:
+    #         app.logger.info(f"{cf.log_prefix} parse_stats_into_spans: {span}")
+    #     app.logger.info(f"{cf.log_prefix} ==================================")
     return spans
 
 
@@ -121,14 +123,36 @@ def is_load_bucket_filled(cid):
 def prof_phase():
     for cid in range(NUM_CLUSTER):
         if prof_start[cid]:
-            app.logger.info(f"{cf.log_prefix} Both clusters are ready to be profiled")
+            for cid in range(NUM_CLUSTER):
+                if cid in all_traces:
+                    app.logger.info(f"{cf.log_prefix} len(all_traces[{cid}]), {len(all_traces[cid])}")
+                    app.logger.info(f"{cf.log_prefix} ==================================")
+                    for tid, single_trace in all_traces[cid].items():
+                        for svc, span in single_trace.items():
+                            app.logger.info(f"{cf.log_prefix} prof_phase/all_traces: {span}")
+                        app.logger.info(f"{cf.log_prefix}")
+                    app.logger.info(f"{cf.log_prefix} ==================================")
+                        
+                else:
+                    app.logger.info(f"{cf.log_prefix} len(all_traces[{cid}]), EMPTY!")
+                if cid in complete_traces:
+                    app.logger.info(f"{cf.log_prefix} len(complete_traces[{cid}]), {len(complete_traces[cid])}")
+                    app.logger.info(f"{cf.log_prefix} ==================================")
+                    for tid, single_trace in complete_traces[cid].items():
+                        for svc, span in single_trace.items():
+                            app.logger.info(f"{cf.log_prefix} prof_phase/complete_traces: {span}")
+                        app.logger.info(f"{cf.log_prefix}")
+                    app.logger.info(f"{cf.log_prefix} ==================================")
+                else:
+                    app.logger.info(f"{cf.log_prefix} len(complete_traces[{cid}]), EMPTY!")
             prof_percentage = counter[cid]/PROF_DURATION
             app.logger.info(f"{cf.log_prefix} Cluster {cid}, Profiling phase: {prof_percentage*100}% (elapsed seconds: {counter[cid]} / required seconds: {PROF_DURATION}\n")
             ## TODO:
             # if (counter[cid] >= PROF_DURATION) and (len(complete_traces[cid] > MIN_NUM_TRACE)) and (is_load_bucket_filled(cid)):
-            if (counter[cid] >= PROF_DURATION) and (len(complete_traces[cid]) > MIN_NUM_TRACE):
-                prof_done[cid] = True
-                app.logger.info(f"{cf.log_prefix} Cluster {cid} Profiling already DONE, NUM_TRACE: {len(complete_traces[cid])} ")
+            if (counter[cid] >= PROF_DURATION):
+                if cid in complete_traces and (len(complete_traces[cid]) > MIN_NUM_TRACE):
+                    prof_done[cid] = True
+                    app.logger.info(f"{cf.log_prefix} Cluster {cid} Profiling already DONE, NUM_TRACE: {len(complete_traces[cid])} ")
             counter[cid] += 1
 
 

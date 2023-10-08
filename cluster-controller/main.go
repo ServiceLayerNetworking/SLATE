@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	versionedclient "istio.io/client-go/pkg/clientset/versioned"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
-	"net/http"
-	"os"
-	"strconv"
 )
 
 /*
@@ -145,7 +146,14 @@ func HandleProxyLoad(c *gin.Context) {
 		fmt.Printf("error reading from request body %v", err)
 		return
 	}
+	// buf_for_header := new(bytes.Buffer)
+	// if _, err := buf_for_header.ReadFrom(c.Request.Header); err != nil {
+	// 	fmt.Printf("error reading from request header %v", err)
+	// 	return
+	// }
+	// reqHeader := buf_for_header.String()
 	reqBody := buf.String()
+	// fmt.Printf("#################### reqBody: %s", reqBody)
 
 	podName := c.Request.Header.Get("x-slate-podname")
 	svcName := c.Request.Header.Get("x-slate-servicename")
