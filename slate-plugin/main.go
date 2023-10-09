@@ -88,9 +88,10 @@ func (*vmContext) OnVMStart(vmConfigurationSize int) types.OnVMStartStatus {
 type pluginContext struct {
 	types.DefaultPluginContext
 
-	podName     string
-	serviceName string
-
+	podName       string
+	serviceName   string
+	clusterId     string
+	metaClusterId string
 	rpsThresholds []RpsThreshold
 }
 
@@ -107,6 +108,16 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	if pod == "" {
 		pod = "SLATE_UNKNOWN_POD"
 	}
+	meta_cid := os.Getenv("ISTIO_META_CLUSTER_ID")
+	if meta_cid == "" {
+		meta_cid = "META_CLUSTER_ID_UNKNOWN"
+	}
+	cid := os.Getenv("CLUSTER_ID")
+	if cid == "" {
+		cid = "CLUSTER_ID_UNKNOWN"
+	}
+	p.clusterId = cid
+	p.metaClusterId = meta_cid
 	p.podName = pod
 	p.serviceName = service
 	return types.OnPluginStartStatusOK
@@ -186,16 +197,21 @@ func (p *pluginContext) OnTick() {
 
 	////////////////////////////////////////////////////////////////////////////////
 	// (gangmuk): how can I print/log in wasm-plugin?
-	// fmt.Printf("%s %s %s %d %d %d\n", stat.traceId, stat.spanId, stat.parentSpanId, stat.startTime, stat.endTime, stat.bodySize)
-	fmt.Printf("wasmwasm")
 	// (gangmuk): port was wrong.
 	// proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
 	// 	[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
-	proxywasm.DispatchHttpCall("outbound|8080||slate-controller.default.svc.cluster.local", controllerHeaders,
-		[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
-	// proxywasm.DispatchHttpCall("outbound|8080|west|slate-controller.default.svc.cluster.local", controllerHeaders,
-	// 	[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
-	////////////////////////////////////////////////////////////////////////////////
+
+	proxywasm.LogCriticalf("Sending load to %s traced stats", p.metaClusterId)
+	if p.metaClusterId == "kind-us-west" {
+		proxywasm.DispatchHttpCall("outbound|8080|west|slate-controller.default.svc.cluster.local", controllerHeaders,
+			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
+	} else if p.metaClusterId == "kind-us-east" {
+		proxywasm.DispatchHttpCall("outbound|8080|east|slate-controller.default.svc.cluster.local", controllerHeaders,
+			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
+	} else {
+		proxywasm.DispatchHttpCall("outbound|8080||slate-controller.default.svc.cluster.local", controllerHeaders,
+			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
+	}
 }
 
 // Override types.DefaultPluginContext.
