@@ -9,6 +9,9 @@ class Span:
         self.st = st
         self.et = et
         self.rt = et - st
+        if self.rt < 0:
+            print(f"class Span, negative response time, {self.rt}")
+            assert False
         self.xt = 0
         self.cpt = list() # critical path time
         self.child_spans = list()

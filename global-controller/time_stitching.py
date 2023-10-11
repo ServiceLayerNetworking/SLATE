@@ -30,22 +30,14 @@ def print_log(msg, obj=None):
             print("[LOG] ", end="")
             print(msg, obj)
         
-def print_error(msg):
-    exit_time = 1
-    print("[ERROR] " + msg)
-    print("EXIT PROGRAM in")
-    for i in reversed(range(exit_time)) :
-        print("{} seconds...".format(i))
-        time.sleep(1)
-    assert False
-    
 
 SPAN_DELIM = " "
 SPAN_TOKEN_LEN = 5
 def create_span(line, svc, load, cid):
     tokens = line.split(SPAN_DELIM)
     if len(tokens) != SPAN_TOKEN_LEN:
-        print_error("Invalid token length in span line. len(tokens):{}, line: {}".format(len(tokens), line))
+        print("Invalid token length in span line. len(tokens):{}, line: {}".format(len(tokens), line))
+        assert False
     tid = tokens[0]
     sid = tokens[1]
     psid = tokens[2]
@@ -97,14 +89,17 @@ def parse_trace_file(log_path):
                                 if service_name not in traces_[cid][tid]:
                                     traces_[cid][tid][service_name] = span
                                 else:
-                                    print_error(service_name + " already exists in trace["+tid+"]")
+                                    print(service_name + " already exists in trace["+tid+"]")
+                                    assert False
                                 # print(str(span.my_span_id) + " is added to " + tid + "len, "+ str(len(traces_[tid])))
                     #######################################################
                 except ValueError:
-                    print_error("token["+str(load_kw_idx)+"]: " + token[load_kw_idx] + " is not integer..?\nline: "+lines[idx])
+                    print("token["+str(load_kw_idx)+"]: " + token[load_kw_idx] + " is not integer..?\nline: "+lines[idx])
+                    assert False
                 except Exception as error:
                     print(error)
-                    print_error("line: " + lines[idx])
+                    print("line: " + lines[idx])
+                    assert False
         idx+=1
     return traces_
 
@@ -115,6 +110,7 @@ def parse_trace_file_ver2(log_path):
     df = pd.read_csv(log_path, names=colname)
     df = df.drop('a', axis=1)
     df = df.drop('b', axis=1)
+    df.fillna("", inplace=True)
     def create_span_ver2(row):
         trace_id = row["trace_id"]
         cluster_id = row["cluster_id"]
@@ -122,7 +118,7 @@ def parse_trace_file_ver2(log_path):
         span_id = row["my_span_id"]
         parent_span_id = row["parent_span_id"]
         st = row["st"]
-        et = row["rt"]
+        et = row["et"]
         load = row["load"]
         callsize = row["call_size"]
         span = sp.Span(svc, cluster_id, trace_id, span_id, parent_span_id, st, et, load, callsize)
@@ -141,7 +137,7 @@ def parse_trace_file_ver2(log_path):
             if span.svc_name not in traces_[span.cluster_id][span.trace_id]:
                 traces_[span.cluster_id][span.trace_id][span.svc_name] = span
             else:
-                print_error(span.svc_name + " already exists in trace["+span.trace_id+"]")
+                print(span.svc_name + " already exists in trace["+span.trace_id+"]")
     # for cid in traces_:
     #     for trace_id, single_trace in traces_[cid].items():
     #         for svc, span in single_trace.items():
@@ -202,6 +198,8 @@ def remove_incomplete_trace(traces_):
                 what[4] += 1
             elif single_trace[FRONTEND_svc].parent_span_id != span_id_of_FRONTEND_svc:
                 # removed_traces_[cid][tid] = single_trace
+                print("single_trace[FRONTEND_svc].parent_span_id: ", single_trace[FRONTEND_svc].parent_span_id)
+                print("span_id_of_FRONTEND_svc: ", span_id_of_FRONTEND_svc)
                 weird_span_id += 1
                 what[5] += 1
             elif FILTER_REVIEW_V1 and REVIEW_V1_svc in single_trace:
@@ -258,6 +256,9 @@ def change_to_relative_time(traces_):
             for svc, span in single_trace.items():
                 span.st -= base_t
                 span.et -= base_t
+                assert span.st >= 0
+                assert span.et >= 0
+                assert span.et >= span.st
     return traces_
 
 
@@ -366,7 +367,9 @@ def exclusive_time(single_trace_):
         parent_span.xt = parent_span.rt - exclude_child_rt
         app.logger.debug(f"{log_prefix} Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
         if parent_span.xt < 0.0:
-            print_error("parent_span exclusive time cannot be negative value: {}".format(parent_span.xt))
+            print(f"parent_span,{parent_span.svc_name} exclusive time cannot be negative value: {parent_span.xt}")
+            print(f"st,{parent_span.st}, et,{parent_span.et}, rt,{parent_span.rt}, xt,{parent_span.xt}")
+            assert False
         if parent_span.svc_name == FRONTEND_svc:
             assert parent_span.xt > 0.0
         ###########################################
@@ -385,13 +388,6 @@ def calc_exclusive_time(traces_):
 
 
 def print_all_trace(traces_):
-    # app.logger.info(f"{log_prefix} ==============TRACE===============")
-    # for cid, trace in traces.items():
-    #     for tid, single_trace in traces[cid].items():
-    #         for svc, span in single_trace.items():
-    #                 if svc == FRONTEND_svc:
-    #                     app.logger.info(f"{log_prefix}, SPAN, {span.svc_name}, xt,{span.xt}, rt,{span.rt}, load,{span.load}")
-    # app.logger.info(f"{log_prefix} =================================")
     for cid in traces_:
         for tid, single_trace in traces_[cid].items():
             app.logger.debug(f"{log_prefix} ======================= ")
