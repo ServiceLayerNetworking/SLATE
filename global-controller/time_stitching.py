@@ -2,6 +2,7 @@
 # coding: utf-8
 
 import time
+import global_controller as global_con
 from global_controller import app
 import config as cf
 import span as sp
@@ -9,7 +10,6 @@ import pandas as pd
 
 VERBOSITY=1
 
-PRODUCTPAGE_ONLY = False
 # intra_cluster_network_rtt = 1.000000000
 # inter_cluster_network_rtt = 1.000000001
 intra_cluster_network_rtt = 1
@@ -485,7 +485,7 @@ def stitch_time(traces):
     traces = remove_incomplete_trace(traces)
     # traces = append_arbitrary_cluster_id_to_spans(traces)
     traces = change_to_relative_time(traces)
-    if PRODUCTPAGE_ONLY:
+    if global_con.PRODUCTPAGE_ONLY:
         traces = product_page_only(traces)
     calc_exclusive_time(traces)
     call_graph, graph_dict = traces_to_graphs(traces)

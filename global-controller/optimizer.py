@@ -46,7 +46,8 @@ GRAPHVIZ=False
 INGRESS_GW_NAME = "ingress_gw"
 # ENTRANCE = tst.FRONTEND_svc
 ENTRANCE = INGRESS_GW_NAME
-if tst.PRODUCTPAGE_ONLY:
+PRODUCTPAGE_ONLY = False
+if PRODUCTPAGE_ONLY:
     assert ENTRANCE == INGRESS_GW_NAME
 SAME_COMPUTE_TIME = False
 LOAD_IN = True
@@ -241,7 +242,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
     elif ENTRANCE == INGRESS_GW_NAME:
         if tst.REVIEW_V1_svc in unique_services:
             assert len(network_arc_var_name) == 18 # bookinfo, with ingress gw, two cluster set up
-        elif tst.PRODUCTPAGE_ONLY:
+        elif PRODUCTPAGE_ONLY:
             assert len(network_arc_var_name) == 8
         else:
             assert len(network_arc_var_name) == 22 # bookinfo, with ingress gw, two cluster set up
