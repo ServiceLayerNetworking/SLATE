@@ -115,48 +115,43 @@ def parse_trace_file(log_path):
 
 
 def parse_trace_file_ver2(log_path):
-    pd.read_csv(log_path)
-    
-    f = open(log_path, "r")
-    lines = f.readlines()
-    # cid -> trace id -> svc_name -> span
-    traces_ = dict()
-    idx = 0
-    while idx < len(lines):
-        token = lines[idx].split(DE_in_log)
-        if len(token) >= min_len_tokens:
-            if token[info_kw_idx] == info_kw:
-                try:
-                    load_per_tick = int(token[load_kw_idx])
-                    service_name = token[svc_kw_idx][:-1]
-                    if load_per_tick > 0:
-                        print_log("svc name," + service_name + ", load per tick," + str(load_per_tick))
-                        while True:
-                            idx += 1
-                            if lines[idx+1] == "\n":
-                                break
-                            # TODO: cluster id is supposed to be parsed from the log.
-                            for cid in range(NUM_CLUSTER):
-                                tid, span = create_span(lines[idx], service_name, load_per_tick, cid)
-                                # TODO: The updated trace file is needed.
-                                if cid not in traces_:
-                                    traces_[cid] = dict()
-                                if tid not in traces_[cid]:
-                                    traces_[cid][tid] = dict()
-                                if service_name not in traces_[cid][tid]:
-                                    traces_[cid][tid][service_name] = span
-                                else:
-                                    print_error(service_name + " already exists in trace["+tid+"]")
-                                # print(str(span.my_span_id) + " is added to " + tid + "len, "+ str(len(traces_[tid])))
-                    #######################################################
-                except ValueError:
-                    print_error("token["+str(load_kw_idx)+"]: " + token[load_kw_idx] + " is not integer..?\nline: "+lines[idx])
-                except Exception as error:
-                    print(error)
-                    print_error("line: " + lines[idx])
-        idx+=1
-    return traces_
+    # log_path = "/home/gangmuk2/trace_2023_10_11-west_only.csv"
+    colname = ["a", "b", "trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","st","et","rt","call_size"]
+    df = pd.read_csv(log_path, names=colname)
+    df = df.drop('a', axis=1)
+    df = df.drop('b', axis=1)
+    def create_span_ver2(row):
+        trace_id = row["trace_id"]
+        cluster_id = row["cluster_id"]
+        svc = row["svc_name"]
+        span_id = row["my_span_id"]
+        parent_span_id = row["parent_span_id"]
+        st = row["st"]
+        et = row["rt"]
+        load = row["load"]
+        callsize = row["call_size"]
+        span = sp.Span(svc, cluster_id, trace_id, span_id, parent_span_id, st, et, load, callsize)
+        return span
 
+    # cluster_id -> trace id -> svc_name -> span
+    traces_ = dict()
+    for cid in range(NUM_CLUSTER):
+        for index, row in df.iterrows():
+            span = create_span_ver2(row)
+            span.cluster_id = cid
+            if span.cluster_id not in traces_:
+                traces_[span.cluster_id] = dict()
+            if span.trace_id not in traces_[span.cluster_id]:
+                traces_[span.cluster_id][span.trace_id] = dict()
+            if span.svc_name not in traces_[span.cluster_id][span.trace_id]:
+                traces_[span.cluster_id][span.trace_id][span.svc_name] = span
+            else:
+                print_error(span.svc_name + " already exists in trace["+span.trace_id+"]")
+    # for cid in traces_:
+    #     for trace_id, single_trace in traces_[cid].items():
+    #         for svc, span in single_trace.items():
+    #             print(span)
+    return traces_
 
 FRONTEND_svc = "productpage-v1"
 span_id_of_FRONTEND_svc = ""

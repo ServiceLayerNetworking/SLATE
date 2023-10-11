@@ -104,8 +104,11 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
     if raw_traces == None:
         ###############################################
         ## Parse trace file
-        LOG_PATH = "./modified_trace_and_load_log.txt"
-        traces = tst.parse_file(LOG_PATH)
+        # LOG_PATH = "./modified_trace_and_load_log.txt"
+        # traces = tst.parse_file(LOG_PATH)
+        
+        LOG_PATH = "/home/gangmuk2/trace_2023_10_11-west_only.csv"
+        traces = tst.parse_trace_file_ver2(LOG_PATH)
         traces, callgraph, depth_dict = tst.stitch_time(traces)
         NUM_CLUSTER = len(traces)
         ###############################################
