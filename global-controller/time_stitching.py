@@ -5,6 +5,7 @@ import time
 from global_controller import app
 import config as cf
 import span as sp
+import pandas as pd
 
 VERBOSITY=1
 
@@ -42,11 +43,7 @@ def print_error(msg):
         print("{} seconds...".format(i))
         time.sleep(1)
     assert False
-
-def file_read(path_):
-    f = open(path_, "r")
-    lines = f.readlines()
-    return lines
+    
 
 SPAN_DELIM = " "
 SPAN_TOKEN_LEN = 5
@@ -75,7 +72,53 @@ svc_kw_idx = -2
 load_kw_idx = -1
 NUM_CLUSTER = 2
 
-def parse(lines):
+def parse_trace_file(log_path):
+    f = open(log_path, "r")
+    lines = f.readlines()
+    # cid -> trace id -> svc_name -> span
+    traces_ = dict()
+    idx = 0
+    while idx < len(lines):
+        token = lines[idx].split(DE_in_log)
+        if len(token) >= min_len_tokens:
+            if token[info_kw_idx] == info_kw:
+                try:
+                    load_per_tick = int(token[load_kw_idx])
+                    service_name = token[svc_kw_idx][:-1]
+                    if load_per_tick > 0:
+                        print_log("svc name," + service_name + ", load per tick," + str(load_per_tick))
+                        while True:
+                            idx += 1
+                            if lines[idx+1] == "\n":
+                                break
+                            # TODO: cluster id is supposed to be parsed from the log.
+                            for cid in range(NUM_CLUSTER):
+                                tid, span = create_span(lines[idx], service_name, load_per_tick, cid)
+                                # TODO: The updated trace file is needed.
+                                if cid not in traces_:
+                                    traces_[cid] = dict()
+                                if tid not in traces_[cid]:
+                                    traces_[cid][tid] = dict()
+                                if service_name not in traces_[cid][tid]:
+                                    traces_[cid][tid][service_name] = span
+                                else:
+                                    print_error(service_name + " already exists in trace["+tid+"]")
+                                # print(str(span.my_span_id) + " is added to " + tid + "len, "+ str(len(traces_[tid])))
+                    #######################################################
+                except ValueError:
+                    print_error("token["+str(load_kw_idx)+"]: " + token[load_kw_idx] + " is not integer..?\nline: "+lines[idx])
+                except Exception as error:
+                    print(error)
+                    print_error("line: " + lines[idx])
+        idx+=1
+    return traces_
+
+
+def parse_trace_file_ver2(log_path):
+    pd.read_csv(log_path)
+    
+    f = open(log_path, "r")
+    lines = f.readlines()
     # cid -> trace id -> svc_name -> span
     traces_ = dict()
     idx = 0
@@ -436,11 +479,6 @@ def analyze_critical_path_time(traces_):
             for svc, span in single_trace.items():
                 critical_path_analysis(span)
                 
-def parse_file(log_path):
-    lines = file_read(log_path)
-    traces = parse(lines)
-    return traces
-
 
 def stitch_time(traces):
     app.logger.info(f"{cf.log_prefix} time stitching starts")
@@ -475,5 +513,5 @@ def stitch_time(traces):
     ###################################################
 
 # if __name__ == "__main__":
-#     traces = parse_file(LOG_PATH)
+#     traces = parse_trace_file
 #     traces, call_graph, depth_dict = stitch_time(traces)
