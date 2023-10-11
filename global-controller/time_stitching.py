@@ -4,16 +4,11 @@
 import time
 import global_controller as global_con
 from global_controller import app
-import config as cf
+# from config import *
+from config import *
+# import config as cf
 import span as sp
 import pandas as pd
-
-VERBOSITY=1
-
-# intra_cluster_network_rtt = 1.000000000
-# inter_cluster_network_rtt = 1.000000001
-intra_cluster_network_rtt = 1
-inter_cluster_network_rtt = 40
 
 """ Trace exampe line (Version 1 wo call size)
 2
@@ -267,9 +262,9 @@ def change_to_relative_time(traces_):
 
 
 def print_single_trace(single_t):
-    app.logger.debug(f"{cf.log_prefix} print_sinelg_trace")
+    app.logger.debug(f"{log_prefix} print_sinelg_trace")
     for _, span in single_t.items():
-        app.logger.debug(f"{cf.log_prefix} {span}")
+        app.logger.debug(f"{log_prefix} {span}")
 
 def print_dag(single_dag_):
     for parent_span, children in single_dag_.items():
@@ -342,8 +337,8 @@ def traces_to_graphs(traces_):
             callgraph, cg_key = single_trace_to_callgraph(single_trace)
             graph_dict[cid][cg_key] = callgraph
             # print(f"tid: {tid}, callgraph: {callgraph}, cg_key: {cg_key}")
-        app.logger.info(f"{cf.log_prefix} Cluster {cid} Graph dict: {graph_dict[cid]}")
-        app.logger.info(f"{cf.log_prefix} Call graph: {callgraph}")
+        app.logger.info(f"{log_prefix} Cluster {cid} Graph dict: {graph_dict[cid]}")
+        app.logger.info(f"{log_prefix} Call graph: {callgraph}")
         assert len(graph_dict[cid]) == 1
     return callgraph, graph_dict
     
@@ -369,7 +364,7 @@ def exclusive_time(single_trace_):
                         # sequential execution
                         exclude_child_rt = child_span_list[i].rt + child_span_list[j].rt
         parent_span.xt = parent_span.rt - exclude_child_rt
-        app.logger.debug(f"{cf.log_prefix} Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
+        app.logger.debug(f"{log_prefix} Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
         if parent_span.xt < 0.0:
             print_error("parent_span exclusive time cannot be negative value: {}".format(parent_span.xt))
         if parent_span.svc_name == FRONTEND_svc:
@@ -390,20 +385,20 @@ def calc_exclusive_time(traces_):
 
 
 def print_all_trace(traces_):
-    # app.logger.info(f"{cf.log_prefix} ==============TRACE===============")
+    # app.logger.info(f"{log_prefix} ==============TRACE===============")
     # for cid, trace in traces.items():
     #     for tid, single_trace in traces[cid].items():
     #         for svc, span in single_trace.items():
     #                 if svc == FRONTEND_svc:
-    #                     app.logger.info(f"{cf.log_prefix}, SPAN, {span.svc_name}, xt,{span.xt}, rt,{span.rt}, load,{span.load}")
-    # app.logger.info(f"{cf.log_prefix} =================================")
+    #                     app.logger.info(f"{log_prefix}, SPAN, {span.svc_name}, xt,{span.xt}, rt,{span.rt}, load,{span.load}")
+    # app.logger.info(f"{log_prefix} =================================")
     for cid in traces_:
         for tid, single_trace in traces_[cid].items():
-            app.logger.debug(f"{cf.log_prefix} ======================= ")
-            app.logger.debug(f"{cf.log_prefix} Trace: " + tid)
+            app.logger.debug(f"{log_prefix} ======================= ")
+            app.logger.debug(f"{log_prefix} Trace: " + tid)
             for svc, span in single_trace.items():
-                app.logger.debug(f"{cf.log_prefix} {span}")
-            app.logger.debug(f"{cf.log_prefix} ======================= ")
+                app.logger.debug(f"{log_prefix} {span}")
+            app.logger.debug(f"{log_prefix} ======================= ")
 
 
 def inject_arbitrary_callsize(traces_, depth_dict):
@@ -431,28 +426,28 @@ def product_page_only(traces_):
 def print_graph_dict(gd):
     for cid in gd:
         for k, cg in gd[cid].items():
-            print(f"{cf.log_prefix} graph key: {k}")
+            print(f"{log_prefix} graph key: {k}")
             for parent_svc, children in cg.items():
                 for child_svc in children:
-                    print(f"{cf.log_prefix} {parent_svc} -> {child_svc}")
+                    print(f"{log_prefix} {parent_svc} -> {child_svc}")
 
 
 def set_depth_of_span(cg, parent_svc, children, depth_d, prev_dep):
     if len(children) == 0:
-        # print(f"{cf.log_prefix} Leaf service {parent_svc}, Escape recursive function")
+        # print(f"{log_prefix} Leaf service {parent_svc}, Escape recursive function")
         return
     for child_svc in children:
         if child_svc not in depth_d:
             depth_d[child_svc] = prev_dep + 1
-            # print(f"{cf.log_prefix} Service {child_svc}, depth, {depth_d[child_svc]}")
+            # print(f"{log_prefix} Service {child_svc}, depth, {depth_d[child_svc]}")
         set_depth_of_span(cg, child_svc, cg[child_svc], depth_d, prev_dep+1)
 
 
 def critical_path_analysis(parent_span):
     sorted_children = sorted(parent_span.child_spans, key=lambda x: x.et, reverse=True)
     if len(parent_span.critical_child_spans) != 0:
-        app.logger.info(f"{cf.log_prefix} critical_path_analysis {parent_span}")
-        app.logger.info(f"{cf.log_prefix} critical_path_analysis {parent_span.critical_child_spans}")
+        app.logger.info(f"{log_prefix} critical_path_analysis {parent_span}")
+        app.logger.info(f"{log_prefix} critical_path_analysis {parent_span.critical_child_spans}")
         assert False
     cur_end_time = parent_span.et
     total_critical_children_time = 0
@@ -468,7 +463,7 @@ def critical_path_analysis(parent_span):
 
 
 def analyze_critical_path_time(traces_):
-    print(f"{cf.log_prefix} Critical Path Analysis")
+    print(f"{log_prefix} Critical Path Analysis")
     for cid in traces_:
         for tid, single_trace in traces_[cid].items():
             for svc, span in single_trace.items():
@@ -476,7 +471,7 @@ def analyze_critical_path_time(traces_):
                 
 
 def stitch_time(traces):
-    app.logger.info(f"{cf.log_prefix} time stitching starts")
+    app.logger.info(f"{log_prefix} time stitching starts")
     ts = time.time()
     ###################################################
     input_trace_len = dict()
@@ -496,14 +491,14 @@ def stitch_time(traces):
             frontend_depth = 1
             depth_dict[parent_svc] = 1
             set_depth_of_span(call_graph, parent_svc, children, depth_dict, frontend_depth)
-    print(f"{cf.log_prefix} Depth {depth_dict}")
+    print(f"{log_prefix} Depth {depth_dict}")
     inject_arbitrary_callsize(traces, depth_dict)
     analyze_critical_path_time(traces)
     print_all_trace(traces)
     for cid in traces:
-        app.logger.info(f"{cf.log_prefix} Cluster {cid} Num Input traces: {input_trace_len[cid]}")
-        app.logger.info(f"{cf.log_prefix} Cluster {cid} Num Final valid traces: {len(traces[cid])}")
-    app.logger.info(f"{cf.log_prefix} time stitching done: {time.time() - ts}s")
+        app.logger.info(f"{log_prefix} Cluster {cid} Num Input traces: {input_trace_len[cid]}")
+        app.logger.info(f"{log_prefix} Cluster {cid} Num Final valid traces: {len(traces[cid])}")
+    app.logger.info(f"{log_prefix} time stitching done: {time.time() - ts}s")
     return traces, call_graph, depth_dict
     ###################################################
 

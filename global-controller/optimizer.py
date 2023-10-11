@@ -27,54 +27,34 @@ import matplotlib.pyplot as plt
 import argparse
 from pprint import pprint
 from IPython.display import display
-# import global_controller as gc
 from global_controller import app
 import time_stitching as tst
-import config as cf
+from config import *
 import zlib
 
-OUTPUT_DIR = "./optimizer_output/"
 
 random.seed(1234)
-
-VERBOSITY=1
-DELIMITER="#"
-OUTPUT_WRITE=False
-DISPLAY=False
-GRAPHVIZ=False
-
-INGRESS_GW_NAME = "ingress_gw"
-# ENTRANCE = tst.FRONTEND_svc
-ENTRANCE = INGRESS_GW_NAME
-PRODUCTPAGE_ONLY = False
-if PRODUCTPAGE_ONLY:
-    assert ENTRANCE == INGRESS_GW_NAME
-SAME_COMPUTE_TIME = False
-LOAD_IN = True
-ALL_PRODUCTPAGE=False
-REAL_DATA=True
-REGRESSOR_DEGREE = 1 # 1: linear, >2: polynomial
 
 timestamp_list = list()
 temp_timestamp_list = list()
 def LOG_TIMESTAMP(event_name):
     timestamp_list.append([event_name, time.time()])
     if len(timestamp_list) > 1:
-        app.logger.info(f"{cf.log_prefix} Finished, " + event_name + ", duration, " + str(round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)))
+        app.logger.info(f"{log_prefix} Finished, " + event_name + ", duration, " + str(round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)))
 
 
 def TEMP_LOG_TIMESTAMP(event_name):
     temp_timestamp_list.append([event_name, time.time()])
     if len(temp_timestamp_list) > 1:
-        app.logger.info(f"{cf.log_prefix} Finished, " + event_name + ", duration, " + str(round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)))
+        app.logger.info(f"{log_prefix} Finished, " + event_name + ", duration, " + str(round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)))
         
         
 def prettyprint_timestamp():
-    app.logger.info(f"{cf.log_prefix}")
-    app.logger.info(f"{cf.log_prefix} *"*30)
-    app.logger.info(f"{cf.log_prefix} ** timestamp_list(ms)")
+    app.logger.info(f"{log_prefix}")
+    app.logger.info(f"{log_prefix} *"*30)
+    app.logger.info(f"{log_prefix} ** timestamp_list(ms)")
     for i in range(1, len(timestamp_list)):
-        app.logger.info(f"{cf.log_prefix} {timestamp_list[i][0]}", end=",")
+        app.logger.info(f"{log_prefix} {timestamp_list[i][0]}", end=",")
 
 
 ## Deprecated
@@ -117,25 +97,25 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
         assert type(raw_traces) == type(dict())
         assert type(NUM_REQUESTS) == type(list())
         if len(raw_traces) == 0:
-            app.logger.info(f"{cf.log_prefix} Trace is empty. returns None... Do local routing.")
+            app.logger.info(f"{log_prefix} Trace is empty. returns None... Do local routing.")
             return None
         assert len(raw_traces) == len(NUM_REQUESTS)
         if len(raw_traces) == 1 or len(NUM_REQUESTS) == 1:
-            app.logger.info(f"{cf.log_prefix} the number of cluster is ONE. returns None... Do local routing.")
+            app.logger.info(f"{log_prefix} the number of cluster is ONE. returns None... Do local routing.")
             return None
         LOG_TIMESTAMP("optimizer start")
         NUM_CLUSTER = len(raw_traces)
         TOTAL_NUM_REQUEST = sum(NUM_REQUESTS)
-        app.logger.info(f"{cf.log_prefix} NUMBER OF CLUSTERS: {NUM_CLUSTER}")
+        app.logger.info(f"{log_prefix} NUMBER OF CLUSTERS: {NUM_CLUSTER}")
         for cid, trace in raw_traces.items():
             if len(raw_traces[cid]) == 0:
-                app.logger.info(f"{cf.log_prefix} trace for cluster {cid} is empty.")
+                app.logger.info(f"{log_prefix} trace for cluster {cid} is empty.")
         ###############################################
         traces, callgraph, depth_dict = tst.stitch_time(raw_traces)
         ###############################################
         for cid in traces:
             if len(traces[cid]) == 0:
-                app.logger.info(f"{cf.log_prefix} Cluster {cid} trace is empty. It is impossible to predict latency function. returns None... Do local routing.")
+                app.logger.info(f"{log_prefix} Cluster {cid} trace is empty. It is impossible to predict latency function. returns None... Do local routing.")
                 return None
         
     if ENTRANCE == INGRESS_GW_NAME:
@@ -144,11 +124,11 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
             if parent_svc == tst.FRONTEND_svc:
                 callgraph[INGRESS_GW_NAME].append(parent_svc)
         for parent_svc, child_svc_list in callgraph.items():
-            app.logger.debug(f"{cf.log_prefix} {parent_svc}: {child_svc_list}")
-    app.logger.info(f"{cf.log_prefix} callgraph")
-    app.logger.info(f"{cf.log_prefix} {callgraph}")
+            app.logger.debug(f"{log_prefix} {parent_svc}: {child_svc_list}")
+    app.logger.info(f"{log_prefix} callgraph")
+    app.logger.info(f"{log_prefix} {callgraph}")
     unique_services = list(callgraph.keys())
-    app.logger.info(f"{cf.log_prefix} unique_services: {unique_services}")
+    app.logger.info(f"{log_prefix} unique_services: {unique_services}")
 
 
     ## In[33]:
@@ -230,9 +210,9 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
                         tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, child_svc, dst_cid)
                         if tuple_var_name not in network_arc_var_name:
                             network_arc_var_name[tuple_var_name] = depth_dict[parent_svc]*10 # arbitrary call size
-    app.logger.info(f"{cf.log_prefix} len(network_arc_var_name): {len(network_arc_var_name)}\n")
+    app.logger.info(f"{log_prefix} len(network_arc_var_name): {len(network_arc_var_name)}\n")
     for tuple_var_name, _ in network_arc_var_name.items():
-        app.logger.info(f"{cf.log_prefix} {tuple_var_name}")
+        app.logger.info(f"{log_prefix} {tuple_var_name}")
 
     if ENTRANCE == tst.FRONTEND_svc:
         if tst.REVIEW_V1_svc in unique_services:
@@ -439,7 +419,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
             c_ = regressor_dict[svc_name]["linearregression"].intercept_,
             in_ = regressor_dict[svc_name]["linearregression"].coef_
             r2 =  np.round(r2_score(y_test, y_pred),2)
-            app.logger.info(f"{cf.log_prefix} Service {svc_name}, model slope: {c_}, intercept: {in_}, R^2: {r2}")
+            app.logger.info(f"{log_prefix} Service {svc_name}, model slope: {c_}, intercept: {in_}, R^2: {r2}")
 
             ## Plot
             row_idx = int(idx/num_subplot_col)
@@ -504,12 +484,12 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
             try:
                 src_cid = int(src_node.split(DELIMITER)[1])
             except:
-                app.logger.error(f"{cf.log_prefix} Can't parse src_cid {src_svc_name}, {src_node}, {src_node.split(DELIMITER)}")
+                app.logger.error(f"{log_prefix} Can't parse src_cid {src_svc_name}, {src_node}, {src_node.split(DELIMITER)}")
                 assert False
             try:
                 dst_cid = int(dst_node.split(DELIMITER)[1])
             except:
-                app.logger.error(f"{cf.log_prefix}  Can't parse src_cid {dst_svc_name}, {dst_node}, {dst_node.split(DELIMITER)}")
+                app.logger.error(f"{log_prefix}  Can't parse src_cid {dst_svc_name}, {dst_node}, {dst_node.split(DELIMITER)}")
                 assert False
             if src_cid == dst_cid:
                 # local routing
@@ -569,7 +549,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
             },
             index=per_service_compute_arc[svc_name]
         )
-    app.logger.info(f"{cf.log_prefix} max_load: \n{max_load}\n")
+    app.logger.info(f"{log_prefix} max_load: \n{max_load}\n")
 
     # ### Define network latency
 
@@ -601,14 +581,14 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
                 print_error(dst_svc_name, dst_node.split(DELIMITER))
             # Network latency for local routing
             if src_idx == dst_idx:
-                app.logger.info(f"{cf.log_prefix} intra-cluster, {src_node}, {dst_node}")
-                min_network_latency.append(tst.intra_cluster_network_rtt)
-                max_network_latency.append(tst.intra_cluster_network_rtt)
+                app.logger.info(f"{log_prefix} intra-cluster, {src_node}, {dst_node}")
+                min_network_latency.append(intra_cluster_network_rtt)
+                max_network_latency.append(intra_cluster_network_rtt)
             # Network latency for remote routing
             else:
-                app.logger.info(f"{cf.log_prefix} inter-cluster, {src_node}, {dst_node}")
-                min_network_latency.append(tst.inter_cluster_network_rtt)
-                max_network_latency.append(tst.inter_cluster_network_rtt)
+                app.logger.info(f"{log_prefix} inter-cluster, {src_node}, {dst_node}")
+                min_network_latency.append(inter_cluster_network_rtt)
+                max_network_latency.append(inter_cluster_network_rtt)
 
     network_latency_data = pd.DataFrame(
         data={
@@ -621,8 +601,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
         # index=network_arc_var_name
     )
     LOG_TIMESTAMP("creating egress cost and compute/network latency dataframe")
-    app.logger.debug(f"{cf.log_prefix} network_latency_data")
-    app.logger.debug(f"{cf.log_prefix} {network_latency_data}\n")
+    app.logger.debug(f"{log_prefix} network_latency_data")
+    app.logger.debug(f"{log_prefix} {network_latency_data}\n")
 
 
     # In[44]:
@@ -635,7 +615,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
     compute_time = dict()
     compute_load = dict()
     for svc_name in unique_services:
-        app.logger.info(f"{cf.log_prefix} {svc_name}")
+        app.logger.info(f"{log_prefix} {svc_name}")
         # compute_time[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="compute_time", lb="min_compute_time", ub="max_compute_time")
         compute_time[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="compute_time", lb="min_compute_time")
         compute_load[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="load_for_compute_edge", lb="min_load", ub="max_load")
@@ -678,8 +658,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
     for svc_name in unique_services:
         compute_egress_cost_sum += sum(compute_egress_cost[svc_name].multiply(compute_load[svc_name]))
     total_egress_sum = network_egress_cost_sum + compute_egress_cost_sum
-    app.logger.debug(f"{cf.log_prefix} total_egress_sum:")
-    app.logger.debug(f"{cf.log_prefix} {total_egress_sum}\n")
+    app.logger.debug(f"{log_prefix} total_egress_sum:")
+    app.logger.debug(f"{log_prefix} {total_egress_sum}\n")
 
     # total latency sum
     network_latency_sum = sum(network_latency.multiply(network_load))
@@ -691,14 +671,14 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
         # display(compute_latency_sum)
     total_latency_sum = network_latency_sum + compute_latency_sum
     
-    app.logger.debug(f"{cf.log_prefix} compute_latency_sum:")
-    app.logger.debug(f"{cf.log_prefix} {compute_latency_sum}\n")
+    app.logger.debug(f"{log_prefix} compute_latency_sum:")
+    app.logger.debug(f"{log_prefix} {compute_latency_sum}\n")
     
-    app.logger.debug(f"{cf.log_prefix} network_latency_sum:")
-    app.logger.debug(f"{cf.log_prefix} {network_latency_sum}\n")
+    app.logger.debug(f"{log_prefix} network_latency_sum:")
+    app.logger.debug(f"{log_prefix} {network_latency_sum}\n")
     
-    app.logger.debug(f"{cf.log_prefix} total_latency_sum:")
-    app.logger.debug(f"{cf.log_prefix} {total_latency_sum}\n")
+    app.logger.debug(f"{log_prefix} total_latency_sum:")
+    app.logger.debug(f"{log_prefix} {total_latency_sum}\n")
 
     objective = "multi-objective" # latency or egress_cost or multi-objective
     if objective == "latency":
@@ -715,7 +695,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
         print_error("unsupported objective, ", objective)
         
     # model.update()
-    app.logger.info(f"{cf.log_prefix} model objective: {model.getObjective()}")
+    app.logger.info(f"{log_prefix} model objective: {model.getObjective()}")
 
     # arcs is the keys
     # aggregated_load is dictionary
@@ -732,7 +712,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
     #         # if repl.service.name != "User":
     #         max_tput[svc_name+DELIMITER+str(cid)+DELIMITER+"start"] = tput
     #         max_tput[svc_name+DELIMITER+str(cid)+DELIMITER+"end"] = tput
-    # app.logger.info(f"{cf.log_prefix} max_tput: {max_tput}")
+    # app.logger.info(f"{log_prefix} max_tput: {max_tput}")
     
     LOG_TIMESTAMP("gurobi add_vars and set objective")
 
@@ -799,8 +779,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
         if len(children) == 0: # leaf service
             leaf_services.append(parent_svc)
     num_leaf_services = len(leaf_services)
-    app.logger.debug(f"{cf.log_prefix} num_leaf_services: {num_leaf_services}")
-    app.logger.debug(f"{cf.log_prefix} leaf_services: {leaf_services}")
+    app.logger.debug(f"{log_prefix} num_leaf_services: {num_leaf_services}")
+    app.logger.debug(f"{log_prefix} leaf_services: {leaf_services}")
 
     dst_flow = model.addConstrs((gp.quicksum(aggregated_load.select('*', dst)) == destination[dst]*num_leaf_services for dst in dest_keys), name="destination")
     model.update()
@@ -836,8 +816,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
                         child_list.append(child_start_node)
                         out_sum += aggregated_load.sum(end_node, child_start_node)
                     node_flow = model.addConstr((gp.quicksum(aggregated_load.select('*', end_node)) == out_sum), name="flow_conservation["+end_node+"]-nonleaf_endnode")
-                    app.logger.debug(f"{cf.log_prefix} nonleaf end_node flow conservation")
-                    app.logger.debug(f"{cf.log_prefix} {end_node}, {child_list}")
+                    app.logger.debug(f"{log_prefix} nonleaf end_node flow conservation")
+                    app.logger.debug(f"{log_prefix} {end_node}, {child_list}")
     model.update()
 
 
@@ -944,12 +924,12 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
     substract_time = time.time() - ts
     LOG_TIMESTAMP("get var and constraint")
 
-    app.logger.info(f"{cf.log_prefix} model.Status: {model.Status}")
+    app.logger.info(f"{log_prefix} model.Status: {model.Status}")
 
     if model.Status != GRB.OPTIMAL:
-        app.logger.info(f"{cf.log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
-        app.logger.info(f"{cf.log_prefix} XXXX INFEASIBLE MODEL! XXXX")
-        app.logger.info(f"{cf.log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        app.logger.info(f"{log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        app.logger.info(f"{log_prefix} XXXX INFEASIBLE MODEL! XXXX")
+        app.logger.info(f"{log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
         # with pd.option_context('display.max_colwidth', None):
             # with pd.option_context('display.max_rows', None):
                 # display(df_var)
@@ -965,9 +945,9 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
             if v.IISLB: print(f'\t{v.varname} ≥ {v.LB}')
             if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
     else:
-        app.logger.info(f"{cf.log_prefix} ooooooooooooooooooooooo")
-        app.logger.info(f"{cf.log_prefix} oooo MODEL SOLVED! oooo")
-        app.logger.info(f"{cf.log_prefix} ooooooooooooooooooooooo")
+        app.logger.info(f"{log_prefix} ooooooooooooooooooooooo")
+        app.logger.info(f"{log_prefix} oooo MODEL SOLVED! oooo")
+        app.logger.info(f"{log_prefix} ooooooooooooooooooooooo")
         print()
         
         ## Model solved!
@@ -976,15 +956,15 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
         optimizer_runtime = round((optimize_end_time - optimizer_start_time) - substract_time, 5)
         solve_runtime = round(solve_end_time - solve_start_time, 5)
         # constraint_setup_time = round(constraint_setup_end_time - constraint_setup_start_time, 5)
-        app.logger.info(f"{cf.log_prefix} *"*50)
-        app.logger.info(f"{cf.log_prefix} ** Objective: {objective}")
-        app.logger.info(f"{cf.log_prefix} ** Num constraints: {num_constr}")
-        app.logger.info(f"{cf.log_prefix} ** Num variables: {num_var}")
-        app.logger.info(f"{cf.log_prefix} ** Optimization runtime: {optimizer_runtime} ms")
-        app.logger.info(f"{cf.log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
-        # app.logger.info(f"{cf.log_prefix} ** constraint_setup_time runtime: {} ms".format(constraint_setup_time))
-        app.logger.info(f"{cf.log_prefix} ** model.objVal: {model.objVal}")
-        app.logger.info(f"{cf.log_prefix} ** model.objVal / total num requests: {model.objVal/TOTAL_NUM_REQUEST}")
+        app.logger.info(f"{log_prefix} *"*50)
+        app.logger.info(f"{log_prefix} ** Objective: {objective}")
+        app.logger.info(f"{log_prefix} ** Num constraints: {num_constr}")
+        app.logger.info(f"{log_prefix} ** Num variables: {num_var}")
+        app.logger.info(f"{log_prefix} ** Optimization runtime: {optimizer_runtime} ms")
+        app.logger.info(f"{log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
+        # app.logger.info(f"{log_prefix} ** constraint_setup_time runtime: {} ms".format(constraint_setup_time))
+        app.logger.info(f"{log_prefix} ** model.objVal: {model.objVal}")
+        app.logger.info(f"{log_prefix} ** model.objVal / total num requests: {model.objVal/TOTAL_NUM_REQUEST}")
         
         app_name = "bookinfo"
         request_flow = pd.DataFrame(columns=["From", "To", "Flow"])
@@ -1001,12 +981,12 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
             
         ## Performance log write
         ## old
-        # app.logger.debug(f"{cf.log_prefix} @@, App, num_constr, num_gurobi_var, compute_arc_var_name_list, network_arc_var_name_list, NUM_CLUSTER, depth, total_num_svc, fan_out_degree, no_child_constant, REGRESSOR_DEGREE,  optimizer_runtime, solve_runtime")
+        # app.logger.debug(f"{log_prefix} @@, App, num_constr, num_gurobi_var, compute_arc_var_name_list, network_arc_var_name_list, NUM_CLUSTER, depth, total_num_svc, fan_out_degree, no_child_constant, REGRESSOR_DEGREE,  optimizer_runtime, solve_runtime")
         
         ## new
-        # app.logger.debug(f"{cf.log_prefix} @@, app_name, num_constr, num_gurobi_var, compute_arc_var_name_list, network_arc_var_name_list, NUM_CLUSTER, total_num_svc, REGRESSOR_DEGREE, optimizer_runtime, solve_runtime")
+        # app.logger.debug(f"{log_prefix} @@, app_name, num_constr, num_gurobi_var, compute_arc_var_name_list, network_arc_var_name_list, NUM_CLUSTER, total_num_svc, REGRESSOR_DEGREE, optimizer_runtime, solve_runtime")
         
-        app.logger.debug(f"{cf.log_prefix} @@, ",end="")
+        app.logger.debug(f"{log_prefix} @@, ",end="")
         print(app_name + "," +str(num_constr) + "," +str(num_var) + "," +str(len(compute_arc_var_name_list)) + "," +str(len(network_arc_var_name_list)) + "," +str(NUM_CLUSTER) + "," +str(len(unique_services)) + "," +str(REGRESSOR_DEGREE) + "," +str(optimizer_runtime) + "," +str(solve_runtime) + ",",end="")
                 # str(fan_out_degree) + "," + \
                 # str(no_child_constant) + "," + \
@@ -1133,8 +1113,8 @@ if GRAPHVIZ and model.Status == GRB.OPTIMAL:
         if src_cid != dst_cid:
             total_num_remote_routing += row["flow"]
             
-    app.logger.info(f"{cf.log_prefix} ** total_num_remote_routing: ", total_num_remote_routing)
-    app.logger.info(f"{cf.log_prefix} *"*50)   
+    app.logger.info(f"{log_prefix} ** total_num_remote_routing: ", total_num_remote_routing)
+    app.logger.info(f"{log_prefix} *"*50)   
     now =datetime .datetime.now()
     g_.render(OUTPUT_DIR + now.strftime("%Y%m%d_%H:%M:%S") + "_" + app_name+ '_call_graph', view = True) # output: call_graph.pdf
     g_
