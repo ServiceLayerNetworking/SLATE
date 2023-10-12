@@ -21,8 +21,11 @@ const (
 	KEY_HASH_MOD        = "slate_hash_mod"
 	KEY_TRACED_REQUESTS = "slate_traced_requests"
 	// this is in millis
-	AGGREGATE_REQUEST_LATENCY       = "slate_last_second_latency_avg"
-	TICK_PERIOD                     = 1000
+	AGGREGATE_REQUEST_LATENCY = "slate_last_second_latency_avg"
+	/////////////////////////////////////////
+	// (gangmuk): changed to 2 seconds to capture more inflights.
+	TICK_PERIOD = 2000
+	/////////////////////////////////////////
 	DEFAULT_HASH_MOD                = 1
 	SLATE_REMOTE_CLUSTER_HEADER_KEY = "x-slate-remotecluster"
 )
@@ -37,6 +40,7 @@ todo(adiprerepa)
 var (
 	ALL_KEYS = []string{KEY_REQUEST_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
 		KEY_TRACED_REQUESTS}
+	TOGGLE = 0 // (gangmuk): toggle in OnTick function to halve the times of clearing the KEY_REQUEST_COUNT.
 )
 
 func main() {
@@ -62,6 +66,7 @@ type TracedRequestStats struct {
 	startTime    int64
 	endTime      int64
 	bodySize     int64
+	load         int64
 }
 
 // Override types.DefaultVMContext.
@@ -153,21 +158,26 @@ func (p *pluginContext) OnTick() {
 		}
 	}
 
-	data, cas, err = proxywasm.GetSharedData(KEY_REQUEST_COUNT)
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
-		return
-	}
-	reqCount := binary.LittleEndian.Uint64(data)
 	buf = make([]byte, 8)
+	///////////////////////////////////////////////
 	// set request count back to 0
-	if err := proxywasm.SetSharedData(KEY_REQUEST_COUNT, buf, cas); err != nil {
-		if errors.Is(err, types.ErrorStatusCasMismatch) {
-			// this should *never* happen.
-			proxywasm.LogCriticalf("CAS Mismatch on RPS, failing: %v", err)
-		}
-		return
-	}
+	// proxywasm.LogCriticalf("Current TOGGLE %d", TOGGLE)
+	// if TOGGLE == 0 {
+
+	// ** (gangmuk): this is wrong **
+	// if err := proxywasm.SetSharedData(KEY_REQUEST_COUNT, buf, cas); err != nil {
+	// 	if errors.Is(err, types.ErrorStatusCasMismatch) {
+	// 		// this should *never* happen.
+	// 		proxywasm.LogCriticalf("CAS Mismatch on RPS, failing: %v", err)
+	// 	}
+	// 	return
+	// }
+	//
+
+	// proxywasm.LogCriticalf("TOGGLE(%d) == 0. CLEAR REQUEST_COUNT(load)!!", TOGGLE)
+	// }
+	// TOGGLE = (TOGGLE + 1) % 2
+	///////////////////////////////////////////////
 	requestStats, err := GetTracedRequestStats()
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get traced request stats: %v", err)
@@ -176,8 +186,8 @@ func (p *pluginContext) OnTick() {
 	// unbelievably shitty but what can you do if you don't have gRPC :)
 	requestStatsStr := ""
 	for _, stat := range requestStats {
-		requestStatsStr += fmt.Sprintf("%s %s %s %d %d %d\n", stat.traceId, stat.spanId, stat.parentSpanId,
-			stat.startTime, stat.endTime, stat.bodySize)
+		requestStatsStr += fmt.Sprintf("%s %s %s %d %d %d %d\n", stat.traceId, stat.spanId, stat.parentSpanId,
+			stat.startTime, stat.endTime, stat.bodySize, stat.load)
 	}
 
 	// reset stats
@@ -186,7 +196,14 @@ func (p *pluginContext) OnTick() {
 	}
 
 	// print ontick results
-	proxywasm.LogCriticalf("request count: %d, traced stats: %s", reqCount, requestStatsStr)
+	data, cas, err = proxywasm.GetSharedData(KEY_REQUEST_COUNT)
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
+		return
+	}
+	reqCount := binary.LittleEndian.Uint64(data)
+	proxywasm.LogCriticalf("OnTick, request count: %d, traced stats: %s", reqCount, requestStatsStr)
+
 	controllerHeaders := [][2]string{
 		{":method", "POST"},
 		{":path", "/proxyLoad"},
@@ -194,12 +211,6 @@ func (p *pluginContext) OnTick() {
 		{"x-slate-podname", p.podName},
 		{"x-slate-servicename", p.serviceName},
 	}
-
-	////////////////////////////////////////////////////////////////////////////////
-	// (gangmuk): how can I print/log in wasm-plugin?
-	// (gangmuk): port was wrong.
-	// proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
-	// 	[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 
 	proxywasm.LogCriticalf("Sending load to %s traced stats", p.metaClusterId)
 	if p.metaClusterId == "kind-us-west" {
@@ -228,40 +239,39 @@ type httpContext struct {
 }
 
 func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
-	reqId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
+	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return types.ActionContinue
 	}
 	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
-	IncrementSharedData(inboundCountKey(reqId), 1)
+	IncrementSharedData(inboundCountKey(traceId), 1)
 
-	_, _, err = proxywasm.GetSharedData(reqId)
+	_, _, err = proxywasm.GetSharedData(traceId)
 	if err == nil {
 		// we've been set, get out
-		fmt.Printf("OnhttpRequestHeaders, reqId: %d, we've been set, get out", reqId)
+		fmt.Printf("OnhttpRequestHeaders, traceId: %d, we've been set, get out", traceId)
 		return types.ActionContinue
 	}
 
 	// we haven't been set, set us. this can be anything.
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(time.Now().UnixMilli()))
-	if err := proxywasm.SetSharedData(reqId, buf, 0); err != nil {
+	if err := proxywasm.SetSharedData(traceId, buf, 0); err != nil {
 		proxywasm.LogCriticalf("Couldn't set shared data: %v", err)
 		return types.ActionContinue
 	}
 
 	// increment request count
 	// (gangmuk): it is load
-	IncrementSharedData(KEY_REQUEST_COUNT, 1)
+	IncrementSharedData(KEY_REQUEST_COUNT, 1) // There is one load variable shared by all requests in this wasm, but each request will save the snapshot of the load when the request arrives in this wasm. So different requests will have different loads but there is one load in this wasm at a time t.
 
-	// (gangmuk): suspicious...
-	if tracedRequest(reqId) {
+	if tracedRequest(traceId) {
 		// we need to record start and end time
-		proxywasm.LogCriticalf("tracing request: %s", reqId)
+		// proxywasm.LogCriticalf("tracing request: %s", traceId)
 		spanId, _ := proxywasm.GetHttpRequestHeader("x-b3-spanid")
 		parentSpanId, _ := proxywasm.GetHttpRequestHeader("x-b3-parentspanid")
-		if err := AddTracedRequest(reqId, spanId, parentSpanId, time.Now().UnixMilli()); err != nil {
+		if err := AddTracedRequest(traceId, spanId, parentSpanId, time.Now().UnixMilli()); err != nil {
 			proxywasm.LogCriticalf("unable to add traced request: %v", err)
 			return types.ActionContinue
 		}
@@ -279,8 +289,7 @@ func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.
 		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return types.ActionContinue
 	}
-
-	proxywasm.LogCriticalf("request body size: %d", bodySize)
+	proxywasm.LogCriticalf("OnHttpRequestBody, bodysize, %d", bodySize)
 
 	bodySizeBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(bodySizeBytes, uint64(bodySize))
@@ -299,29 +308,35 @@ todo adiprerepa add call size
 // Since all responses are treated equally, regardless of whether
 // they come from upstream or downstream, we need to do some clever
 // bookkeeping and only record the end time for the last response.
+// ///////////////////////////////////////////////////
 // (gangmuk): when is it called? on every response?
+// ///////////////////////////////////////////////////
 func (ctx *httpContext) OnHttpStreamDone() {
 	// get x-request-id from request headers and lookup entry time
-	reqId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
+	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return
 	}
 	// TODO(gangmuk): Is it correct?
 	// endtime should be recorded when the LAST response is received not the first response. It seems like it records the endtime on the first response.
-	inbound, err := GetUint64SharedData(inboundCountKey(reqId))
+	inbound, err := GetUint64SharedData(inboundCountKey(traceId))
 	if inbound != 1 {
 		// decrement and get out
-		IncrementSharedData(inboundCountKey(reqId), -1)
+		IncrementSharedData(inboundCountKey(traceId), -1)
 		return
 	}
 
-	currentTime := time.Now().UnixMilli()
+	//////////////////////////////////////////////////////////////////////////////////////
+	// (gangmuk): Instead of setting the KEY_REQUEST_COUNT(load) to zero in OnTick function, decrement it when each request is completed.
+	IncrementSharedData(KEY_REQUEST_COUNT, -1)
+	//////////////////////////////////////////////////////////////////////////////////////
 
+	currentTime := time.Now().UnixMilli()
 	endTimeBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(endTimeBytes, uint64(currentTime))
-	if err := proxywasm.SetSharedData(endTimeKey(reqId), endTimeBytes, 0); err != nil {
-		proxywasm.LogCriticalf("unable to set shared data for traceId %v endTime: %v %v", reqId, currentTime, err)
+	if err := proxywasm.SetSharedData(endTimeKey(traceId), endTimeBytes, 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data for traceId %v endTime: %v %v", traceId, currentTime, err)
 	}
 }
 
@@ -462,6 +477,14 @@ func AddTracedRequest(traceId, spanId, parentSpanId string, startTime int64) err
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v startTime: %v %v", traceId, startTime, err)
 		return err
 	}
+	//////////////////////////////////////////////////////////////////////////////////
+	// (gangmuk): Adding load to shareddata when we receive the request
+	data, cas, err := proxywasm.GetSharedData(KEY_REQUEST_COUNT)               // Get the current load
+	if err := proxywasm.SetSharedData(loadKey(traceId), data, 0); err != nil { // Set the trace with the current load
+		proxywasm.LogCriticalf("unable to set shared data for traceId %v load: %v", traceId, err)
+		return err
+	}
+	//////////////////////////////////////////////////////////////////////////////////
 	return nil
 }
 
@@ -473,7 +496,7 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 		proxywasm.LogCriticalf("Couldn't get shared data for traced requests: %v", err)
 		return nil, err
 	}
-	proxywasm.LogCriticalf("tracedRequestsRaw: %v", string(tracedRequestsRaw))
+	// proxywasm.LogCriticalf("tracedRequestsRaw: %v", string(tracedRequestsRaw))
 	if len(tracedRequestsRaw) == 0 || errors.Is(err, types.ErrorStatusNotFound) || emptyBytes(tracedRequestsRaw) {
 		// no requests traced
 		return make([]TracedRequestStats, 0), nil
@@ -518,6 +541,15 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 			bodySize = int64(binary.LittleEndian.Uint64(bodySizeBytes))
 		}
 		endTime := int64(binary.LittleEndian.Uint64(endTimeBytes))
+
+		// (gangmuk)
+		loadBytes, _, err := proxywasm.GetSharedData(loadKey(traceId)) // Get stored load of this traceid
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v load: %v", traceId, err)
+			return nil, err
+		}
+		load := int64(binary.LittleEndian.Uint64(loadBytes)) // to int
+
 		tracedRequestStats = append(tracedRequestStats, TracedRequestStats{
 			traceId:      traceId,
 			spanId:       spanId,
@@ -525,6 +557,7 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 			startTime:    startTime,
 			endTime:      endTime,
 			bodySize:     bodySize,
+			load:         load, // newly added per-request level load field
 		})
 	}
 	return tracedRequestStats, nil
@@ -552,6 +585,10 @@ func endTimeKey(traceId string) string {
 
 func bodySizeKey(traceId string) string {
 	return traceId + "-bodySize"
+}
+
+func loadKey(traceId string) string {
+	return traceId + "-load"
 }
 
 func emptyBytes(b []byte) bool {
