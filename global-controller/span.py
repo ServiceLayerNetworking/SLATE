@@ -8,21 +8,34 @@ class Span:
         self.load = load
         self.st = st
         self.et = et
-        self.rt = et - st
+        try:
+            # print(et)
+            # print(st)
+            # print(type(et))
+            # print(type(st))
+            self.rt = et - st
+        except Exception as error:
+            print(f"et: {et}")
+            print(f"st: {st}")
+            print(error)
+            exit()
         if self.rt < 0:
             print(f"class Span, negative response time, {self.rt}")
             assert False
-        self.xt = 0
-        self.cpt = list() # critical path time
+        self.xt = 0 # exclusive time
+        self.ct = 0 # critical time
+        # self.cpt = list() # critical path time
         self.child_spans = list()
         self.critical_child_spans = list()
-        self.critical_time = 0
         self.call_size = cs
         self.depth = 0 # ingress gw's depth: 0, frontend's depth: 1
+    
+    def unfold(self):
+        unfold_dict = {k:v for k, v in self.__dict__.items() if not (k.startswith('__') and k.endswith('__'))}
+        return unfold_dict
     
     def __str__(self):
         return f"SPAN,{self.trace_id},{self.svc_name},{self.cluster_id},{self.my_span_id},{self.parent_span_id},{self.load},{self.st},{self.et},{self.rt},{self.call_size}"
     
     # def __str__(self):
     #     return f"SPAN tid,{self.trace_id[:8]}, {self.svc_name}, cid,{self.cluster_id}, span,{self.my_span_id}, parent_span,{self.parent_span_id}, load,{self.load}"
-        

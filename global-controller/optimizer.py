@@ -78,31 +78,37 @@ def print_error(msg):
     exit()
     
 
+'''
+For interactive run with jupyternotebook, comment out following lines "COMMENT OUT FOR JUPYTER".
+And adjust the indentation accordingly.
+'''
+
 ## In[31]:
 raw_traces = None
 NUM_REQUESTS=[100,1000]
-def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
+
+''' start of run_optimizer function '''
+def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_JUPYTER
     if raw_traces == None:
-        ###############################################
         ## Parse trace file
-        # LOG_PATH = "./modified_trace_and_load_log.txt"
+        # LOG_PATH = "./modified_trace_and_load_log.txt" # outdated
         # traces = tst.parse_file(LOG_PATH)
-        
-        LOG_PATH = "/home/gangmuk2/trace_2023_10_11-west_only.csv"
+        # LOG_PATH = "./trace_2023_10_11-west_only.csv" # Per-OnTick load logging
+        LOG_PATH = "./trace_2023_10_12-west_only.csv" # Per-request load logging
         traces = tst.parse_trace_file_ver2(LOG_PATH)
-        traces, callgraph, depth_dict = tst.stitch_time(traces)
+        traces, callgraph, depth_dict, trace_df = tst.stitch_time(traces)
+        display(trace_df)
         NUM_CLUSTER = len(traces)
-        ###############################################
     else:
         assert type(raw_traces) == type(dict())
         assert type(NUM_REQUESTS) == type(list())
         if len(raw_traces) == 0:
             app.logger.info(f"{log_prefix} Trace is empty. returns None... Do local routing.")
-            return None
+            return None ## COMMENT_OUT_FOR_JUPYTER
         assert len(raw_traces) == len(NUM_REQUESTS)
         if len(raw_traces) == 1 or len(NUM_REQUESTS) == 1:
             app.logger.info(f"{log_prefix} the number of cluster is ONE. returns None... Do local routing.")
-            return None
+            return None ## COMMENT_OUT_FOR_JUPYTER
         LOG_TIMESTAMP("optimizer start")
         NUM_CLUSTER = len(raw_traces)
         TOTAL_NUM_REQUEST = sum(NUM_REQUESTS)
@@ -110,13 +116,11 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
         for cid, trace in raw_traces.items():
             if len(raw_traces[cid]) == 0:
                 app.logger.info(f"{log_prefix} trace for cluster {cid} is empty.")
-        ###############################################
         traces, callgraph, depth_dict = tst.stitch_time(raw_traces)
-        ###############################################
         for cid in traces:
             if len(traces[cid]) == 0:
                 app.logger.info(f"{log_prefix} Cluster {cid} trace is empty. It is impossible to predict latency function. returns None... Do local routing.")
-                return None
+                return None ## COMMENT_OUT_FOR_JUPYTER
         
     if ENTRANCE == INGRESS_GW_NAME:
         callgraph[INGRESS_GW_NAME] = list()
@@ -284,7 +288,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
                 for tid, spans in traces[cid].items():
                     for svc_name, span in spans.items():
                         load.append(span.load)
-                        comp_t.append(span.xt)
+                        # comp_t.append(span.xt)
+                        comp_t.append(span.ct)
                         index_.append(span_to_compute_arc_var_name(span.svc_name, span.cluster_id))
                         service_name_.append(span.svc_name)
                         cid_list.append(span.cluster_id)
@@ -295,24 +300,6 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
                                 index_.append(span_to_compute_arc_var_name(ENTRANCE, span.cluster_id))
                                 service_name_.append(ENTRANCE)
                                 cid_list.append(span.cluster_id)
-    ## Original                   
-    # else:
-    #     num_data_point = 100
-    #     for cid in range(NUM_CLUSTER):
-    #         for svc_name in unique_services:
-    #             load += list(np.arange(0,num_data_point))
-    #             for j in range(num_data_point):
-    #                 cid_list.append(cid)
-    #                 service_name_.append(svc_name)
-    #                 index_.append(span_to_compute_arc_var_name(svc_name, cid))
-    #                 if svc_name == INGRESS_GW_NAME:
-    #                     comp_t.append(0)
-    #                 else:
-    #                     slope=1
-    #                     intercept=10
-    #                     comp_t.append(pow(load[j],REGRESSOR_DEGREE)*slope + intercept)
-
-    ## New
     else:
         num_data_point = 100
         for cid in range(NUM_CLUSTER):
@@ -357,8 +344,9 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
         # with pd.option_context('display.max_rows', None):
         # print(compute_time_observation[(compute_time_observation["service_name"]=="details-v1") & (compute_time_observation["cluster_id"]==0)])
         # print(compute_time_observation[(compute_time_observation["service_name"]=="details-v1") & (compute_time_observation["cluster_id"]==1)])
-        with pd.option_context('display.max_rows', None):
-            display(compute_time_observation)
+        
+        # with pd.option_context('display.max_rows', None):
+        display(compute_time_observation)
 
 
     # In[38]:
@@ -388,9 +376,17 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
             else:
                 X = temp_df[["load"]]
                 y = temp_df["compute_time"]
+            display(X)
             temp_x = X.copy()
-            for i in range(len(temp_x)):
+            # for i in range(len(temp_x)):
+            print("max(temp_x)")
+            print(max(temp_x["load"]))
+            for i in range(max(temp_x["load"])):
                 temp_x.iloc[i, 0] = i
+            print("len(temp_x)")
+            print(len(temp_x))
+            print("temp_x")
+            print(temp_x)
             #############################################
             # if ENTRANCE == INGRESS_GW_NAME and svc_name == ENTRANCE:
             #     max_compute_time[svc_name] = 0
@@ -425,11 +421,11 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
             row_idx = int(idx/num_subplot_col)
             col_idx = idx%num_subplot_col
             # print(row_idx, col_idx)
-            # plot_list[row_idx][col_idx].plot(X["load"], y, 'ro', label="observation", alpha=0.2)
-            # plot_list[row_idx][col_idx].plot(X["load"], regressor_dict[svc_name].predict(X), 'b.', label="prediction", alpha=0.2)
-            plot_list[row_idx][col_idx].plot(X, y, 'ro', label="observation", alpha=0.2)
-            # plot_list[row_idx][col_idx].plot(X, regressor_dict[svc_name].predict(X), 'b.', label="prediction", alpha=0.2)
-            plot_list[row_idx][col_idx].plot(temp_x, regressor_dict[svc_name].predict(temp_x), 'go', label="prediction", alpha=0.2)
+            # plot_list[row_idx][col_idx].plot(X["load"], y, 'ro', label="observation", alpha=0.1)
+            # plot_list[row_idx][col_idx].plot(X["load"], regressor_dict[svc_name].predict(X), 'b.', label="prediction", alpha=0.1)
+            plot_list[row_idx][col_idx].plot(X, y, 'ro', label="observation", alpha=0.1)
+            # plot_list[row_idx][col_idx].plot(X, regressor_dict[svc_name].predict(X), 'b.', label="prediction", alpha=0.1)
+            plot_list[row_idx][col_idx].plot(temp_x, regressor_dict[svc_name].predict(temp_x), 'bo', label="prediction", alpha=0.1)
             plot_list[row_idx][col_idx].legend()
             plot_list[row_idx][col_idx].set_title(svc_name)
             if row_idx == num_subplot_row-1:
@@ -663,20 +659,20 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
 
     # total latency sum
     network_latency_sum = sum(network_latency.multiply(network_load))
-    
+
     compute_latency_sum = 0
     for svc_name in unique_services:
         compute_latency_sum += sum(compute_time[svc_name].multiply(m_feats[svc_name]["load"])) # m_feats[svc_name]["load"] is identical to compute_load[svc_name]
         # print("compute_latency_sum, ", svc_name)
         # display(compute_latency_sum)
     total_latency_sum = network_latency_sum + compute_latency_sum
-    
+
     app.logger.debug(f"{log_prefix} compute_latency_sum:")
     app.logger.debug(f"{log_prefix} {compute_latency_sum}\n")
-    
+
     app.logger.debug(f"{log_prefix} network_latency_sum:")
     app.logger.debug(f"{log_prefix} {network_latency_sum}\n")
-    
+
     app.logger.debug(f"{log_prefix} total_latency_sum:")
     app.logger.debug(f"{log_prefix} {total_latency_sum}\n")
 
@@ -713,7 +709,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
     #         max_tput[svc_name+DELIMITER+str(cid)+DELIMITER+"start"] = tput
     #         max_tput[svc_name+DELIMITER+str(cid)+DELIMITER+"end"] = tput
     # app.logger.info(f"{log_prefix} max_tput: {max_tput}")
-    
+
     LOG_TIMESTAMP("gurobi add_vars and set objective")
 
 
@@ -1058,7 +1054,10 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]):
         percentage_df = translate_to_percentage(request_flow)
         if DISPLAY:
             display(percentage_df)
-    return percentage_df
+        # return percentage_df
+    
+''' This is end of run_optimizer function'''
+
 
 # In[52]:
 
@@ -1119,6 +1118,6 @@ if GRAPHVIZ and model.Status == GRB.OPTIMAL:
     g_.render(OUTPUT_DIR + now.strftime("%Y%m%d_%H:%M:%S") + "_" + app_name+ '_call_graph', view = True) # output: call_graph.pdf
     g_
         
-if __name__ == "__main__":
-    run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000])
+if __name__ == "__main__": ## COMMENT_OUT_FOR_JUPYTER
+    run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]) ## COMMENT_OUT_FOR_JUPYTER
 # %%
