@@ -641,15 +641,15 @@ func bodySizeKey(traceId string) string {
 }
 
 func firstLoadKey(traceId string) string {
-	return traceId + "-load"
+	return traceId + "-firstLoad"
 }
 
 func avgLoadKey(traceId string) string {
-	return traceId + "-load"
+	return traceId + "-avgLoad"
 }
 
 func lastLoadKey(traceId string) string {
-	return traceId + "-load"
+	return traceId + "-lastLoad"
 }
 
 func emptyBytes(b []byte) bool {
