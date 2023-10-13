@@ -96,7 +96,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
         # LOG_PATH = "./modified_trace_and_load_log.txt" # outdated
         # traces = tst.parse_file(LOG_PATH)
         # LOG_PATH = "./trace-west_only-load_per_ontick.csv" # Per-OnTick load logging
-        LOG_PATH = "./trace-west_only-load_per_req.csv" # Per-request load logging
+        # LOG_PATH = "./trace-west_only-load_per_req.csv" # Per-request load logging
+        LOG_PATH = "./trace-west_only-avg_load.csv" # Per-request load logging
         traces = tst.parse_trace_file_ver2(LOG_PATH)
         traces, callgraph, depth_dict, trace_df = tst.stitch_time(traces)
         display(trace_df)
@@ -273,6 +274,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
                     for svc_name, span in spans.items():
                         for cid in range(NUM_CLUSTER):
                             load.append(span.load)
+                            # load.append(span.last_load)
+                            # load.append(span.avg_load)
                             comp_t.append(span.xt)
                             index_.append(span_to_compute_arc_var_name(span.svc_name, cid))
                             service_name_.append(span.svc_name)
@@ -282,6 +285,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
                                 if span.svc_name == tst.FRONTEND_svc:
                                     ###############################################
                                     load.append(span.load)
+                                    # load.append(span.last_load)
+                                    # load.append(span.avg_load)
                                     comp_t.append(0)
                                     ###############################################
                                     index_.append(span_to_compute_arc_var_name(ENTRANCE, cid))
@@ -292,6 +297,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
                 for tid, spans in traces[cid].items():
                     for svc_name, span in spans.items():
                         load.append(span.load)
+                        # load.append(span.last_load)
+                        # load.append(span.avg_load)
                         # comp_t.append(span.xt)
                         comp_t.append(span.ct)
                         index_.append(span_to_compute_arc_var_name(span.svc_name, span.cluster_id))
@@ -300,6 +307,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
                         if ENTRANCE == INGRESS_GW_NAME:
                             if span.svc_name == tst.FRONTEND_svc:
                                 load.append(span.load)
+                                # load.append(span.last_load)
+                                # load.append(span.avg_load)
                                 comp_t.append(0)
                                 index_.append(span_to_compute_arc_var_name(ENTRANCE, span.cluster_id))
                                 service_name_.append(ENTRANCE)
@@ -380,17 +389,17 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
             else:
                 X = temp_df[["load"]]
                 y = temp_df["compute_time"]
-            display(X)
+            # display(X)
             temp_x = X.copy()
             # for i in range(len(temp_x)):
-            print("max(temp_x)")
-            print(max(temp_x["load"]))
+            # print("max(temp_x)")
+            # print(max(temp_x["load"]))
             for i in range(max(temp_x["load"])):
                 temp_x.iloc[i, 0] = i
-            print("len(temp_x)")
-            print(len(temp_x))
-            print("temp_x")
-            print(temp_x)
+            # print("len(temp_x)")
+            # print(len(temp_x))
+            # print("temp_x")
+            # print(temp_x)
             #############################################
             # if ENTRANCE == INGRESS_GW_NAME and svc_name == ENTRANCE:
             #     max_compute_time[svc_name] = 0
@@ -416,11 +425,10 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
                 
             ## Run prediction and compare it with the ground truth to see how accurate the trained model is
             y_pred = regressor_dict[svc_name].predict(X_test)
-            c_ = regressor_dict[svc_name]["linearregression"].intercept_,
-            in_ = regressor_dict[svc_name]["linearregression"].coef_
+            c_ = regressor_dict[svc_name]["linearregression"].coef_
+            in_ = regressor_dict[svc_name]["linearregression"].intercept_
             r2 =  np.round(r2_score(y_test, y_pred),2)
             app.logger.info(f"{log_prefix} Service {svc_name}, model slope: {c_}, intercept: {in_}, R^2: {r2}")
-
             ## Plot
             row_idx = int(idx/num_subplot_col)
             col_idx = idx%num_subplot_col
@@ -436,6 +444,13 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
                 plot_list[row_idx][col_idx].set_xlabel("load")
             if col_idx == 0:
                 plot_list[row_idx][col_idx].set_ylabel("Compute time")
+            ###############################################################################
+            if c_ < 0:
+                print("type(c_): ", type(c_))
+                new_c = np.array([0.])
+                regressor_dict[svc_name]["linearregression"].coef_ = new_c
+                app.logger.info(f"{log_prefix} Service {svc_name}, changed slope {c_} --> {new_c}, intercept: {in_}")
+            ###############################################################################
             idx += 1
         
         
@@ -582,13 +597,13 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
             # Network latency for local routing
             if src_idx == dst_idx:
                 app.logger.info(f"{log_prefix} intra-cluster, {src_node}, {dst_node}")
-                min_network_latency.append(intra_cluster_network_rtt)
-                max_network_latency.append(intra_cluster_network_rtt)
+                min_network_latency.append(INTRA_CLUTER_RTT)
+                max_network_latency.append(INTRA_CLUTER_RTT)
             # Network latency for remote routing
             else:
                 app.logger.info(f"{log_prefix} inter-cluster, {src_node}, {dst_node}")
-                min_network_latency.append(inter_cluster_network_rtt)
-                max_network_latency.append(inter_cluster_network_rtt)
+                min_network_latency.append(INTER_CLUSTER_RTT)
+                max_network_latency.append(INTER_CLUSTER_RTT)
 
     network_latency_data = pd.DataFrame(
         data={
@@ -686,11 +701,11 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
     elif objective == "egress_cost":
         model.setObjective(total_egress_sum, gp.GRB.MINIMIZE)
     elif objective == "multi-objective":
-        # NOTE: higher dollar per millisecond, more important the latency
-        # dollar_per_millisecond = 0.00001
-        dollar_per_millisecond = 1
-        # model.setObjective((dollar_per_millisecond*total_latency_sum) + total_egress_sum, gp.GRB.MINIMIZE)
-        model.setObjective(total_latency_sum + (total_egress_sum/dollar_per_millisecond), gp.GRB.MINIMIZE)
+        # NOTE: higher dollar per ms, more important the latency
+        # DOLLAR_PER_MS: value of latency
+        # lower dollar per ms, less tempting to re-route since bandwidth cost is becoming more important
+        # simply speaking, when we have DOLLAR_PER_MS decreased, less offloading.
+        model.setObjective(total_latency_sum*DOLLAR_PER_MS + total_egress_sum, gp.GRB.MINIMIZE)
     else:
         print_error("unsupported objective, ", objective)
         
@@ -944,6 +959,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
         for v in model.getVars():
             if v.IISLB: print(f'\t{v.varname} ≥ {v.LB}')
             if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
+        return None
     else:
         app.logger.info(f"{log_prefix} ooooooooooooooooooooooo")
         app.logger.info(f"{log_prefix} oooo MODEL SOLVED! oooo")
@@ -956,7 +972,6 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
         optimizer_runtime = round((optimize_end_time - optimizer_start_time) - substract_time, 5)
         solve_runtime = round(solve_end_time - solve_start_time, 5)
         # constraint_setup_time = round(constraint_setup_end_time - constraint_setup_start_time, 5)
-        app.logger.info(f"{log_prefix} *"*50)
         app.logger.info(f"{log_prefix} ** Objective: {objective}")
         app.logger.info(f"{log_prefix} ** Num constraints: {num_constr}")
         app.logger.info(f"{log_prefix} ** Num variables: {num_var}")
@@ -966,7 +981,6 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
         app.logger.info(f"{log_prefix} ** model.objVal: {model.objVal}")
         app.logger.info(f"{log_prefix} ** model.objVal / total num requests: {model.objVal/TOTAL_NUM_REQUEST}")
         
-        app_name = "bookinfo"
         request_flow = pd.DataFrame(columns=["From", "To", "Flow"])
         for arc in arcs:
             if aggregated_load[arc].x > 1e-6:
@@ -976,7 +990,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
             display(request_flow)
         if OUTPUT_WRITE:
             now = datetime.datetime.now()
-            request_flow.to_csv(OUTPUT_DIR + now.strftime("%Y%m%d_%H:%M:%S") + "-"+app_name+"-model_solution.csv")
+            request_flow.to_csv(OUTPUT_DIR + now.strftime("%Y%m%d_%H:%M:%S") + "-"+APP_NAME+"-model_solution.csv")
             LOG_TIMESTAMP("file write model output")
             
         ## Performance log write
@@ -984,10 +998,10 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
         # app.logger.debug(f"{log_prefix} @@, App, num_constr, num_gurobi_var, compute_arc_var_name_list, network_arc_var_name_list, NUM_CLUSTER, depth, total_num_svc, fan_out_degree, no_child_constant, REGRESSOR_DEGREE,  optimizer_runtime, solve_runtime")
         
         ## new
-        # app.logger.debug(f"{log_prefix} @@, app_name, num_constr, num_gurobi_var, compute_arc_var_name_list, network_arc_var_name_list, NUM_CLUSTER, total_num_svc, REGRESSOR_DEGREE, optimizer_runtime, solve_runtime")
+        # app.logger.debug(f"{log_prefix} @@, APP_NAME, num_constr, num_gurobi_var, compute_arc_var_name_list, network_arc_var_name_list, NUM_CLUSTER, total_num_svc, REGRESSOR_DEGREE, optimizer_runtime, solve_runtime")
         
         app.logger.debug(f"{log_prefix} @@, ",end="")
-        print(app_name + "," +str(num_constr) + "," +str(num_var) + "," +str(len(compute_arc_var_name_list)) + "," +str(len(network_arc_var_name_list)) + "," +str(NUM_CLUSTER) + "," +str(len(unique_services)) + "," +str(REGRESSOR_DEGREE) + "," +str(optimizer_runtime) + "," +str(solve_runtime) + ",",end="")
+        print(APP_NAME + "," +str(num_constr) + "," +str(num_var) + "," +str(len(compute_arc_var_name_list)) + "," +str(len(network_arc_var_name_list)) + "," +str(NUM_CLUSTER) + "," +str(len(unique_services)) + "," +str(REGRESSOR_DEGREE) + "," +str(optimizer_runtime) + "," +str(solve_runtime) + ",",end="")
                 # str(fan_out_degree) + "," + \
                 # str(no_child_constant) + "," + \
                 # str(depth) + "," + \
@@ -1058,14 +1072,13 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
         percentage_df = translate_to_percentage(request_flow)
         if DISPLAY:
             display(percentage_df)
-        # return percentage_df
-    
+        return percentage_df
 ''' This is end of run_optimizer function'''
 
 
 # In[52]:
 
-if GRAPHVIZ and model.Status == GRB.OPTIMAL:
+def plot_request_flow(percent_df):
     g_ = graphviz.Digraph()
     # The node() method takes a name identifier as first argument and an optional label.
     # The edge() method takes the names of start node and end node
@@ -1084,7 +1097,7 @@ if GRAPHVIZ and model.Status == GRB.OPTIMAL:
     # node_color = ["#ff0000","#ff7f00","#ffff00","#7fff00","#00ff00","#00ff7f","#00ffff","#007fff","#0000ff","#7f00ff"] # rainbow
     name_cut = 6
     total_num_remote_routing = 0
-    for index, row in percentage_df.iterrows():
+    for index, row in percent_df.iterrows():
         src_cid = row["src_cid"]
         dst_cid = row["dst_cid"]
         src_svc = row["src"]
@@ -1117,11 +1130,12 @@ if GRAPHVIZ and model.Status == GRB.OPTIMAL:
             total_num_remote_routing += row["flow"]
             
     app.logger.info(f"{log_prefix} ** total_num_remote_routing: ", total_num_remote_routing)
-    app.logger.info(f"{log_prefix} *"*50)   
     now =datetime .datetime.now()
-    g_.render(OUTPUT_DIR + now.strftime("%Y%m%d_%H:%M:%S") + "_" + app_name+ '_call_graph', view = True) # output: call_graph.pdf
+    g_.render(OUTPUT_DIR + now.strftime("%Y%m%d_%H:%M:%S") + "_" + APP_NAME+ '_call_graph', view = True) # output: call_graph.pdf
     g_
         
 if __name__ == "__main__": ## COMMENT_OUT_FOR_JUPYTER
-    run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]) ## COMMENT_OUT_FOR_JUPYTER
+    percentage_df = run_optimizer(raw_traces=None, NUM_REQUESTS=[10,500]) ## COMMENT_OUT_FOR_JUPYTER
+    if GRAPHVIZ and percentage_df.empty == False:
+        plot_request_flow(percentage_df)
 # %%

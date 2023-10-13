@@ -116,19 +116,52 @@ def create_span_ver2(row):
     parent_span_id = row["parent_span_id"][:8] # NOTE
     st = row["st"]
     et = row["et"]
+    
+    
     load = row["load"]
+    last_load = row["last_load"]
+    avg_load = row["avg_load"]
+    
+    ########################
+    load = row["avg_load"] 
+    ########################
+    
+    
     callsize = row["call_size"]
-    span = sp.Span(svc, cluster_id, trace_id, span_id, parent_span_id, st, et, load, callsize)
+    span = sp.Span(svc, cluster_id, trace_id, span_id, parent_span_id, st, et, load, last_load, avg_load, callsize)
     return span
 
+def trace_trimmer(trace_file):
+    df = pd.read_csv(trace_file)
+    col_len = df.shape[1]
+    if col_len == 14:
+        col_name = ['a', 'b', "trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","last_load","avg_load","st","et","rt","call_size"]
+    else:
+        print("ERROR trace_trimmer, invalid column length, ", col_len)
+        assert False
+    df.columns = col_name
+    # if 'a' in df.columns:
+    df = df.drop('a', axis=1)
+    # if 'b' in df.columns:
+    df = df.drop('b', axis=1)
+    df.fillna("", inplace=True)
+    df['avg_load'] = df['avg_load'].clip(lower=1)
+    df['last_load'] = df['last_load'].clip(lower=1)
+    df['load'] = df['load'].clip(lower=1)
+    return df
+
 def parse_trace_file_ver2(log_path):
-    colname =  ["trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","st","et","rt","call_size"]
-    temp_df = pd.read_csv(log_path, names=colname)
-    temp_df.fillna("", inplace=True)
-    temp_df['load'] = temp_df['load'].clip(lower=1)
+    # colname =  ["trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","st","et","rt","call_size"]
+    # temp_df = pd.read_csv(log_path, names=colname)
+    # temp_df.fillna("", inplace=True)
+    # temp_df['load'] = temp_df['load'].clip(lower=1)
+    df = trace_trimmer(log_path)
+    # display(df)
+    # temp_df = df[df["load"] != df["last_load"]]
+    # display(temp_df)
     traces_ = dict() # cluster_id -> trace id -> svc_name -> span
     for cid in range(NUM_CLUSTER):
-        for index, row in temp_df.iterrows():
+        for index, row in df.iterrows():
             span = create_span_ver2(row)
             span.cluster_id = cid
             if span.cluster_id not in traces_:
@@ -445,6 +478,7 @@ def critical_path_analysis(parent_span):
             total_critical_children_time += child_span.rt
             cur_end_time = child_span.st
     parent_span.ct = parent_span.rt - total_critical_children_time
+    assert parent_span.ct >= 0.0
     # print(" ==== " + str(parent_span) + " ==== ")
     # for child_span in sorted_children:
     #     print(child_span)
