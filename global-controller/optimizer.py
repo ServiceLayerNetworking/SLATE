@@ -1000,7 +1000,6 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
         ## new
         # app.logger.debug(f"{log_prefix} @@, APP_NAME, num_constr, num_gurobi_var, compute_arc_var_name_list, network_arc_var_name_list, NUM_CLUSTER, total_num_svc, REGRESSOR_DEGREE, optimizer_runtime, solve_runtime")
         
-        app.logger.debug(f"{log_prefix} @@, ",end="")
         print(APP_NAME + "," +str(num_constr) + "," +str(num_var) + "," +str(len(compute_arc_var_name_list)) + "," +str(len(network_arc_var_name_list)) + "," +str(NUM_CLUSTER) + "," +str(len(unique_services)) + "," +str(REGRESSOR_DEGREE) + "," +str(optimizer_runtime) + "," +str(solve_runtime) + ",",end="")
                 # str(fan_out_degree) + "," + \
                 # str(no_child_constant) + "," + \
@@ -1027,7 +1026,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
                 src_node_type = row["From"].split(DELIMITER)[2]
                 dst_node_type = row["To"].split(DELIMITER)[2]
                 if src_svc == source_name or dst_svc == destination_name or (src_node_type == "end" and dst_node_type == "start"):
-                    print(src_svc)
+                    # print(src_svc)
                     if src_svc != source_name:
                         src_cid = int(src_cid)
                     if dst_svc != destination_name:
@@ -1078,6 +1077,22 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
 
 # In[52]:
 
+def count_cross_cluster_routing(percent_df):
+    remote_routing = 0
+    local_routing = 0
+    for index, row in percent_df.iterrows():
+        src_cid = row["src_cid"]
+        dst_cid = row["dst_cid"]
+        src_svc = row["src"]
+        dst_svc = row["dst"]
+        if src_cid != "*" and dst_cid != "*":
+            if src_cid != dst_cid:
+                remote_routing += row["flow"]
+            else:
+                local_routing += row["flow"]
+    return remote_routing
+
+
 def plot_request_flow(percent_df):
     g_ = graphviz.Digraph()
     # The node() method takes a name identifier as first argument and an optional label.
@@ -1096,7 +1111,6 @@ def plot_request_flow(percent_df):
     node_color = ["#FFBF00", "#ff6375", "#6973fa", "#AFE1AF"] # yellow, pink, blue, green
     # node_color = ["#ff0000","#ff7f00","#ffff00","#7fff00","#00ff00","#00ff7f","#00ffff","#007fff","#0000ff","#7f00ff"] # rainbow
     name_cut = 6
-    total_num_remote_routing = 0
     for index, row in percent_df.iterrows():
         src_cid = row["src_cid"]
         dst_cid = row["dst_cid"]
@@ -1124,18 +1138,18 @@ def plot_request_flow(percent_df):
         
         g_.node(name=dst_node_name, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
         
-        g_.edge(src_node_name, dst_node_name, label=str(row["flow"]) + ", ("+str(int(row["weight"])*100)+"%)", penwidth=edge_pw, style="filled", fontsize=edge_fs_0, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
+        g_.edge(src_node_name, dst_node_name, label=str(row["flow"]) + " ("+str(int(row["weight"]*100))+"%)", penwidth=edge_pw, style="filled", fontsize=edge_fs_0, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
             
-        if src_cid != dst_cid:
-            total_num_remote_routing += row["flow"]
-            
-    app.logger.info(f"{log_prefix} ** total_num_remote_routing: ", total_num_remote_routing)
     now =datetime .datetime.now()
     g_.render(OUTPUT_DIR + now.strftime("%Y%m%d_%H:%M:%S") + "_" + APP_NAME+ '_call_graph', view = True) # output: call_graph.pdf
     g_
         
 if __name__ == "__main__": ## COMMENT_OUT_FOR_JUPYTER
     percentage_df = run_optimizer(raw_traces=None, NUM_REQUESTS=[10,500]) ## COMMENT_OUT_FOR_JUPYTER
+    print("percentage_df")
+    display(percentage_df)
+    ccr = count_cross_cluster_routing(percentage_df)
+    print(f"** cross_cluster_routing: {ccr}")
     if GRAPHVIZ and percentage_df.empty == False:
         plot_request_flow(percentage_df)
 # %%
