@@ -3,7 +3,7 @@ import logging
 from threading import Lock
 import atexit
 from apscheduler.schedulers.background import BackgroundScheduler
-import optimizer as opt
+# import optimizer as opt ## NOTE: COMMENT OUT when you run optimizer in standalone
 import pandas as pd
 from config import *
 import span as sp
@@ -106,7 +106,8 @@ def parse_stats_into_spans(stats, cluster, service):
     for i in range(1, len(lines)):
         line = lines[i]
         ss = line.split(" ")
-        if len(ss) < 6:
+        # app.logger.info(f"{log_prefix} ss: {ss}")
+        if len(ss) != 9:
             continue
         trace_id = ss[0]
         my_span_id = ss[1]
@@ -115,8 +116,10 @@ def parse_stats_into_spans(stats, cluster, service):
         start = int(ss[3])
         end = int(ss[4])
         call_size = int(ss[5])
-        load = int(ss[6]) # (gangmuk): new
-        spans.append(sp.Span(service, cluster_to_cid[cluster], trace_id, my_span_id, parent_span_id, start, end, load, call_size))
+        first_load = int(ss[6]) # (gangmuk): new
+        last_load = int(ss[7]) # (gangmuk): new
+        avg_load = int(ss[8]) # (gangmuk): new
+        spans.append(sp.Span(service, cluster_to_cid[cluster], trace_id, my_span_id, parent_span_id, start, end, first_load, last_load, avg_load, call_size))
     # if len(spans) > 0:
     #     app.logger.info(f"{log_prefix} ==================================")
     #     for span in spans:

@@ -40,18 +40,20 @@ temp_timestamp_list = list()
 def LOG_TIMESTAMP(event_name):
     timestamp_list.append([event_name, time.time()])
     if len(timestamp_list) > 1:
-        app.logger.info(f"{log_prefix} Finished, " + event_name + ", duration, " + str(round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)))
+        dur = round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)
+        app.logger.info(f"{log_prefix} Finished, {event_name}, duration,{dur}")
 
 
 def TEMP_LOG_TIMESTAMP(event_name):
     temp_timestamp_list.append([event_name, time.time()])
     if len(temp_timestamp_list) > 1:
-        app.logger.info(f"{log_prefix} Finished, " + event_name + ", duration, " + str(round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)))
+        dur = round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)
+        app.logger.info(f"{log_prefix} Finished, {event_name}, duration,{dur}")
         
         
 def prettyprint_timestamp():
     app.logger.info(f"{log_prefix}")
-    app.logger.info(f"{log_prefix} *"*30)
+    app.logger.info(f"{log_prefix} *")
     app.logger.info(f"{log_prefix} ** timestamp_list(ms)")
     for i in range(1, len(timestamp_list)):
         app.logger.info(f"{log_prefix} {timestamp_list[i][0]}", end=",")
@@ -93,8 +95,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
         ## Parse trace file
         # LOG_PATH = "./modified_trace_and_load_log.txt" # outdated
         # traces = tst.parse_file(LOG_PATH)
-        # LOG_PATH = "./trace_2023_10_11-west_only.csv" # Per-OnTick load logging
-        LOG_PATH = "./trace_2023_10_12-west_only.csv" # Per-request load logging
+        # LOG_PATH = "./trace-west_only-load_per_ontick.csv" # Per-OnTick load logging
+        LOG_PATH = "./trace-west_only-load_per_req.csv" # Per-request load logging
         traces = tst.parse_trace_file_ver2(LOG_PATH)
         traces, callgraph, depth_dict, trace_df = tst.stitch_time(traces)
         display(trace_df)
@@ -116,7 +118,9 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
         for cid, trace in raw_traces.items():
             if len(raw_traces[cid]) == 0:
                 app.logger.info(f"{log_prefix} trace for cluster {cid} is empty.")
+        #################################################################
         traces, callgraph, depth_dict = tst.stitch_time(raw_traces)
+        #################################################################
         for cid in traces:
             if len(traces[cid]) == 0:
                 app.logger.info(f"{log_prefix} Cluster {cid} trace is empty. It is impossible to predict latency function. returns None... Do local routing.")

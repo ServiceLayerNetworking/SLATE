@@ -1,11 +1,13 @@
 class Span:
-    def __init__(self, svc_name, cluster_id, trace_id, my_span_id, parent_span_id, st, et, load, cs):
+    def __init__(self, svc_name, cluster_id, trace_id, my_span_id, parent_span_id, st, et, first_load, last_load, avg_load, cs):
         self.svc_name = svc_name
         self.my_span_id = my_span_id
         self.parent_span_id = parent_span_id
         self.trace_id = trace_id
         self.cluster_id = cluster_id
-        self.load = load
+        self.load = first_load
+        self.last_load = last_load
+        self.avg_load = avg_load
         self.st = st
         self.et = et
         try:
@@ -35,7 +37,7 @@ class Span:
         return unfold_dict
     
     def __str__(self):
-        return f"SPAN,{self.trace_id},{self.svc_name},{self.cluster_id},{self.my_span_id},{self.parent_span_id},{self.load},{self.st},{self.et},{self.rt},{self.call_size}"
+        return f"SPAN,{self.trace_id},{self.svc_name},{self.cluster_id},{self.my_span_id},{self.parent_span_id},{self.load},{self.last_load},{self.avg_load},{self.st},{self.et},{self.rt},{self.call_size}"
     
     # def __str__(self):
     #     return f"SPAN tid,{self.trace_id[:8]}, {self.svc_name}, cid,{self.cluster_id}, span,{self.my_span_id}, parent_span,{self.parent_span_id}, load,{self.load}"

@@ -66,7 +66,9 @@ type TracedRequestStats struct {
 	startTime    int64
 	endTime      int64
 	bodySize     int64
-	load         int64
+	firstLoad    int64
+	lastLoad     int64
+	avgLoad      int64
 }
 
 // Override types.DefaultVMContext.
@@ -186,8 +188,8 @@ func (p *pluginContext) OnTick() {
 	// unbelievably shitty but what can you do if you don't have gRPC :)
 	requestStatsStr := ""
 	for _, stat := range requestStats {
-		requestStatsStr += fmt.Sprintf("%s %s %s %d %d %d %d\n", stat.traceId, stat.spanId, stat.parentSpanId,
-			stat.startTime, stat.endTime, stat.bodySize, stat.load)
+		requestStatsStr += fmt.Sprintf("%s %s %s %d %d %d %d %d %d\n", stat.traceId, stat.spanId, stat.parentSpanId,
+			stat.startTime, stat.endTime, stat.bodySize, stat.firstLoad, stat.lastLoad, stat.avgLoad)
 	}
 
 	// reset stats
@@ -202,7 +204,8 @@ func (p *pluginContext) OnTick() {
 		return
 	}
 	reqCount := binary.LittleEndian.Uint64(data)
-	proxywasm.LogCriticalf("OnTick, request count: %d, traced stats: %s", reqCount, requestStatsStr)
+	// proxywasm.LogCriticalf("OnTick, request count: %d, traced stats: %s", reqCount, requestStatsStr)
+	proxywasm.LogCriticalf("OnTick, request count: %d", reqCount)
 
 	controllerHeaders := [][2]string{
 		{":method", "POST"},
@@ -212,7 +215,7 @@ func (p *pluginContext) OnTick() {
 		{"x-slate-servicename", p.serviceName},
 	}
 
-	proxywasm.LogCriticalf("Sending load to %s traced stats", p.metaClusterId)
+	proxywasm.LogCriticalf("Sending load to %s", p.metaClusterId)
 	if p.metaClusterId == "kind-us-west" {
 		proxywasm.DispatchHttpCall("outbound|8080|west|slate-controller.default.svc.cluster.local", controllerHeaders,
 			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
@@ -246,11 +249,13 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	}
 	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
 	IncrementSharedData(inboundCountKey(traceId), 1)
+	inbound, err := GetUint64SharedData(inboundCountKey((traceId)))
+	proxywasm.LogCriticalf("OnHttpRequestHeaders, increment inbound, trace_id,%v, inbound,%d", traceId, inbound)
 
 	_, _, err = proxywasm.GetSharedData(traceId)
 	if err == nil {
 		// we've been set, get out
-		fmt.Printf("OnhttpRequestHeaders, traceId: %d, we've been set, get out", traceId)
+		fmt.Printf("OnhttpRequestHeaders, traceId: %v, we've been set, get out", traceId)
 		return types.ActionContinue
 	}
 
@@ -321,14 +326,47 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	// TODO(gangmuk): Is it correct?
 	// endtime should be recorded when the LAST response is received not the first response. It seems like it records the endtime on the first response.
 	inbound, err := GetUint64SharedData(inboundCountKey(traceId))
+	proxywasm.LogCriticalf("OnHttpStreamDone, trace_id,%v, inbound,%d", traceId, inbound)
 	if inbound != 1 {
 		// decrement and get out
 		IncrementSharedData(inboundCountKey(traceId), -1)
+		inbound_after_decr, _ := GetUint64SharedData(inboundCountKey(traceId))
+		proxywasm.LogCriticalf("OnHttpStreamDone, decrement inbound, trace_id,%v, inbound,%d", traceId, inbound_after_decr)
 		return
 	}
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// (gangmuk): Instead of setting the KEY_REQUEST_COUNT(load) to zero in OnTick function, decrement it when each request is completed.
+
+	load_0, err := GetUint64SharedData(firstLoadKey((traceId)))
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get shared data for firstLoadKey traceId %v load: %v", traceId, err)
+		return
+	}
+
+	load_1, err := GetUint64SharedData(KEY_REQUEST_COUNT)
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get shared data for firstLoadKey traceId %v load: %v", traceId, err)
+		return
+	}
+
+	// loadBytes_1, _, err := proxywasm.GetSharedData(KEY_REQUEST_COUNT)
+	// load_1 := int64(binary.LittleEndian.Uint64(loadBytes_1)) // current load in wasm
+	avg_load := (load_0 + load_1) / 2
+	proxywasm.LogCriticalf("OnHttpStreamDone, This is THE LAST response! load_0,%d, load_1,%d, avg_load,%d", load_0, load_1, avg_load)
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(load_1))
+	if err := proxywasm.SetSharedData(lastLoadKey(traceId), buf, 0); err != nil { // Set the trace with the current load
+		proxywasm.LogCriticalf("unable to set shared data lastLoadKey for traceId %v load: %v", traceId, err)
+		return
+	}
+	buf = make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(avg_load))
+	if err := proxywasm.SetSharedData(avgLoadKey(traceId), buf, 0); err != nil { // Set the trace with the current load
+		proxywasm.LogCriticalf("unable to set shared data avgLoadKey for traceId %v load: %v", traceId, err)
+		return
+	}
 	IncrementSharedData(KEY_REQUEST_COUNT, -1)
 	//////////////////////////////////////////////////////////////////////////////////////
 
@@ -478,9 +516,10 @@ func AddTracedRequest(traceId, spanId, parentSpanId string, startTime int64) err
 		return err
 	}
 	//////////////////////////////////////////////////////////////////////////////////
-	// (gangmuk): Adding load to shareddata when we receive the request
-	data, cas, err := proxywasm.GetSharedData(KEY_REQUEST_COUNT)               // Get the current load
-	if err := proxywasm.SetSharedData(loadKey(traceId), data, 0); err != nil { // Set the trace with the current load
+	// (gangmuk): Per-request load logging
+	// Adding load to shareddata when we receive the request
+	data, cas, err := proxywasm.GetSharedData(KEY_REQUEST_COUNT)                    // Get the current load
+	if err := proxywasm.SetSharedData(firstLoadKey(traceId), data, 0); err != nil { // Set the trace with the current load
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v load: %v", traceId, err)
 		return err
 	}
@@ -543,12 +582,24 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 		endTime := int64(binary.LittleEndian.Uint64(endTimeBytes))
 
 		// (gangmuk)
-		loadBytes, _, err := proxywasm.GetSharedData(loadKey(traceId)) // Get stored load of this traceid
+		firstLoadBytes, _, err := proxywasm.GetSharedData(firstLoadKey(traceId)) // Get stored load of this traceid
 		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v load: %v", traceId, err)
+			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v  from firstLoadKey: %v", traceId, err)
 			return nil, err
 		}
-		load := int64(binary.LittleEndian.Uint64(loadBytes)) // to int
+		lastLoadBytes, _, err := proxywasm.GetSharedData(lastLoadKey(traceId)) // Get stored load of this traceid
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v  from lastLoadKey: %v", traceId, err)
+			return nil, err
+		}
+		avgLoadBytes, _, err := proxywasm.GetSharedData(avgLoadKey(traceId)) // Get stored load of this traceid
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v from avgLoadKey: %v", traceId, err)
+			return nil, err
+		}
+		first_load := int64(binary.LittleEndian.Uint64(firstLoadBytes)) // to int
+		last_load := int64(binary.LittleEndian.Uint64(lastLoadBytes))   // to int
+		avg_load := int64(binary.LittleEndian.Uint64(avgLoadBytes))     // to int
 
 		tracedRequestStats = append(tracedRequestStats, TracedRequestStats{
 			traceId:      traceId,
@@ -557,7 +608,9 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 			startTime:    startTime,
 			endTime:      endTime,
 			bodySize:     bodySize,
-			load:         load, // newly added per-request level load field
+			firstLoad:    first_load, // newly added per-request level load field
+			lastLoad:     last_load,  // newly added per-request level load field
+			avgLoad:      avg_load,   // newly added per-request level load field
 		})
 	}
 	return tracedRequestStats, nil
@@ -587,7 +640,15 @@ func bodySizeKey(traceId string) string {
 	return traceId + "-bodySize"
 }
 
-func loadKey(traceId string) string {
+func firstLoadKey(traceId string) string {
+	return traceId + "-load"
+}
+
+func avgLoadKey(traceId string) string {
+	return traceId + "-load"
+}
+
+func lastLoadKey(traceId string) string {
 	return traceId + "-load"
 }
 
