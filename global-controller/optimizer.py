@@ -120,7 +120,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
             if len(raw_traces[cid]) == 0:
                 app.logger.info(f"{log_prefix} trace for cluster {cid} is empty.")
         #################################################################
-        traces, callgraph, depth_dict = tst.stitch_time(raw_traces)
+        traces, callgraph, depth_dict, trace_df = tst.stitch_time(raw_traces)
         #################################################################
         for cid in traces:
             if len(traces[cid]) == 0:

@@ -123,7 +123,7 @@ def create_span_ver2(row):
     avg_load = row["avg_load"]
     
     ########################
-    load = row["avg_load"] 
+    # load = row["avg_load"] 
     ########################
     
     
@@ -362,8 +362,8 @@ def traces_to_graphs(traces_):
             graph_dict[cid][cg_key] = callgraph
             # break
             # print(f"tid: {tid}, callgraph: {callgraph}, cg_key: {cg_key}")
-        app.logger.info(f"{log_prefix} Cluster {cid} Graph dict: {graph_dict[cid]}")
-        app.logger.info(f"{log_prefix} Call graph: {callgraph}")
+        app.logger.debug(f"{log_prefix} Cluster {cid} Graph dict: {graph_dict[cid]}")
+        app.logger.debug(f"{log_prefix} Call graph: {callgraph}")
         assert len(graph_dict[cid]) == 1
     return callgraph, graph_dict
     
@@ -467,9 +467,10 @@ def set_depth_of_span(cg, parent_svc, children, depth_d, prev_dep):
 def critical_path_analysis(parent_span):
     sorted_children = sorted(parent_span.child_spans, key=lambda x: x.et, reverse=True)
     if len(parent_span.critical_child_spans) != 0:
-        app.logger.info(f"{log_prefix} critical_path_analysis {parent_span}")
-        app.logger.info(f"{log_prefix} critical_path_analysis {parent_span.critical_child_spans}")
-        assert False
+        app.logger.debug(f"{log_prefix} critical_path_analysis, {parent_span}")
+        app.logger.debug(f"{log_prefix} critical_path_analysis, critical_child_spans:", end="")
+        for ch_sp in parent_span.critical_child_spans:
+            app.logger.debug(f"{log_prefix} {ch_sp}")
     cur_end_time = parent_span.et
     total_critical_children_time = 0
     for child_span in sorted_children:

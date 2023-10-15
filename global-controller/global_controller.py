@@ -3,7 +3,7 @@ import logging
 from threading import Lock
 import atexit
 from apscheduler.schedulers.background import BackgroundScheduler
-# import optimizer as opt ## NOTE: COMMENT OUT when you run optimizer in standalone
+import optimizer as opt ## NOTE: COMMENT OUT when you run optimizer in standalone
 import pandas as pd
 from config import *
 import span as sp
@@ -39,7 +39,7 @@ prof_start = {0: False, 1: False}
 counter = dict()
 for cid in range(NUM_CLUSTER):
     counter[cid] = 0 # = {0:0, 1:0} # {cid:counter, ...}
-PROF_DURATION = 30 # in seconds
+PROF_DURATION = 40 # in seconds
 MIN_NUM_TRACE = 30
 load_bucket = dict()
 '''
@@ -150,39 +150,39 @@ def is_load_bucket_filled(cid):
     return True
 
 
-def move_to_complete_trace():
-    for cid in all_traces:
-        for tid, single_trace in all_traces[cid].items():
-            if len(single_trace) == 4: # NOTE: hardcoded.
-                ########################################################
-                ## Weird behavior: In some traces, all spans have the same span id which is productpage's span id.
-                ## For now, to filter out them following code exists.
-                ## If the traces were good, it is redundant code.
-                span_exists = []
-                ignore_cur = False
-                for svc, span in single_trace.items():
-                    if span.my_span_id in span_exists:
-                        ignore_cur = True
-                        break
-                    span_exists.append(span.my_span_id)
-                if ignore_cur:
-                    app.logger.info(f"{log_prefix} span exist, ignore_cur, cid,{span.cluster_id}, tid,{span.trace_id}, span_id,{span.my_span_id}")
-                    continue
-                ########################################################
-                if span.cluster_id not in complete_traces:
-                    complete_traces[span.cluster_id] = {}
-                if span.trace_id not in complete_traces[span.cluster_id]:
-                    complete_traces[span.cluster_id][span.trace_id] = {}
-                complete_traces[span.cluster_id][span.trace_id] = all_traces[span.cluster_id][span.trace_id].copy()
-                del all_traces[span.cluster_id][span.trace_id]
-                try:
-                    bucket_key = int(span.load/bucket_size)
-                    if bucket_key not in load_bucket[span.cluster_id]:
-                        app.logger.info(f"{log_prefix} New load bucket key:{bucket_key}, load:{span.load}")
-                        load_bucket[span.cluster_id][bucket_key] = 0
-                    load_bucket[span.cluster_id][bucket_key] += 1
-                except Exception as e:
-                    app.logger.error(f"{log_prefix} {e}")
+# def move_to_complete_trace():
+#     for cid in all_traces:
+#         for tid, single_trace in all_traces[cid].items():
+#             if len(single_trace) == 4: # NOTE: hardcoded.
+#                 ########################################################
+#                 ## Weird behavior: In some traces, all spans have the same span id which is productpage's span id.
+#                 ## For now, to filter out them following code exists.
+#                 ## If the traces were good, it is redundant code.
+#                 span_exists = []
+#                 ignore_cur = False
+#                 for svc, span in single_trace.items():
+#                     if span.my_span_id in span_exists:
+#                         ignore_cur = True
+#                         break
+#                     span_exists.append(span.my_span_id)
+#                 if ignore_cur:
+#                     app.logger.debug(f"{log_prefix} span exist, ignore_cur, cid,{span.cluster_id}, tid,{span.trace_id}, span_id,{span.my_span_id}")
+#                     continue
+#                 ########################################################
+#                 if span.cluster_id not in complete_traces:
+#                     complete_traces[span.cluster_id] = {}
+#                 if span.trace_id not in complete_traces[span.cluster_id]:
+#                     complete_traces[span.cluster_id][span.trace_id] = {}
+#                 complete_traces[span.cluster_id][span.trace_id] = all_traces[span.cluster_id][span.trace_id].copy()
+#                 del all_traces[span.cluster_id][span.trace_id]
+#                 try:
+#                     bucket_key = int(span.load/bucket_size)
+#                     if bucket_key not in load_bucket[span.cluster_id]:
+#                         app.logger.info(f"{log_prefix} New load bucket key:{bucket_key}, load:{span.load}")
+#                         load_bucket[span.cluster_id][bucket_key] = 0
+#                     load_bucket[span.cluster_id][bucket_key] += 1
+#                 except Exception as e:
+#                     app.logger.error(f"{log_prefix} {e}")
 
 
 def prof_phase():
@@ -213,39 +213,48 @@ def prof_phase():
                 # else:
                 #     app.logger.info(f"{log_prefix} len(complete_traces[{cid}]), EMPTY!")
                 #####################################################################
-                prof_percentage = counter[cid]/PROF_DURATION
-                app.logger.info(f"{log_prefix} Cluster {cid}, Profiling phase: {prof_percentage*100}% (elapsed seconds: {counter[cid]} / required seconds: {PROF_DURATION}\n")
+                prof_percentage = int((counter[cid]/PROF_DURATION)*100)
+                if prof_percentage > 100:
+                    prof_percentage = 100
+                app.logger.info(f"{log_prefix} Cluster {cid}, Profiling phase: {prof_percentage}% (elapsed seconds: {counter[cid]} / required seconds: {PROF_DURATION}\n")
+                if cid in complete_traces:
+                    app.logger.info(f"{log_prefix} prof_phase, Cluster {cid}, NUM_COMPLETE_TRACE: {len(complete_traces[cid])}")
+                else:
+                    app.logger.info(f"{log_prefix} prof_phase, Cluster {cid}, NUM_COMPLETE_TRACE: 0")
                 ## TODO:
                 if (counter[cid] >= PROF_DURATION) and (cid in complete_traces) and (len(complete_traces[cid]) > MIN_NUM_TRACE):
-                    print_load_bucket()
+                    prof_done[cid] = True ## Toggle profiling done flag!
+                    # print_load_bucket()
                     # if is_load_bucket_filled(cid):
-                    prof_done[cid] = True
-                    app.logger.info(f"{log_prefix} Cluster {cid} Profiling already DONE, NUM_TRACE: {len(complete_traces[cid])} ")
+                    app.logger.debug(f"{log_prefix} prof_phase, Cluster {cid} Profiling already DONE")
                 counter[cid] += 1
                 
-                app.logger.info(f"{log_prefix} ================ PRINT ALL TRACE START ==================")
-                for cid in range(NUM_CLUSTER):
-                    if cid in all_traces:
-                        app.logger.info(f"{log_prefix} len(all_traces[{cid}]), {len(all_traces[cid])}")
-                        # for tid, single_trace in all_traces[cid].items():
-                        #     for svc, span in single_trace.items():
-                        #         app.logger.info(f"{log_prefix} {span}")
-                app.logger.info(f"{log_prefix} ================ PRINT ALL TRACE DONE ==================")
                 
-                app.logger.info(f"{log_prefix} ================ PRINT COMPLETE TRACE START ==================")
-                for cid in range(NUM_CLUSTER):
-                    if cid in complete_traces:
-                        app.logger.info(f"{log_prefix} len(complete_traces[{cid}]), {len(complete_traces[cid])}")
-                        for tid, single_trace in complete_traces[cid].items():
-                            for svc, span in single_trace.items():
-                                app.logger.info(f"{log_prefix} {span}")
-                app.logger.info(f"{log_prefix} ================ PRINT COMPLETE TRACE DONE ==================")
+def print_trace():
+    with stats_mutex:
+        app.logger.info(f"{log_prefix} ================ PRINT ALL TRACE START ==================")
+        for cid in range(NUM_CLUSTER):
+            if cid in all_traces:
+                app.logger.info(f"{log_prefix} len(all_traces[{cid}]), {len(all_traces[cid])}")
+                # for tid, single_trace in all_traces[cid].items():
+                #     for svc, span in single_trace.items():
+                #         app.logger.info(f"{log_prefix} {span}")
+        app.logger.info(f"{log_prefix} ================ PRINT ALL TRACE DONE ==================")
+        
+        app.logger.info(f"{log_prefix} ================ PRINT COMPLETE TRACE START ==================")
+        for cid in range(NUM_CLUSTER):
+            if cid in complete_traces:
+                app.logger.info(f"{log_prefix} len(complete_traces[{cid}]), {len(complete_traces[cid])}")
+                for tid, single_trace in complete_traces[cid].items():
+                    for svc, span in single_trace.items():
+                        app.logger.info(f"{log_prefix} {span}")
+        app.logger.info(f"{log_prefix} ================ PRINT COMPLETE TRACE DONE ==================")
 
 
 def garbage_collection():
     app.logger.info(f"{log_prefix} Start Garbage collection")
     app.logger.info(f"{log_prefix} Clearing complete_traces, all_traces, stats_arr...")
-    complete_traces.clear()
+    # complete_traces.clear()
     all_traces.clear()
     stats_arr.clear()
     app.logger.info(f"{log_prefix} Done with Garbage collection")
@@ -259,15 +268,19 @@ def optimizer_entrypoint():
     #         app.logger.info(f"{log_prefix} Trace {trace_id} has {len(spans)} spans:")
     #         for svc_name, span in spans.items():
     #             app.logger.info(f"{log_prefix} \t{span}")
+        app.logger.info(f"\n\n{log_prefix} optimizer_entrypoint function is called.")
 
+        ###################################
+        # if prof_done[0]:
         if prof_done[0] and prof_done[1]:
+        ###################################
             app.logger.info(f"\n\n{log_prefix} Run Optimizer, number of complete traces (cluster 0: {len(complete_traces[0])}, cluster 1: {len(complete_traces[1])})\n")
             
             # TODO: this should be ingressgateway. hardcoding for now
             
             if ACTUAL_LOAD:
                 # Next tick load == Current tick load
-                app.logger.info(f"{log_prefix} CONFIG: ACTUAL LOAD")
+                app.logger.info(f"{log_prefix} CONFIG: ACTUAL_LOAD")
                 cluster_0_num_req = svc_to_rps["us-west"]["productpage-v1"]
                 cluster_1_num_req = svc_to_rps["us-east"]["productpage-v1"]
                 app.logger.info(f"{log_prefix} LOAD cluster 0: {cluster_0_num_req}, cluster 1: {cluster_1_num_req})\n")
@@ -282,16 +295,24 @@ def optimizer_entrypoint():
             
             num_requests_dict = {0: cluster_0_num_req, 1: cluster_1_num_req}
             num_requests = [cluster_0_num_req, cluster_1_num_req]
+            
+            ############################################################################
             ## NOTE: copy() function could be expensive if complete_trace is large
+            
+            # percentage_df = opt.run_optimizer(complete_traces.copy(), num_requests)
             percentage_df = opt.run_optimizer(complete_traces.copy(), num_requests)
+            
+            ############################################################################
+            
+            
             app.logger.info(f"{log_prefix} PERCENTAGE RULES: {percentage_df}")
             if percentage_df is None:
                 # we don't know what to do to stick to local routing
+                app.logger.info(f"{log_prefix} OPTIMIZER FAIL, ROLLBACK TO LOCAL ROUTING: {cluster_pcts}")
                 if 0 not in cluster_pcts:
                     cluster_pcts[0] = {1: "0.0"}
                 if 1 not in cluster_pcts:
                     cluster_pcts[1] = {0: "0.0"}
-                app.logger.info(f"{log_prefix} RESET PERCENTAGE RULES: {cluster_pcts}")
                 return
             
             else:
@@ -299,15 +320,17 @@ def optimizer_entrypoint():
                 for src_cid in range(NUM_CLUSTER):
                     for dst_cid in range(NUM_CLUSTER):
                         row = ingress_gw_df[(ingress_gw_df['src_cid']==src_cid) & (ingress_gw_df['dst_cid']==dst_cid)]
-                        if len(row) > 1:
-                            app.logger.info(f"{log_prefix} length of row can't be greater than 1.")
-                            app.logger.info(f"{log_prefix} {row}")
-                            assert len(row) <= 1
-                        elif len(row) == 1:
+                        if len(row) == 1:
                             cluster_pcts[src_cid][dst_cid] = str(row['weight'].tolist()[0])
-                        else:
+                        elif len(row) == 0:
+                            # empty means no routing from this src to this dst
                             cluster_pcts[src_cid][dst_cid] = str(0)
-                app.logger.info(f"{log_prefix} CLUSTER PERCENTAGE RULES: {cluster_pcts}")
+                        else:
+                            # It should not happen
+                            app.logger.info(f"{log_prefix} [ERROR] length of row can't be greater than 1.")
+                            app.logger.info(f"{log_prefix} row: {row}")
+                            assert len(row) <= 1
+            app.logger.info(f"{log_prefix} CLUSTER PERCENTAGE RULES: {cluster_pcts}")
             # all_traces.clear()
         else:
             # app.logger.info(f"{log_prefix} prof is NOT done yet. still needs to collect more traces...")
@@ -352,9 +375,9 @@ def proxy_load():
                 app.logger.info(f"{log_prefix} The FIRST proxy load for cluster {cluster}, {spans[0].cluster_id}.")
                 app.logger.info(f"{log_prefix} Start profiling for cluster {cluster}, {spans[0].cluster_id}.")
             else:
-                app.logger.info(f"{log_prefix} Profiling for Cluster {cluster} already started.")
-        # else:
-        #     app.logger.info(f"{log_prefix} cluster {cluster}, {cluster_to_cid[cluster]} still have NOT received any proxy load. Hold off starting profiling.")
+                app.logger.debug(f"{log_prefix} Profiling for Cluster {cluster} already started.")
+        else:
+            app.logger.debug(f"{log_prefix} cluster {cluster}, {cluster_to_cid[cluster]} still have NOT received any proxy load. Hold off starting profiling.")
         with stats_mutex:
             for span in spans:
                 if span.cluster_id not in all_traces:
@@ -378,7 +401,7 @@ def proxy_load():
                             break
                         span_exists.append(span.my_span_id)
                     if ignore_cur:
-                        app.logger.info(f"{log_prefix} span exist, ignore_cur, {span.svc_name} cid,{cluster_to_cid[cluster]}, tid,{span.trace_id}, span_id,{span.my_span_id}")
+                        app.logger.debug(f"{log_prefix} span exist, ignore_cur, {span.svc_name} cid,{cluster_to_cid[cluster]}, tid,{span.trace_id}, span_id,{span.my_span_id}")
                         continue
                     if span.cluster_id not in complete_traces:
                         complete_traces[span.cluster_id] = {}
@@ -414,7 +437,7 @@ def proxy_load():
         cluster_pcts[1][0] = "0.0"
     else:
         # Profiling is DONE.
-        app.logger.info(f"{log_prefix} Profiling was already done.")
+        app.logger.debug(f"{log_prefix} Profiling was already done.")
         
     # if cluster_to_cid[cluster] in cluster_pcts:
     assert cluster_to_cid[cluster] in cluster_pcts
@@ -426,6 +449,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=5)
     scheduler.add_job(func=prof_phase, trigger="interval", seconds=1)
     scheduler.add_job(func=garbage_collection, trigger="interval", seconds=600)
+    scheduler.add_job(func=print_trace, trigger="interval", seconds=10)
     # scheduler.add_job(func=retrain_service_models, trigger="interval", seconds=10)
     scheduler.start()
 
