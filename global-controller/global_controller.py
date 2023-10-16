@@ -107,7 +107,7 @@ def parse_stats_into_spans(stats, cluster, service):
         line = lines[i]
         ss = line.split(" ")
         # app.logger.info(f"{log_prefix} ss: {ss}")
-        if len(ss) != 9:
+        if len(ss) != 10: ## NOTE: THIS SHOUD BE UPDATED WHEN member fields in span class is updated.
             continue
         trace_id = ss[0]
         my_span_id = ss[1]
@@ -119,7 +119,8 @@ def parse_stats_into_spans(stats, cluster, service):
         first_load = int(ss[6]) # (gangmuk): new
         last_load = int(ss[7]) # (gangmuk): new
         avg_load = int(ss[8]) # (gangmuk): new
-        spans.append(sp.Span(service, cluster_to_cid[cluster], trace_id, my_span_id, parent_span_id, start, end, first_load, last_load, avg_load, call_size))
+        rps = int(ss[9]) # (gangmuk): new
+        spans.append(sp.Span(service, cluster_to_cid[cluster], trace_id, my_span_id, parent_span_id, start, end, first_load, last_load, avg_load, rps, call_size))
     # if len(spans) > 0:
     #     app.logger.info(f"{log_prefix} ==================================")
     #     for span in spans:
@@ -221,6 +222,10 @@ def prof_phase():
                     app.logger.info(f"{log_prefix} prof_phase, Cluster {cid}, NUM_COMPLETE_TRACE: {len(complete_traces[cid])}")
                 else:
                     app.logger.info(f"{log_prefix} prof_phase, Cluster {cid}, NUM_COMPLETE_TRACE: 0")
+                if cid in complete_traces:
+                    app.logger.info(f"{log_prefix} prof_phase, Cluster {cid}, NUM_ALL_TRACE: {len(all_traces[cid])}")
+                else:
+                    app.logger.info(f"{log_prefix} prof_phase, Cluster {cid}, NUM_ALL_TRACE: 0")
                 ## TODO:
                 if (counter[cid] >= PROF_DURATION) and (cid in complete_traces) and (len(complete_traces[cid]) > MIN_NUM_TRACE):
                     prof_done[cid] = True ## Toggle profiling done flag!
@@ -408,7 +413,7 @@ def proxy_load():
                     if span.trace_id not in complete_traces[span.cluster_id]:
                         complete_traces[span.cluster_id][span.trace_id] = {}
                     complete_traces[span.cluster_id][span.trace_id] = all_traces[span.cluster_id][span.trace_id].copy()
-                    del all_traces[span.cluster_id][span.trace_id]
+                    # del all_traces[span.cluster_id][span.trace_id]
                     try:
                         bucket_key = int(span.load/bucket_size)
                         if bucket_key not in load_bucket[span.cluster_id]:

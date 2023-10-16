@@ -38,6 +38,7 @@ def print_log(msg, obj=None):
 
 SPAN_DELIM = " "
 SPAN_TOKEN_LEN = 5
+## NOTE: deprecated
 def create_span(line, svc, load, cid):
     tokens = line.split(SPAN_DELIM)
     if len(tokens) != SPAN_TOKEN_LEN:
@@ -121,6 +122,7 @@ def create_span_ver2(row):
     load = row["load"]
     last_load = row["last_load"]
     avg_load = row["avg_load"]
+    rps = row["rps"]
     
     ########################
     # load = row["avg_load"] 
@@ -128,7 +130,7 @@ def create_span_ver2(row):
     
     
     callsize = row["call_size"]
-    span = sp.Span(svc, cluster_id, trace_id, span_id, parent_span_id, st, et, load, last_load, avg_load, callsize)
+    span = sp.Span(svc, cluster_id, trace_id, span_id, parent_span_id, st, et, load, last_load, rps, callsize)
     return span
 
 def trace_trimmer(trace_file):
@@ -136,6 +138,8 @@ def trace_trimmer(trace_file):
     col_len = df.shape[1]
     if col_len == 14:
         col_name = ['a', 'b', "trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","last_load","avg_load","st","et","rt","call_size"]
+    elif col_len == 14:
+        col_name = ['a', 'b', "trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","last_load","avg_load", "rps", "st","et","rt","call_size"]
     else:
         print("ERROR trace_trimmer, invalid column length, ", col_len)
         assert False

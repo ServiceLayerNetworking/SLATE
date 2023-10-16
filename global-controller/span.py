@@ -1,5 +1,5 @@
 class Span:
-    def __init__(self, svc_name, cluster_id, trace_id, my_span_id, parent_span_id, st, et, first_load, last_load, avg_load, cs):
+    def __init__(self, svc_name, cluster_id, trace_id, my_span_id, parent_span_id, st, et, first_load, last_load, avg_load, rps, cs):
         self.svc_name = svc_name
         self.my_span_id = my_span_id
         self.parent_span_id = parent_span_id
@@ -8,6 +8,7 @@ class Span:
         self.load = first_load
         self.last_load = last_load
         self.avg_load = avg_load
+        self.rps = rps
         self.st = st
         self.et = et
         try:
