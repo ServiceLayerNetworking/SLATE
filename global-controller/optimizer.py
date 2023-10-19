@@ -90,15 +90,20 @@ raw_traces = None
 NUM_REQUESTS=[100,1000]
 
 ''' start of run_optimizer function '''
-def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_JUPYTER
+def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_JUPYTER
+    for num_req in NUM_REQUESTS:
+        assert num_req >= 0
     if raw_traces == None:
+        ''' If raw_traces and trace_file are None, it means no SLATE. but execute optimizer computation to balance out global-controller overhead and just return None in the end. '''
+        # assert trace_file != None
+        
         ## Parse trace file
-        # LOG_PATH = "./modified_trace_and_load_log.txt" # outdated
-        # traces = tst.parse_file(LOG_PATH)
         # LOG_PATH = "./trace-west_only-load_per_ontick.csv" # Per-OnTick load logging
         # LOG_PATH = "./trace-west_only-load_per_req.csv" # Per-request load logging
-        LOG_PATH = "./trace-west_only-avg_load.csv" # Per-request load logging
-        traces = tst.parse_trace_file_ver2(LOG_PATH)
+        # LOG_PATH = "./trace-west_only-avg_load.csv" # Per-request load logging
+        # LOG_PATH = "./new_trace.txt" # Per-request load logging
+        # LOG_PATH = trace_file
+        traces = tst.parse_trace_file_ver2(trace_file)
         traces, callgraph, depth_dict, trace_df = tst.stitch_time(traces)
         display(trace_df)
         NUM_CLUSTER = len(traces)
@@ -221,7 +226,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
                             network_arc_var_name[tuple_var_name] = depth_dict[parent_svc]*10 # arbitrary call size
     app.logger.info(f"{log_prefix} len(network_arc_var_name): {len(network_arc_var_name)}\n")
     for tuple_var_name, _ in network_arc_var_name.items():
-        app.logger.info(f"{log_prefix} {tuple_var_name}")
+        app.logger.debug(f"{log_prefix} {tuple_var_name}")
 
     if ENTRANCE == tst.FRONTEND_svc:
         if tst.REVIEW_V1_svc in unique_services:
@@ -596,7 +601,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
                 print_error(dst_svc_name, dst_node.split(DELIMITER))
             # Network latency for local routing
             if src_idx == dst_idx:
-                app.logger.info(f"{log_prefix} intra-cluster, {src_node}, {dst_node}")
+                app.logger.debug(f"{log_prefix} intra-cluster, {src_node}, {dst_node}")
                 min_network_latency.append(INTRA_CLUTER_RTT)
                 max_network_latency.append(INTRA_CLUTER_RTT)
             # Network latency for remote routing
@@ -630,7 +635,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
     compute_time = dict()
     compute_load = dict()
     for svc_name in unique_services:
-        app.logger.info(f"{log_prefix} {svc_name}")
+        # app.logger.info(f"{log_prefix} {svc_name}")
         # compute_time[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="compute_time", lb="min_compute_time", ub="max_compute_time")
         compute_time[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="compute_time", lb="min_compute_time")
         compute_load[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="load_for_compute_edge", lb="min_load", ub="max_load")
@@ -940,7 +945,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
     LOG_TIMESTAMP("get var and constraint")
 
     app.logger.info(f"{log_prefix} model.Status: {model.Status}")
-
+    app.logger.info(f"{log_prefix} NUM_REQUESTS: {NUM_REQUESTS}")
     if model.Status != GRB.OPTIMAL:
         app.logger.info(f"{log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
         app.logger.info(f"{log_prefix} XXXX INFEASIBLE MODEL! XXXX")
@@ -962,7 +967,7 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
         return None
     else:
         app.logger.info(f"{log_prefix} ooooooooooooooooooooooo")
-        app.logger.info(f"{log_prefix} oooo MODEL SOLVED! oooo")
+        app.logger.info(f"{log_prefix} oooo SOLVED MODEL! oooo")
         app.logger.info(f"{log_prefix} ooooooooooooooooooooooo")
         print()
         
@@ -1000,7 +1005,8 @@ def run_optimizer(raw_traces=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_
         ## new
         # app.logger.debug(f"{log_prefix} @@, APP_NAME, num_constr, num_gurobi_var, compute_arc_var_name_list, network_arc_var_name_list, NUM_CLUSTER, total_num_svc, REGRESSOR_DEGREE, optimizer_runtime, solve_runtime")
         
-        print(APP_NAME + "," +str(num_constr) + "," +str(num_var) + "," +str(len(compute_arc_var_name_list)) + "," +str(len(network_arc_var_name_list)) + "," +str(NUM_CLUSTER) + "," +str(len(unique_services)) + "," +str(REGRESSOR_DEGREE) + "," +str(optimizer_runtime) + "," +str(solve_runtime) + ",",end="")
+        # print(APP_NAME + "," +str(num_constr) + "," +str(num_var) + "," +str(len(compute_arc_var_name_list)) + "," +str(len(network_arc_var_name_list)) + "," +str(NUM_CLUSTER) + "," +str(len(unique_services)) + "," +str(REGRESSOR_DEGREE) + "," +str(optimizer_runtime) + "," +str(solve_runtime) + ",",end="")
+        
                 # str(fan_out_degree) + "," + \
                 # str(no_child_constant) + "," + \
                 # str(depth) + "," + \

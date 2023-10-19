@@ -122,7 +122,10 @@ def create_span_ver2(row):
     load = row["load"]
     last_load = row["last_load"]
     avg_load = row["avg_load"]
-    rps = row["rps"]
+    try:
+        rps = row["rps"]
+    except:
+        rps = 0
     
     ########################
     # load = row["avg_load"] 
@@ -130,7 +133,7 @@ def create_span_ver2(row):
     
     
     callsize = row["call_size"]
-    span = sp.Span(svc, cluster_id, trace_id, span_id, parent_span_id, st, et, load, last_load, rps, callsize)
+    span = sp.Span(svc, cluster_id, trace_id, span_id, parent_span_id, st, et, load, last_load, avg_load, rps, callsize)
     return span
 
 def trace_trimmer(trace_file):
@@ -138,7 +141,7 @@ def trace_trimmer(trace_file):
     col_len = df.shape[1]
     if col_len == 14:
         col_name = ['a', 'b', "trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","last_load","avg_load","st","et","rt","call_size"]
-    elif col_len == 14:
+    elif col_len == 15:
         col_name = ['a', 'b', "trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","last_load","avg_load", "rps", "st","et","rt","call_size"]
     else:
         print("ERROR trace_trimmer, invalid column length, ", col_len)
@@ -149,9 +152,9 @@ def trace_trimmer(trace_file):
     # if 'b' in df.columns:
     df = df.drop('b', axis=1)
     df.fillna("", inplace=True)
+    df['load'] = df['load'].clip(lower=1)
     df['avg_load'] = df['avg_load'].clip(lower=1)
     df['last_load'] = df['last_load'].clip(lower=1)
-    df['load'] = df['load'].clip(lower=1)
     return df
 
 def parse_trace_file_ver2(log_path):
@@ -164,6 +167,9 @@ def parse_trace_file_ver2(log_path):
     # temp_df = df[df["load"] != df["last_load"]]
     # display(temp_df)
     traces_ = dict() # cluster_id -> trace id -> svc_name -> span
+    
+    ############################################
+    ## use all traces data to all clusters.
     for cid in range(NUM_CLUSTER):
         for index, row in df.iterrows():
             span = create_span_ver2(row)

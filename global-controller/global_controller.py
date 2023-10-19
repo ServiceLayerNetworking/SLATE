@@ -7,6 +7,7 @@ import optimizer as opt ## NOTE: COMMENT OUT when you run optimizer in standalon
 import pandas as pd
 from config import *
 import span as sp
+import json
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
@@ -22,8 +23,11 @@ f85116460cc0c607a484d0521e62fb19 7c30eb0e856124df a484d0521e62fb19 1694378625363
 Root svc will have no parent span id
 """
 
-ACTUAL_LOAD=True
-NUM_CLUSTER = 2
+# json_config = dict()
+# with open('/app/config.json', 'r') as f:
+#     json_config = json.loads(f)
+# for k, v in json_config.items():
+#     app.logger.info(f"{log_prefix} JSON CONFIG,{k}, {v}")
 
 complete_traces = {}
 all_traces = {}
@@ -39,8 +43,6 @@ prof_start = {0: False, 1: False}
 counter = dict()
 for cid in range(NUM_CLUSTER):
     counter[cid] = 0 # = {0:0, 1:0} # {cid:counter, ...}
-PROF_DURATION = 40 # in seconds
-MIN_NUM_TRACE = 30
 load_bucket = dict()
 '''
 - num_bucket: 10
@@ -236,24 +238,25 @@ def prof_phase():
                 
                 
 def print_trace():
-    with stats_mutex:
-        app.logger.info(f"{log_prefix} ================ PRINT ALL TRACE START ==================")
-        for cid in range(NUM_CLUSTER):
-            if cid in all_traces:
-                app.logger.info(f"{log_prefix} len(all_traces[{cid}]), {len(all_traces[cid])}")
-                # for tid, single_trace in all_traces[cid].items():
-                #     for svc, span in single_trace.items():
-                #         app.logger.info(f"{log_prefix} {span}")
-        app.logger.info(f"{log_prefix} ================ PRINT ALL TRACE DONE ==================")
-        
-        app.logger.info(f"{log_prefix} ================ PRINT COMPLETE TRACE START ==================")
-        for cid in range(NUM_CLUSTER):
-            if cid in complete_traces:
-                app.logger.info(f"{log_prefix} len(complete_traces[{cid}]), {len(complete_traces[cid])}")
-                for tid, single_trace in complete_traces[cid].items():
-                    for svc, span in single_trace.items():
-                        app.logger.info(f"{log_prefix} {span}")
-        app.logger.info(f"{log_prefix} ================ PRINT COMPLETE TRACE DONE ==================")
+    if PRINT_TRACE:
+        with stats_mutex:
+            app.logger.info(f"{log_prefix} ================ PRINT ALL TRACE START ==================")
+            for cid in range(NUM_CLUSTER):
+                if cid in all_traces:
+                    app.logger.info(f"{log_prefix} len(all_traces[{cid}]), {len(all_traces[cid])}")
+                    # for tid, single_trace in all_traces[cid].items():
+                    #     for svc, span in single_trace.items():
+                    #         app.logger.info(f"{log_prefix} {span}")
+            app.logger.info(f"{log_prefix} ================ PRINT ALL TRACE DONE ==================")
+            
+            app.logger.info(f"{log_prefix} ================ PRINT COMPLETE TRACE START ==================")
+            for cid in range(NUM_CLUSTER):
+                if cid in complete_traces:
+                    app.logger.info(f"{log_prefix} len(complete_traces[{cid}]), {len(complete_traces[cid])}")
+                    for tid, single_trace in complete_traces[cid].items():
+                        for svc, span in single_trace.items():
+                            app.logger.info(f"{log_prefix} {span}")
+            app.logger.info(f"{log_prefix} ================ PRINT COMPLETE TRACE DONE ==================")
 
 
 def garbage_collection():
@@ -288,7 +291,8 @@ def optimizer_entrypoint():
                 app.logger.info(f"{log_prefix} CONFIG: ACTUAL_LOAD")
                 cluster_0_num_req = svc_to_rps["us-west"]["productpage-v1"]
                 cluster_1_num_req = svc_to_rps["us-east"]["productpage-v1"]
-                app.logger.info(f"{log_prefix} LOAD cluster 0: {cluster_0_num_req}, cluster 1: {cluster_1_num_req})\n")
+                app.logger.info(f"{log_prefix} LOAD, cluster 0: {cluster_0_num_req}")
+                app.logger.info(f"{log_prefix} LOAD, cluster 1: {cluster_0_num_req}")
                 if cluster_0_num_req == 0 and cluster_1_num_req == 0:
                     app.logger.info(f"{log_prefix} NO LOAD. Skip Optimizer")
                     return
@@ -298,19 +302,27 @@ def optimizer_entrypoint():
                 cluster_1_num_req = 60
                 app.logger.warning(f"{log_prefix} CONFIG: FAKE LOAD: Cluster 0{cluster_0_num_req}, Cluster 1 {cluster_1_num_req}")
             
-            num_requests_dict = {0: cluster_0_num_req, 1: cluster_1_num_req}
             num_requests = [cluster_0_num_req, cluster_1_num_req]
-            
+            for i in range(len(num_requests)):
+                if num_requests[i] < 0:
+                    app.logger.warning(f"{log_prefix} cluster,{i}, num_request < 0, ({num_requests[i]}), reset to zero.")
+                    num_requests[i] = 0
+                    
             ############################################################################
             ## NOTE: copy() function could be expensive if complete_trace is large
-            
-            # percentage_df = opt.run_optimizer(complete_traces.copy(), num_requests)
-            percentage_df = opt.run_optimizer(complete_traces.copy(), num_requests)
-            
+            if SLATE_ON:
+                app.logger.info(f"{log_prefix} SLATE_ON")
+                if USE_TRACE_FILE:
+                    percentage_df = opt.run_optimizer(raw_traces=None, trace_file=TRACE_FILE_PATH, NUM_REQUESTS=num_requests)
+                else:
+                    percentage_df = opt.run_optimizer(complete_traces.copy(), trace_file=None, NUM_REQUESTS=num_requests)
+            else:
+                percentage_df = opt.run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=num_requests)
+                app.logger.info(f"{log_prefix} SLATE_OFF")
+                percentage_df = None
             ############################################################################
             
-            
-            app.logger.info(f"{log_prefix} PERCENTAGE RULES: {percentage_df}")
+            app.logger.debug(f"{log_prefix} PERCENTAGE RULES: {percentage_df}")
             if percentage_df is None:
                 # we don't know what to do to stick to local routing
                 app.logger.info(f"{log_prefix} OPTIMIZER FAIL, ROLLBACK TO LOCAL ROUTING: {cluster_pcts}")
@@ -335,7 +347,8 @@ def optimizer_entrypoint():
                             app.logger.info(f"{log_prefix} [ERROR] length of row can't be greater than 1.")
                             app.logger.info(f"{log_prefix} row: {row}")
                             assert len(row) <= 1
-            app.logger.info(f"{log_prefix} CLUSTER PERCENTAGE RULES: {cluster_pcts}")
+            app.logger.info(f"{log_prefix} NUM_REQUESTS: {num_requests}")
+            app.logger.info(f"{log_prefix} OPTIMIZER OUTPUT: {cluster_pcts}")
             # all_traces.clear()
         else:
             # app.logger.info(f"{log_prefix} prof is NOT done yet. still needs to collect more traces...")
@@ -357,6 +370,14 @@ def retrain_service_models():
 
 @app.route("/clusterLoad", methods=["POST"])
 def proxy_load():
+    # cluster_pcts[0] = dict()
+    # cluster_pcts[1] = dict()
+    # cluster_pcts[0][0] = "1.0"
+    # cluster_pcts[0][1] = "0.0"
+    # cluster_pcts[1][1] = "1.0"
+    # cluster_pcts[1][0] = "0.0"
+    # return cluster_pcts
+    
     body = request.get_json(force=True)
     cluster = body["clusterId"]
     pod = body["podName"]
@@ -365,7 +386,11 @@ def proxy_load():
     # app.logger.info(f"{log_prefix} Received stats from {cluster} {pod} {svc_name}")
     if cluster not in svc_to_rps:
         svc_to_rps[cluster] = {}
-    svc_to_rps[cluster][svc_name] = int(stats.split("\n")[0])
+    num_inflight_req = int(stats.split("\n")[0])
+    if num_inflight_req > 1000000000:
+        app.logger.info(f"{log_prefix} num_inflight_req,{num_inflight_req}")
+        assert False
+    svc_to_rps[cluster][svc_name] = num_inflight_req
     
     ## Keep collecting traces
     ################################################
@@ -440,12 +465,17 @@ def proxy_load():
         cluster_pcts[0][1] = "0.0"
         cluster_pcts[1][1] = "1.0"
         cluster_pcts[1][0] = "0.0"
+        # cluster_pcts[0][0] = "0.5"
+        # cluster_pcts[0][1] = "0.5"
+        # cluster_pcts[1][1] = "0.5"
+        # cluster_pcts[1][0] = "0.5"
     else:
         # Profiling is DONE.
         app.logger.debug(f"{log_prefix} Profiling was already done.")
         
     # if cluster_to_cid[cluster] in cluster_pcts:
     assert cluster_to_cid[cluster] in cluster_pcts
+    # app.logger.info(f"{log_prefix} PUSHING DOWN CLUSTER PERCENTAGE RULES TO VS: {cluster_pcts}")
     return cluster_pcts[cluster_to_cid[cluster]]
     
 
@@ -454,7 +484,9 @@ if __name__ == "__main__":
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=5)
     scheduler.add_job(func=prof_phase, trigger="interval", seconds=1)
     scheduler.add_job(func=garbage_collection, trigger="interval", seconds=600)
-    scheduler.add_job(func=print_trace, trigger="interval", seconds=10)
+    scheduler.add_job(func=print_trace, trigger="interval", seconds=30) ## uncomment it if you want trace log print
+        
+        
     # scheduler.add_job(func=retrain_service_models, trigger="interval", seconds=10)
     scheduler.start()
 

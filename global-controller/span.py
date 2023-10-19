@@ -38,7 +38,7 @@ class Span:
         return unfold_dict
     
     def __str__(self):
-        return f"SPAN,{self.trace_id},{self.svc_name},{self.cluster_id},{self.my_span_id},{self.parent_span_id},{self.load},{self.last_load},{self.avg_load},{self.st},{self.et},{self.rt},{self.call_size}"
+        return f"SPAN,{self.trace_id},{self.svc_name},{self.cluster_id},{self.my_span_id},{self.parent_span_id},{self.load},{self.last_load},{self.avg_load},{self.rps},{self.st},{self.et},{self.rt},{self.call_size}"
     
     # def __str__(self):
     #     return f"SPAN tid,{self.trace_id[:8]}, {self.svc_name}, cid,{self.cluster_id}, span,{self.my_span_id}, parent_span,{self.parent_span_id}, load,{self.load}"
