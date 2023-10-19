@@ -22,6 +22,9 @@ COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
 COPY *.py .
+COPY new_trace.txt .
+COPY trace-west_only-avg_load.csv .
+# COPY config.json .
 
 CMD ["python3", "global_controller.py"]
 
