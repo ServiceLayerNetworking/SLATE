@@ -75,15 +75,15 @@ func UpdatePolicy(routingPcts map[int]string) error {
 			for _, route := range httpRoute.Route {
 				if route.Destination.Subset == "east" {
 					east_weight = int32(raw * 100)
-					if east_weight > 0 {
-						east_weight = 50
-					}
+					// if east_weight > 0 {
+					// 	east_weight = 50
+					// }
 					route.Weight = east_weight
 				} else if route.Destination.Subset == "west" {
 					west_weight = int32(100 - raw*100)
-					if west_weight < 100 {
-						west_weight = 50
-					}
+					// if west_weight < 100 {
+					// 	west_weight = 50
+					// }
 					route.Weight = west_weight
 				}
 			}

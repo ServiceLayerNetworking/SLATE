@@ -4,7 +4,6 @@
 import time
 import global_controller as global_con
 from global_controller import app
-# from config import *
 from config import *
 # import config as cf
 import span as sp
@@ -139,22 +138,27 @@ def create_span_ver2(row):
 def trace_trimmer(trace_file):
     df = pd.read_csv(trace_file)
     col_len = df.shape[1]
-    if col_len == 14:
+    if col_len == 13:
+        col_name = ["trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","last_load","avg_load","st","et","rt","call_size"]
+    elif col_len == 14:
         col_name = ['a', 'b', "trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","last_load","avg_load","st","et","rt","call_size"]
     elif col_len == 15:
         col_name = ['a', 'b', "trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","last_load","avg_load", "rps", "st","et","rt","call_size"]
     else:
         print("ERROR trace_trimmer, invalid column length, ", col_len)
         assert False
+    print(f"col_len: {col_len}")
     df.columns = col_name
-    # if 'a' in df.columns:
-    df = df.drop('a', axis=1)
-    # if 'b' in df.columns:
-    df = df.drop('b', axis=1)
+    # df = df.drop('a', axis=1)
+    # df = df.drop('b', axis=1)
     df.fillna("", inplace=True)
+    df = df[((df["svc_name"] == FRONTEND_svc) & (df["rt"] > 20)) | (df["svc_name"] != FRONTEND_svc)]
+    df = df[(df["svc_name"] == REVIEW_V3_svc) & (df["rt"] < 50) | (df["svc_name"] != REVIEW_V3_svc)]
+    df[["load"]].apply(lambda x: pd.to_numeric(x, errors='coerce')).dropna()
     df['load'] = df['load'].clip(lower=1)
     df['avg_load'] = df['avg_load'].clip(lower=1)
     df['last_load'] = df['last_load'].clip(lower=1)
+    # display(df)
     return df
 
 def parse_trace_file_ver2(log_path):
@@ -169,7 +173,7 @@ def parse_trace_file_ver2(log_path):
     traces_ = dict() # cluster_id -> trace id -> svc_name -> span
     
     ############################################
-    ## use all traces data to all clusters.
+    ## case1: use all traces data to all clusters.
     for cid in range(NUM_CLUSTER):
         for index, row in df.iterrows():
             span = create_span_ver2(row)
@@ -182,10 +186,18 @@ def parse_trace_file_ver2(log_path):
                 traces_[span.cluster_id][span.trace_id][span.svc_name] = span
             else:
                 print(span.svc_name + " already exists in trace["+span.trace_id+"]")
-    # for cid in traces_:
-    #     for trace_id, single_trace in traces_[cid].items():
-    #         for svc, span in single_trace.items():
-    #             print(span)
+    ## case2: use actual cluster id.
+    # for index, row in df.iterrows():
+    #     span = create_span_ver2(row)
+    #     if span.cluster_id not in traces_:
+    #         traces_[span.cluster_id] = dict()
+    #     if span.trace_id not in traces_[span.cluster_id]:
+    #         traces_[span.cluster_id][span.trace_id] = dict()
+    #     if span.svc_name not in traces_[span.cluster_id][span.trace_id]:
+    #         traces_[span.cluster_id][span.trace_id][span.svc_name] = span
+    #     else:
+    #         print(span.svc_name + " already exists in trace["+span.trace_id+"]")
+    
     return traces_
 
 FRONTEND_svc = "productpage-v1"
@@ -212,15 +224,15 @@ def remove_incomplete_trace(traces_):
             ret_traces_[cid] = dict()
         for tid, single_trace in traces_[cid].items():
             if FRONTEND_svc not in single_trace or DETAIL_svc not in single_trace:
-                if FRONTEND_svc not in single_trace:
-                    print("no frontend")
-                if DETAIL_svc not in single_trace:
-                    print("no detail")
-                print(f"single_trace: {single_trace}")
-                for svc, span in single_trace.items():
-                    print(svc, " ")
-                    print(span)
-                print()
+                # if FRONTEND_svc not in single_trace:
+                #     print("no frontend")
+                # if DETAIL_svc not in single_trace:
+                #     print("no detail")
+                # print(f"single_trace: {single_trace}")
+                # for svc, span in single_trace.items():
+                #     print(svc, " ")
+                #     print(span)
+                # print()
                 what[0] += 1
             elif len(single_trace) < MIN_TRACE_LEN:
                 what[1] += 1
@@ -401,11 +413,11 @@ def exclusive_time(single_trace_):
         parent_span.xt = parent_span.rt - exclude_child_rt
         app.logger.debug(f"{log_prefix} Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
         if parent_span.xt < 0.0:
-            print(f"parent_span,{parent_span.svc_name} exclusive time cannot be negative value: {parent_span.xt}")
+            print(f"parent_span,{parent_span.svc_name}, span_id,{parent_span.my_span_id} exclusive time cannot be negative value: {parent_span.xt}")
             print(f"st,{parent_span.st}, et,{parent_span.et}, rt,{parent_span.rt}, xt,{parent_span.xt}")
             assert False
-        # if parent_span.svc_name == FRONTEND_svc:
         assert parent_span.xt >= 0.0
+        
         ###########################################
         # if parent_span.svc_name == FRONTEND_svc:
         #     parent_span.xt = parent_span.rt
@@ -520,7 +532,6 @@ def traces_to_df(traces_):
     df.reset_index(drop=True)
     return df
 
-
 def stitch_time(traces):
     app.logger.info(f"{log_prefix} time stitching starts")
     ts = time.time()
@@ -545,18 +556,8 @@ def stitch_time(traces):
     print(f"depth_dict: {depth_dict}")
     inject_arbitrary_callsize(traces, depth_dict)
     analyze_critical_path_time(traces)
-    
 
-    df = traces_to_df(traces)    
-    # print("dfdf")
-    # display(df)
-    
-    # print("temp_df")
-    # temp_df = df[df["xt"] <= 0.0]
-    # zero_xt_svc = temp_df["svc_name"].unique()
-    # print("zero_xt_svc, ", zero_xt_svc)
-    # temp_df.reset_index(drop=True)
-    # display(temp_df)
+    df = traces_to_df(traces)
     
     print_all_trace(traces)
     for cid in traces:
@@ -564,6 +565,7 @@ def stitch_time(traces):
         app.logger.info(f"{log_prefix} Cluster {cid} Num Final valid traces: {len(traces[cid])}")
     app.logger.info(f"{log_prefix} time stitching done: {time.time() - ts}s")
     return traces, call_graph, depth_dict, df
+    # return traces, call_graph, depth_dict
     ###################################################
 
 # if __name__ == "__main__":

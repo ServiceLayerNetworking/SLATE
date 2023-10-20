@@ -1,22 +1,38 @@
-log_prefix="[SLATE]"
+import pandas as pd
+import span as sp
 
+log_prefix="[SLATE]"
 
 #######################
 ## Global controller ##
 #######################
-PRINT_TRACE=True
+PRINT_TRACE=False
 NUM_CLUSTER = 2
 ACTUAL_LOAD=True
 SLATE_ON=1
+USE_PRERECORDED_TRACE=1
 USE_TRACE_FILE=0
-if USE_TRACE_FILE:
+USE_MODEL_DIRECTLY=0
+if USE_PRERECORDED_TRACE:
+    TRACE_PATH="/app/sampled_both_trace.txt"
+    df = pd.read_csv(TRACE_PATH)
+    pre_recorded_trace = sp.df_to_trace(df)
+    PROF_DURATION = 10 # in seconds
+elif USE_TRACE_FILE:
     # TRACE_FILE_PATH="/app/new_trace.txt"
-    TRACE_FILE_PATH="/app/trace-west_only-avg_load.csv"
-    PROF_DURATION = 5 # in seconds
-else:
+    # TRACE_FILE_PATH="/app/trace-west_only-avg_load.csv"
+    TRACE_FILE_PATH="/app/wrk_prof_log2_west.txt"
+    PROF_DURATION = 10 # in seconds
+elif USE_MODEL_DIRECTLY:
+    MODEL_DICT = {"productpage-v1": {"slope:":154,  "intercetp":130}, \
+                      "ratings-v1": {"slope" :0.0,  "intercetp":1.3}, \
+                      "details-v1": {"slope" :0.0,  "intercetp":6.2}, \
+                      "reviews-v3": {"slope" :0.3,  "intercetp":5.0}, \
+                      "ingress_gw": {"slope" :0.0,  "intercetp":0.0} }
+else:  
     TRACE_FILE_PATH=None
     # PROF_DURATION = 40 # in seconds, hey
-    PROF_DURATION = 300 # in seconds, wrk2
+    PROF_DURATION = 350 # in seconds, wrk2 (30*20)*7 =350
 MIN_NUM_TRACE = 30
 
 
@@ -28,6 +44,7 @@ VERBOSITY=1
 DELIMITER="#"
 OUTPUT_WRITE=False
 DISPLAY=False
+PLOT=False
 GRAPHVIZ=False
 INGRESS_GW_NAME="ingress_gw"
 # ENTRANCE = tst.FRONTEND_svc
@@ -52,3 +69,4 @@ DOLLAR_PER_MS=0.001
 #################
 ## Time stitch ##
 #################
+

@@ -1,5 +1,19 @@
+def df_to_trace(df_):
+    trace_dict = dict()
+    # cid -> trace id -> svc_name -> span
+    for index, row in df_.iterrows():
+        if row["cluster_id"] not in trace_dict:
+            trace_dict[row["cluster_id"]] = dict()
+        if row["trace_id"] not in trace_dict[row["cluster_id"]]:
+            trace_dict[row["cluster_id"]][row["trace_id"]] = dict()
+        
+        temp_span = Span(row["svc_name"], row["cluster_id"], row["trace_id"], row["my_span_id"], row["parent_span_id"], row["st"], row["et"], row["load"], row["last_load"], row["avg_load"], row["rps"], row["call_size"], ct=row["ct"])
+        # svc_name, cluster_id, trace_id, my_span_id, parent_span_id, st, et, first_load, last_load, avg_load, rps, cs):
+        trace_dict[row["cluster_id"]][row["trace_id"]][row["svc_name"]] = temp_span
+    return trace_dict
+
 class Span:
-    def __init__(self, svc_name, cluster_id, trace_id, my_span_id, parent_span_id, st, et, first_load, last_load, avg_load, rps, cs):
+    def __init__(self, svc_name, cluster_id, trace_id, my_span_id, parent_span_id, st, et, first_load, last_load, avg_load, rps, cs, ct=0):
         self.svc_name = svc_name
         self.my_span_id = my_span_id
         self.parent_span_id = parent_span_id
@@ -26,7 +40,7 @@ class Span:
             print(f"class Span, negative response time, {self.rt}")
             assert False
         self.xt = 0 # exclusive time
-        self.ct = 0 # critical time
+        self.ct = ct # critical time
         # self.cpt = list() # critical path time
         self.child_spans = list()
         self.critical_child_spans = list()

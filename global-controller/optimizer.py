@@ -36,27 +36,16 @@ import zlib
 random.seed(1234)
 
 timestamp_list = list()
-temp_timestamp_list = list()
 def LOG_TIMESTAMP(event_name):
     timestamp_list.append([event_name, time.time()])
     if len(timestamp_list) > 1:
         dur = round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)
-        app.logger.info(f"{log_prefix} Finished, {event_name}, duration,{dur}")
+        app.logger.debug(f"{log_prefix} Finished, {event_name}, duration,{dur}")
 
-
-def TEMP_LOG_TIMESTAMP(event_name):
-    temp_timestamp_list.append([event_name, time.time()])
-    if len(temp_timestamp_list) > 1:
-        dur = round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)
-        app.logger.info(f"{log_prefix} Finished, {event_name}, duration,{dur}")
-        
-        
 def prettyprint_timestamp():
-    app.logger.info(f"{log_prefix}")
-    app.logger.info(f"{log_prefix} *")
     app.logger.info(f"{log_prefix} ** timestamp_list(ms)")
     for i in range(1, len(timestamp_list)):
-        app.logger.info(f"{log_prefix} {timestamp_list[i][0]}", end=",")
+        app.logger.info(f"{log_prefix} {timestamp_list[i][0]}, {timestamp_list[i][1] - timestamp_list[i-1][1]}")
 
 
 ## Deprecated
@@ -90,10 +79,12 @@ raw_traces = None
 NUM_REQUESTS=[100,1000]
 
 ''' start of run_optimizer function '''
-def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ## COMMENT_OUT_FOR_JUPYTER
+def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000], model_parameter=None): ## COMMENT_OUT_FOR_JUPYTER
     for num_req in NUM_REQUESTS:
         assert num_req >= 0
-    if raw_traces == None:
+    if model_parameter != None:
+        app.logger.info(f"{log_prefix} run_optimizer, USE_MODEL_DIRECTLY, {model_parameter}")
+    elif raw_traces == None:
         ''' If raw_traces and trace_file are None, it means no SLATE. but execute optimizer computation to balance out global-controller overhead and just return None in the end. '''
         # assert trace_file != None
         
@@ -104,19 +95,19 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ##
         # LOG_PATH = "./new_trace.txt" # Per-request load logging
         # LOG_PATH = trace_file
         traces = tst.parse_trace_file_ver2(trace_file)
-        traces, callgraph, depth_dict, trace_df = tst.stitch_time(traces)
-        display(trace_df)
+        # traces, callgraph, depth_dict, trace_df = tst.stitch_time(traces)
+        traces, callgraph, depth_dict = tst.stitch_time(traces)
         NUM_CLUSTER = len(traces)
     else:
         assert type(raw_traces) == type(dict())
         assert type(NUM_REQUESTS) == type(list())
         if len(raw_traces) == 0:
             app.logger.info(f"{log_prefix} Trace is empty. returns None... Do local routing.")
-            return None ## COMMENT_OUT_FOR_JUPYTER
+            return None, "OPTIMIZER, trace is empty" ## COMMENT_OUT_FOR_JUPYTER
         assert len(raw_traces) == len(NUM_REQUESTS)
         if len(raw_traces) == 1 or len(NUM_REQUESTS) == 1:
             app.logger.info(f"{log_prefix} the number of cluster is ONE. returns None... Do local routing.")
-            return None ## COMMENT_OUT_FOR_JUPYTER
+            return None, "OPTIMIZER, number of cluster is ONE" ## COMMENT_OUT_FOR_JUPYTER
         LOG_TIMESTAMP("optimizer start")
         NUM_CLUSTER = len(raw_traces)
         TOTAL_NUM_REQUEST = sum(NUM_REQUESTS)
@@ -125,12 +116,16 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ##
             if len(raw_traces[cid]) == 0:
                 app.logger.info(f"{log_prefix} trace for cluster {cid} is empty.")
         #################################################################
-        traces, callgraph, depth_dict, trace_df = tst.stitch_time(raw_traces)
+        # traces, callgraph, depth_dict, trace_df = tst.stitch_time(raw_traces)
+        # traces, callgraph, depth_dict = tst.stitch_time(raw_traces)
+        traces = raw_traces
+        callgraph = {'productpage-v1': ['details-v1', 'reviews-v3'], 'ratings-v1': [], 'details-v1': [], 'reviews-v3': ['ratings-v1']}
+        depth_dict = {'productpage-v1': 1, 'details-v1': 2, 'reviews-v3': 2, 'ratings-v1': 3}
         #################################################################
         for cid in traces:
             if len(traces[cid]) == 0:
                 app.logger.info(f"{log_prefix} Cluster {cid} trace is empty. It is impossible to predict latency function. returns None... Do local routing.")
-                return None ## COMMENT_OUT_FOR_JUPYTER
+                return None, f"OPTIMIZER, Cluster {cid} trace is empty" ## COMMENT_OUT_FOR_JUPYTER
         
     if ENTRANCE == INGRESS_GW_NAME:
         callgraph[INGRESS_GW_NAME] = list()
@@ -365,6 +360,7 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ##
         
         # with pd.option_context('display.max_rows', None):
         display(compute_time_observation)
+    LOG_TIMESTAMP("defining net_arc_var")
 
 
     # In[38]:
@@ -374,43 +370,22 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ##
     idx = 0
     num_subplot_row = 2
     num_subplot_col = 5
-    fig, (plot_list) = plt.subplots(num_subplot_row, num_subplot_col, figsize=(16,6))
-    fig.tight_layout()
+    if PLOT:
+        fig, (plot_list) = plt.subplots(num_subplot_row, num_subplot_col, figsize=(16,6))
+        fig.tight_layout()
 
     max_compute_time = dict()
-    # max_load = dict()
-    # max_compute_time = dict()
     regressor_dict = dict()
     for cid in range(NUM_CLUSTER):
         cid_df =  compute_time_observation[compute_time_observation["cluster_id"]==cid]
         for svc_name in unique_services:
             temp_df = cid_df[cid_df["service_name"] == svc_name]
             frontend_temp_df = cid_df[cid_df["service_name"] == tst.FRONTEND_svc]
-            if ALL_PRODUCTPAGE:
-                X = frontend_temp_df[["load"]]
-                y = frontend_temp_df["compute_time"]
-                X.index = temp_df.index
-                y.index = temp_df.index
-            else:
-                X = temp_df[["load"]]
-                y = temp_df["compute_time"]
-            # display(X)
+            X = temp_df[["load"]]
+            y = temp_df["compute_time"]
             temp_x = X.copy()
-            # for i in range(len(temp_x)):
-            # print("max(temp_x)")
-            # print(max(temp_x["load"]))
             for i in range(max(temp_x["load"])):
                 temp_x.iloc[i, 0] = i
-            # print("len(temp_x)")
-            # print(len(temp_x))
-            # print("temp_x")
-            # print(temp_x)
-            #############################################
-            # if ENTRANCE == INGRESS_GW_NAME and svc_name == ENTRANCE:
-            #     max_compute_time[svc_name] = 0
-            # else:
-            #     max_compute_time[svc_name] = 1000000
-            #############################################
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, train_size=0.9, random_state=1
             )
@@ -420,6 +395,10 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ##
                 verbose_feature_names_out=False,
                 remainder='drop'
             )
+            if svc_name == tst.FRONTEND_svc:
+                REGRESSOR_DEGREE = 2
+            else:
+                REGRESSOR_DEGREE = 1
             if REGRESSOR_DEGREE == 1:
                 regressor_dict[svc_name] = make_pipeline(feat_transform, LinearRegression())
                 regressor_dict[svc_name].fit(X_train, y_train)
@@ -433,24 +412,21 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ##
             c_ = regressor_dict[svc_name]["linearregression"].coef_
             in_ = regressor_dict[svc_name]["linearregression"].intercept_
             r2 =  np.round(r2_score(y_test, y_pred),2)
-            app.logger.info(f"{log_prefix} Service {svc_name}, model slope: {c_}, intercept: {in_}, R^2: {r2}")
+            app.logger.info(f"{log_prefix} {svc_name}, slope: {c_}, intercept: {in_}, R^2: {r2}")
             ## Plot
-            row_idx = int(idx/num_subplot_col)
-            col_idx = idx%num_subplot_col
-            # print(row_idx, col_idx)
-            # plot_list[row_idx][col_idx].plot(X["load"], y, 'ro', label="observation", alpha=0.1)
-            # plot_list[row_idx][col_idx].plot(X["load"], regressor_dict[svc_name].predict(X), 'b.', label="prediction", alpha=0.1)
-            plot_list[row_idx][col_idx].plot(X, y, 'ro', label="observation", alpha=0.1)
-            # plot_list[row_idx][col_idx].plot(X, regressor_dict[svc_name].predict(X), 'b.', label="prediction", alpha=0.1)
-            plot_list[row_idx][col_idx].plot(temp_x, regressor_dict[svc_name].predict(temp_x), 'bo', label="prediction", alpha=0.1)
-            plot_list[row_idx][col_idx].legend()
-            plot_list[row_idx][col_idx].set_title(svc_name)
-            if row_idx == num_subplot_row-1:
-                plot_list[row_idx][col_idx].set_xlabel("load")
-            if col_idx == 0:
-                plot_list[row_idx][col_idx].set_ylabel("Compute time")
+            if PLOT:
+                row_idx = int(idx/num_subplot_col)
+                col_idx = idx%num_subplot_col
+                plot_list[row_idx][col_idx].plot(X, y, 'ro', label="observation", alpha=0.1)
+                plot_list[row_idx][col_idx].plot(temp_x, regressor_dict[svc_name].predict(temp_x), 'bo', label="prediction", alpha=0.1)
+                plot_list[row_idx][col_idx].legend()
+                plot_list[row_idx][col_idx].set_title(svc_name)
+                if row_idx == num_subplot_row-1:
+                    plot_list[row_idx][col_idx].set_xlabel("load")
+                if col_idx == 0:
+                    plot_list[row_idx][col_idx].set_ylabel("Compute time")
             ###############################################################################
-            if c_ < 0:
+            if svc_name != tst.FRONTEND_svc and c_ < 0:
                 print("type(c_): ", type(c_))
                 new_c = np.array([0.])
                 regressor_dict[svc_name]["linearregression"].coef_ = new_c
@@ -569,7 +545,7 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ##
             },
             index=per_service_compute_arc[svc_name]
         )
-    app.logger.info(f"{log_prefix} max_load: \n{max_load}\n")
+    app.logger.debug(f"{log_prefix} max_load: \n{max_load}\n")
 
     # ### Define network latency
 
@@ -606,7 +582,7 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ##
                 max_network_latency.append(INTRA_CLUTER_RTT)
             # Network latency for remote routing
             else:
-                app.logger.info(f"{log_prefix} inter-cluster, {src_node}, {dst_node}")
+                app.logger.debug(f"{log_prefix} inter-cluster, {src_node}, {dst_node}")
                 min_network_latency.append(INTER_CLUSTER_RTT)
                 max_network_latency.append(INTER_CLUSTER_RTT)
 
@@ -964,28 +940,25 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ##
         for v in model.getVars():
             if v.IISLB: print(f'\t{v.varname} ≥ {v.LB}')
             if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
-        return None
+        return None, "OPTIMIZER, INFEASIBLE MODEL"
     else:
         app.logger.info(f"{log_prefix} ooooooooooooooooooooooo")
         app.logger.info(f"{log_prefix} oooo SOLVED MODEL! oooo")
         app.logger.info(f"{log_prefix} ooooooooooooooooooooooo")
-        print()
-        
-        ## Model solved!
+
         ## Print out the result
         optimize_end_time = time.time()
         optimizer_runtime = round((optimize_end_time - optimizer_start_time) - substract_time, 5)
         solve_runtime = round(solve_end_time - solve_start_time, 5)
         # constraint_setup_time = round(constraint_setup_end_time - constraint_setup_start_time, 5)
-        app.logger.info(f"{log_prefix} ** Objective: {objective}")
-        app.logger.info(f"{log_prefix} ** Num constraints: {num_constr}")
-        app.logger.info(f"{log_prefix} ** Num variables: {num_var}")
-        app.logger.info(f"{log_prefix} ** Optimization runtime: {optimizer_runtime} ms")
-        app.logger.info(f"{log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
-        # app.logger.info(f"{log_prefix} ** constraint_setup_time runtime: {} ms".format(constraint_setup_time))
-        app.logger.info(f"{log_prefix} ** model.objVal: {model.objVal}")
-        app.logger.info(f"{log_prefix} ** model.objVal / total num requests: {model.objVal/TOTAL_NUM_REQUEST}")
-        
+        app.logger.debug(f"{log_prefix} ** Objective: {objective}")
+        app.logger.debug(f"{log_prefix} ** Num constraints: {num_constr}")
+        app.logger.debug(f"{log_prefix} ** Num variables: {num_var}")
+        app.logger.debug(f"{log_prefix} ** Optimization runtime: {optimizer_runtime} ms")
+        app.logger.debug(f"{log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
+        # app.logger.debug(f"{log_prefix} ** constraint_setup_time runtime: {} ms".format(constraint_setup_time))
+        app.logger.debug(f"{log_prefix} ** model.objVal: {model.objVal}")
+        app.logger.debug(f"{log_prefix} ** model.objVal / total num requests: {model.objVal/TOTAL_NUM_REQUEST}")
         request_flow = pd.DataFrame(columns=["From", "To", "Flow"])
         for arc in arcs:
             if aggregated_load[arc].x > 1e-6:
@@ -1013,7 +986,6 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ##
                 # total_num_svc_in_each_depth, \
                 # constraint_setup_time, \
                 # NUM_REQUEST, \
-        # prettyprint_timestamp()
 
         def translate_to_percentage(df_req_flow):
             src_list = list()
@@ -1077,7 +1049,9 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000]): ##
         percentage_df = translate_to_percentage(request_flow)
         if DISPLAY:
             display(percentage_df)
-        return percentage_df
+            
+        # prettyprint_timestamp()
+        return percentage_df, "OPTIMIZER, MODEL SOLVED"
 ''' This is end of run_optimizer function'''
 
 
