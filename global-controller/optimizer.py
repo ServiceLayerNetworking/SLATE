@@ -396,7 +396,7 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000], mod
                 remainder='drop'
             )
             if svc_name == tst.FRONTEND_svc:
-                REGRESSOR_DEGREE = 2
+                REGRESSOR_DEGREE = 1
             else:
                 REGRESSOR_DEGREE = 1
             if REGRESSOR_DEGREE == 1:
@@ -1040,9 +1040,16 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000], mod
                 total = group_by_sum.loc[[index]]["flow"].tolist()[0]
                 total_list.append(total)
             percentage_df["total"] = total_list
+            
+            app.logger.error(f"{log_prefix} percentage_df: {percentage_df}")
+            
             weight_list = list()
             for index, row in percentage_df.iterrows():
-                weight_list.append(row['flow']/row['total'])
+                try:
+                    weight_list.append(row['flow']/row['total'])
+                except Exception as e:
+                    app.logger.error(f"{log_prefix} ERROR: {e}")
+                    assert False
             percentage_df["weight"] = weight_list
             return percentage_df
             
