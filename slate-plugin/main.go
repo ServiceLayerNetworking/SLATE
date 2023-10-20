@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
@@ -17,7 +19,7 @@ import (
 const (
 	KEY_INFLIGHT_REQ_COUNT = "slate_inflight_request_count"
 	KEY_NUM_REQ_PER_UNIT   = "slate_num_request_per_unit_time"
-	KEY_RPS                = "slate_rps"
+	KEY_REQUEST_COUNT      = "slate_rps"
 	KEY_LAST_RESET         = "slate_last_reset"
 	KEY_RPS_THRESHOLDS     = "slate_rps_threshold"
 	KEY_HASH_MOD           = "slate_hash_mod"
@@ -39,10 +41,13 @@ todo(adiprerepa)
 */
 
 var (
-	ALL_KEYS = []string{KEY_INFLIGHT_REQ_COUNT, KEY_NUM_REQ_PER_UNIT, KEY_RPS, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
+	ALL_KEYS = []string{KEY_INFLIGHT_REQ_COUNT, KEY_NUM_REQ_PER_UNIT, KEY_REQUEST_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
 		KEY_TRACED_REQUESTS}
 	// nor     [nor_len]uint64
-	cur_idx int
+	cur_idx      int
+	latency_list []int64
+	ts_list      []int64
+	mu           sync.Mutex
 )
 
 func main() {
@@ -91,7 +96,6 @@ func (*vmContext) OnVMStart(vmConfigurationSize int) types.OnVMStartStatus {
 	// 	nor[i] = 0
 	// }
 	// cur_idx = 0
-
 	// set default hash mod
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(DEFAULT_HASH_MOD))
@@ -148,6 +152,21 @@ func (p *pluginContext) OnTick() {
 			check KEY_LAST_RESET (uint64 millis) to see if one of our peers already reached.
 			if not, send request count and set KEY_LAST_RESET to current time.
 	*/
+
+	// TODO: OnTick is called multiple times every tick period, mutex does not solve it.
+	// mu.Lock()
+	avg_latency := int64(calculateAverage(latency_list))
+	tail_latency := calculatePercentile(latency_list, 99)
+	// ts := int64(0)
+	// if len(ts_list) > 0 {
+	// 	ts = ts_list[len(ts_list)]
+	// }
+	// proxywasm.LogCriticalf("OnTick,latency summary,avg_latency,%d,99th_latency,%d,%d,", avg_latency, tail_latency, ts)
+	proxywasm.LogCriticalf("OnTick,latency summary,avg_latency,%d,99th_latency,%d,", avg_latency, tail_latency)
+	latency_list = latency_list[:0]
+	// ts_list = ts_list[:0]
+	// mu.Unlock()
+
 	data, cas, err := proxywasm.GetSharedData(KEY_LAST_RESET)
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
@@ -181,27 +200,25 @@ func (p *pluginContext) OnTick() {
 	// cur_idx = (cur_idx + 1) % len(nor)
 
 	// reset request count back to 0
+	data, cas, err = proxywasm.GetSharedData(KEY_REQUEST_COUNT)
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
+		return
+	}
+	reqCount := binary.LittleEndian.Uint64(data)
+	proxywasm.LogCriticalf("OnTick, reqCount: %d", reqCount)
+	if TICK_PERIOD > 1000 {
+		reqCount = reqCount * 1000 / TICK_PERIOD
+	}
 	buf = make([]byte, 8)
-	if err := proxywasm.SetSharedData(KEY_NUM_REQ_PER_UNIT, buf, cas); err != nil {
+	// set request count back to 0
+	if err := proxywasm.SetSharedData(KEY_REQUEST_COUNT, buf, cas); err != nil {
 		if errors.Is(err, types.ErrorStatusCasMismatch) {
 			// this should *never* happen.
-			proxywasm.LogCriticalf("CAS Mismatch on KEY_NUM_REQ_PER_UNIT, failing: %v", err)
+			proxywasm.LogCriticalf("CAS Mismatch on RPS, failing: %v", err)
 		}
 		return
 	}
-
-	// rps := uint64(0)
-	// for _, elem := range nor {
-	// 	proxywasm.LogCriticalf("nor[elem]: %d", elem)
-	// 	rps += elem
-	// }
-	// proxywasm.LogCriticalf("rps: %d", rps)
-	// buf = make([]byte, 8)
-	// binary.LittleEndian.PutUint64(buf, uint64(rps))
-	// if err := proxywasm.SetSharedData(KEY_RPS, buf, 0); err != nil {
-	// 	proxywasm.LogCriticalf("Couldn't set KEY_RPS: %v", err)
-	// 	return
-	// }
 
 	requestStats, err := GetTracedRequestStats()
 	if err != nil {
@@ -226,9 +243,8 @@ func (p *pluginContext) OnTick() {
 		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
 		return
 	}
-	inflightReqCount := binary.LittleEndian.Uint64(data)
-	// proxywasm.LogCriticalf("OnTick, request count: %d, traced stats: %s", inflightReqCount, requestStatsStr)
-	proxywasm.LogCriticalf("OnTick, request count: %d", inflightReqCount)
+	num_cur_inflight_req := int64(binary.LittleEndian.Uint64(data))
+	proxywasm.LogCriticalf("OnTick, num inflight request: %d", num_cur_inflight_req)
 
 	controllerHeaders := [][2]string{
 		{":method", "POST"},
@@ -241,13 +257,14 @@ func (p *pluginContext) OnTick() {
 	proxywasm.LogCriticalf("Sending load to %s", p.metaClusterId)
 	if p.metaClusterId == "kind-us-west" {
 		proxywasm.DispatchHttpCall("outbound|8080|west|slate-controller.default.svc.cluster.local", controllerHeaders,
-			[]byte(fmt.Sprintf("%d\n%s", inflightReqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
+			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
+		// []byte(fmt.Sprintf("%d\n%s", num_cur_inflight_req, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 	} else if p.metaClusterId == "kind-us-east" {
 		proxywasm.DispatchHttpCall("outbound|8080|east|slate-controller.default.svc.cluster.local", controllerHeaders,
-			[]byte(fmt.Sprintf("%d\n%s", inflightReqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
+			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 	} else {
 		proxywasm.DispatchHttpCall("outbound|8080||slate-controller.default.svc.cluster.local", controllerHeaders,
-			[]byte(fmt.Sprintf("%d\n%s", inflightReqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
+			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 	}
 }
 
@@ -293,6 +310,14 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 
 	// increment request count
 	// (gangmuk): it is load
+
+	islocalroute, err := proxywasm.GetHttpRequestHeader("x-slate-islocalroute")
+	if islocalroute == "1" {
+		proxywasm.LogCriticalf("islocalroute, 1, IncrementSharedData(KEY_REQUEST_COUNT, 1)")
+		IncrementSharedData(KEY_REQUEST_COUNT, 1)
+	} else {
+		proxywasm.LogCriticalf("islocalroute, 0")
+	}
 	IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, 1) // There is one load variable shared by all requests in this wasm, but each request will save the snapshot of the load when the request arrives in this wasm. So different requests will have different loads but there is one load in this wasm at a time t.
 
 	IncrementSharedData(KEY_NUM_REQ_PER_UNIT, 1)
@@ -339,9 +364,6 @@ todo adiprerepa add call size
 // Since all responses are treated equally, regardless of whether
 // they come from upstream or downstream, we need to do some clever
 // bookkeeping and only record the end time for the last response.
-// ///////////////////////////////////////////////////
-// (gangmuk): when is it called? on every response?
-// ///////////////////////////////////////////////////
 func (ctx *httpContext) OnHttpStreamDone() {
 	// get x-request-id from request headers and lookup entry time
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
@@ -349,6 +371,7 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return
 	}
+
 	// TODO(gangmuk): Is it correct?
 	// endtime should be recorded when the LAST response is received not the first response. It seems like it records the endtime on the first response.
 	inbound, err := GetUint64SharedData(inboundCountKey(traceId))
@@ -367,25 +390,39 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		return
 	}
 
+	//// Printing reroute tage
+	islocalroute, err := proxywasm.GetHttpRequestHeader("x-slate-islocalroute")
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get x-slate-islocalroute header: %v", err)
+	} else {
+		route, err := proxywasm.GetHttpRequestHeader("x-slate-route")
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get x-slate-islocalroute header: %v", err)
+		} else {
+			proxywasm.LogCriticalf("x-slate-islocalroute,%s,x-slate-route,%s,", islocalroute, route)
+		}
+	}
+
 	IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, -1)
-	//////////////////////////////////////////////////////////////////////////////////////
 	// (gangmuk): Instead of setting the KEY_INFLIGHT_REQ_COUNT(load) to zero in OnTick function, decrement it when each request is completed.
-	load_0, err := GetUint64SharedData(firstLoadKey((traceId)))
+	l_0, err := GetUint64SharedData(firstLoadKey((traceId)))
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get shared data for firstLoadKey traceId %v load: %v", traceId, err)
 		return
 	}
-	load_1, err := GetUint64SharedData(KEY_INFLIGHT_REQ_COUNT)
+	l_1, err := GetUint64SharedData(KEY_INFLIGHT_REQ_COUNT)
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get shared data for firstLoadKey traceId %v load: %v", traceId, err)
 		return
 	}
+	load_0 := int64(l_0) // first load, #inflight requests when a req is received
+	load_1 := int64(l_1) // last load, #inflight requests when a req is completed
 	avg_load := (load_0 + load_1) / 2
 	// useful log
 	// proxywasm.LogCriticalf("OnHttpStreamDone, This is THE LAST response! load_0,%d, load_1,%d, avg_load,%d", load_0, load_1, avg_load)
 
 	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(load_1))
+	binary.LittleEndian.PutUint64(buf, uint64(l_1))
 	if err := proxywasm.SetSharedData(lastLoadKey(traceId), buf, 0); err != nil { // Set the trace with the current load
 		proxywasm.LogCriticalf("unable to set shared data lastLoadKey for traceId %v load: %v", traceId, err)
 		return
@@ -404,6 +441,17 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	if err := proxywasm.SetSharedData(endTimeKey(traceId), endTimeBytes, 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v endTime: %v %v", traceId, currentTime, err)
 	}
+
+	data, _, err := proxywasm.GetSharedData(startTimeKey(traceId))
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get shared data for traceId %v startTime: %v", traceId, err)
+		return
+	}
+	st := int64(binary.LittleEndian.Uint64(data))
+	lat := currentTime - st
+	latency_list = append(latency_list, lat)
+	ts_list = append(ts_list, currentTime)
+	// proxywasm.LogCriticalf("e2e_latency, %d", lat)
 }
 
 func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
@@ -450,20 +498,20 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 
 // IncrementSharedData increments the value of the shared data at the given key. The data is
 // stored as a little endian uint64. if the key doesn't exist, it is created with the value 1.
-func IncrementSharedData(key string, amount int) {
+func IncrementSharedData(key string, amount int64) {
 	data, cas, err := proxywasm.GetSharedData(key)
 	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
 		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
 	}
-	var val uint64
+	var val int64
 	if len(data) == 0 {
-		val = uint64(amount)
+		val = amount
 	} else {
 		// hopefully we don't overflow...
-		val = uint64(int(binary.LittleEndian.Uint64(data)) + amount)
+		val = int64(binary.LittleEndian.Uint64(data)) + amount
 	}
 	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, val)
+	binary.LittleEndian.PutUint64(buf, uint64(val))
 	if err := proxywasm.SetSharedData(key, buf, cas); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data: %v", err)
 	}
@@ -625,11 +673,11 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v from avgLoadKey: %v", traceId, err)
 			return nil, err
 		}
-		first_load := int64(binary.LittleEndian.Uint64(firstLoadBytes)) // to int
+		first_load := int64(binary.LittleEndian.Uint64(firstLoadBytes)) // should it be int or int64?
 		last_load := int64(binary.LittleEndian.Uint64(lastLoadBytes))   // to int
 		avg_load := int64(binary.LittleEndian.Uint64(avgLoadBytes))     // to int
 
-		rpsBytes, _, err := proxywasm.GetSharedData(KEY_RPS) // Get stored load of this traceid
+		rpsBytes, _, err := proxywasm.GetSharedData(KEY_REQUEST_COUNT) // Get stored load of this traceid
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v from avgLoadKey: %v", traceId, err)
 			return nil, err
@@ -715,4 +763,31 @@ func md5Hash(s string) int {
 	h := md5.New()
 	h.Write([]byte(s))
 	return int(binary.LittleEndian.Uint64(h.Sum(nil)))
+}
+
+func calculatePercentile(data []int64, percentile float64) int64 {
+	if len(data) == 0 {
+		return 0
+	}
+	sort.Slice(data, func(i, j int) bool {
+		return data[i] < data[j]
+	})
+	k := int(float64(len(data)) * percentile / 100.0)
+	value := data[k]
+	fmt.Printf("%dth percentile: %d\n", percentile, value)
+	return value
+}
+
+func calculateAverage(data []int64) float64 {
+	if len(data) == 0 {
+		return 0.0
+	}
+
+	var sum int64
+	for _, num := range data {
+		sum += num
+	}
+
+	average := float64(sum) / float64(len(data))
+	return average
 }
