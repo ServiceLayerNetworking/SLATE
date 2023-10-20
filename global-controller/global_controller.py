@@ -214,7 +214,9 @@ def prof_phase():
                 prof_percentage = int((counter[cid]/PROF_DURATION)*100)
                 if prof_percentage > 100:
                     prof_percentage = 100
-                app.logger.info(f"{log_prefix} Cluster {cid}, Profiling phase: {prof_percentage}% (elapsed seconds: {counter[cid]} / required seconds: {PROF_DURATION}\n")
+                else:
+                    app.logger.info(f"{log_prefix} OPTIMIZER, Cluster {cid}, Profiling phase: {prof_percentage}%")
+                    # app.logger.info(f"{log_prefix} OPTIMIZER, Cluster {cid}, Profiling phase: {prof_percentage}% (elapsed seconds: {counter[cid]} / required seconds: {PROF_DURATION}")
                 if cid in complete_traces:
                     app.logger.info(f"{log_prefix} prof_phase, Cluster {cid}, NUM_COMPLETE_TRACE: {len(complete_traces[cid])}")
                 else:
@@ -224,7 +226,7 @@ def prof_phase():
                 else:
                     app.logger.info(f"{log_prefix} prof_phase, Cluster {cid}, NUM_ALL_TRACE: 0")
                 ## TODO:
-                if (counter[cid] >= PROF_DURATION) and (cid in complete_traces) and (len(complete_traces[cid]) > MIN_NUM_TRACE):
+                if (counter[cid] >= PROF_DURATION) and (cid in complete_traces): # and (len(complete_traces[cid]) > MIN_NUM_TRACE):
                     prof_done[cid] = True ## Toggle profiling done flag!
                     # print_load_bucket()
                     # if is_load_bucket_filled(cid):
@@ -281,23 +283,20 @@ def optimizer_entrypoint():
             
             # TODO: this should be ingressgateway. hardcoding for now
             
-            if ACTUAL_LOAD:
-                # Next tick load == Current tick load
-                app.logger.info(f"{log_prefix} CONFIG: ACTUAL_LOAD")
-                cluster_0_num_req = svc_to_rps["us-west"]["productpage-v1"]
-                cluster_1_num_req = svc_to_rps["us-east"]["productpage-v1"]
-                app.logger.info(f"{log_prefix} LOAD, cluster 0: {cluster_0_num_req}")
-                app.logger.info(f"{log_prefix} LOAD, cluster 1: {cluster_0_num_req}")
-                if cluster_0_num_req == 0 and cluster_1_num_req == 0:
-                    app.logger.info(f"{log_prefix} NO LOAD. Skip Optimizer")
-                    return
-            else:
-                # Arbitrary load
-                cluster_0_num_req = 10
-                cluster_1_num_req = 60
-                app.logger.warning(f"{log_prefix} CONFIG: FAKE LOAD: Cluster 0{cluster_0_num_req}, Cluster 1 {cluster_1_num_req}")
-            
+            # Next tick load == Current tick load
+            app.logger.info(f"{log_prefix} CONFIG: ACTUAL_LOAD")
+            cluster_0_num_req = svc_to_rps["us-west"]["productpage-v1"]
+            cluster_1_num_req = svc_to_rps["us-east"]["productpage-v1"]
+            app.logger.info(f"{log_prefix} LOAD, cluster 0: {cluster_0_num_req}")
+            app.logger.info(f"{log_prefix} LOAD, cluster 1: {cluster_0_num_req}")
             num_requests = [cluster_0_num_req, cluster_1_num_req]
+            app.logger.info(f"{log_prefix} OPTIMIZER, NUM_REQUESTS: {num_requests}")
+            if cluster_0_num_req == 0 and cluster_1_num_req == 0:
+                app.logger.info(f"{log_prefix} NO LOAD. Skip Optimizer")
+                cluster_pcts[0] = {0: "1.0", 1: "0.0"}
+                cluster_pcts[1] = {0: "0.0", 1: "1.0"}
+                app.logger.info(f"{log_prefix} OPTIMIZER, OUTPUT: {cluster_pcts}\n")
+                return cluster_pcts
             for i in range(len(num_requests)):
                 if num_requests[i] < 0:
                     app.logger.warning(f"{log_prefix} cluster,{i}, num_request < 0, ({num_requests[i]}), reset to zero.")
@@ -328,7 +327,8 @@ def optimizer_entrypoint():
                 app.logger.info(f"{log_prefix} OPTIMIZER, ROLLBACK TO LOCAL ROUTING: {cluster_pcts}")
                 cluster_pcts[0] = {0: "1.0", 1: "0.0"}
                 cluster_pcts[1] = {0: "0.0", 1: "1.0"}
-                return
+                app.logger.info(f"{log_prefix} OPTIMIZER, OUTPUT: {cluster_pcts}\n")
+                return cluster_pcts
             
             else:
                 ingress_gw_df = percentage_df[percentage_df['src']=='ingress_gw']
@@ -345,8 +345,7 @@ def optimizer_entrypoint():
                             app.logger.info(f"{log_prefix} [ERROR] length of row can't be greater than 1.")
                             app.logger.info(f"{log_prefix} row: {row}")
                             assert len(row) <= 1
-            app.logger.info(f"{log_prefix} OPTIMIZER, NUM_REQUESTS: {num_requests}")
-            app.logger.info(f"{log_prefix} OPTIMIZER, OUTPUT: {cluster_pcts}")
+            app.logger.info(f"{log_prefix} OPTIMIZER, OUTPUT: {cluster_pcts}\n")
             # all_traces.clear()
             return cluster_pcts
         else:
@@ -402,7 +401,7 @@ def proxy_load():
             if prof_start[cluster_to_cid[cluster]] == False:
                 prof_start[cluster_to_cid[cluster]] = True
                 app.logger.info(f"{log_prefix} The FIRST proxy load for cluster {cluster}, {spans[0].cluster_id}.")
-                app.logger.info(f"{log_prefix} Start profiling for cluster {cluster}, {spans[0].cluster_id}.")
+                app.logger.info(f"{log_prefix} OPTIMIZER, Start profiling for cluster {cluster}, {spans[0].cluster_id}.")
             else:
                 app.logger.debug(f"{log_prefix} Profiling for Cluster {cluster} already started.")
         else:
@@ -480,7 +479,7 @@ def proxy_load():
 
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
-    scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
+    scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=4)
     scheduler.add_job(func=prof_phase, trigger="interval", seconds=1)
     scheduler.add_job(func=garbage_collection, trigger="interval", seconds=600)
     scheduler.add_job(func=print_trace, trigger="interval", seconds=10) ## uncomment it if you want trace log print
