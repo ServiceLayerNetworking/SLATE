@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	versionedclient "istio.io/client-go/pkg/clientset/versioned"
@@ -48,74 +49,74 @@ type ClusterControllerRequest struct {
 func UpdatePolicy(routingPcts map[int]string) error {
 
 	// somehow map subset->cluster
-	// vs, err := global_ic.NetworkingV1alpha3().VirtualServices("default").Get(context.Background(), "bookinfo", v1.GetOptions{})
-	// if err != nil {
-	// 	fmt.Printf("error getting virtual service %v", err)
-	// 	return err
-	// }
-	// fmt.Printf("GOT virtual service: %s\n", vs.Name)
-	// // us-west is 0
-	// // us-east is 1
-	// // update routing percentages
-	// west_weight := int32(0)
-	// east_weight := int32(0)
-	// // if clusterId == "us-west" {
-	// // 	val, exists := routingPcts[1]
-	// // 	if !exists {
-	// // 		// nothing to update
-	// // 		return nil
-	// // 	}
-	// // 	raw, err := strconv.ParseFloat(val, 64)
-	// // 	if err != nil {
-	// // 		fmt.Printf("error parsing float %v", err)
-	// // 		return err
-	// // 	}
-	// // 	for _, httpRoute := range vs.Spec.Http {
-	// // 		for _, route := range httpRoute.Route {
-	// // 			if route.Destination.Subset == "east" {
-	// // 				east_weight = int32(raw * 100)
-	// // 				if east_weight > 0 {
-	// // 					east_weight = 50
-	// // 				}
-	// // 				route.Weight = east_weight
-	// // 			} else if route.Destination.Subset == "west" {
-	// // 				west_weight = int32(100 - raw*100)
-	// // 				if west_weight < 100 {
-	// // 					west_weight = 50
-	// // 				}
-	// // 				route.Weight = west_weight
-	// // 			}
-	// // 		}
-	// // 	}
-	// // } else {
-	// // 	val, exists := routingPcts[0]
-	// // 	if !exists {
-	// // 		return nil
-	// // 	}
-	// // 	raw, err := strconv.ParseFloat(val, 64)
-	// // 	if err != nil {
-	// // 		fmt.Printf("error parsing float %v", err)
-	// // 		return err
-	// // 	}
-	// // 	for _, httpRoute := range vs.Spec.Http {
-	// // 		for _, route := range httpRoute.Route {
-	// // 			if route.Destination.Subset == "west" {
-	// // 				route.Weight = int32(raw * 100)
-	// // 				west_weight = int32(raw * 100)
-	// // 			} else if route.Destination.Subset == "east" {
-	// // 				route.Weight = int32(100 - raw*100)
-	// // 				east_weight = int32(100 - raw*100)
-	// // 			}
-	// // 		}
-	// // 	}
-	// // }
-	// fmt.Printf("UpdatePolicy, I am %s, west,%d, east,%d\n", clusterId, west_weight, east_weight)
+	vs, err := global_ic.NetworkingV1alpha3().VirtualServices("default").Get(context.Background(), "bookinfo", v1.GetOptions{})
+	if err != nil {
+		fmt.Printf("error getting virtual service %v", err)
+		return err
+	}
+	fmt.Printf("GOT virtual service: %s\n", vs.Name)
+	// us-west is 0
+	// us-east is 1
+	// update routing percentages
+	west_weight := int32(0)
+	east_weight := int32(0)
+	if clusterId == "us-west" {
+		val, exists := routingPcts[1]
+		if !exists {
+			// nothing to update
+			return nil
+		}
+		raw, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			fmt.Printf("error parsing float %v", err)
+			return err
+		}
+		for _, httpRoute := range vs.Spec.Http {
+			for _, route := range httpRoute.Route {
+				if route.Destination.Subset == "east" {
+					east_weight = int32(raw * 100)
+					if east_weight > 0 {
+						east_weight = 50
+					}
+					route.Weight = east_weight
+				} else if route.Destination.Subset == "west" {
+					west_weight = int32(100 - raw*100)
+					if west_weight < 100 {
+						west_weight = 50
+					}
+					route.Weight = west_weight
+				}
+			}
+		}
+	} else {
+		val, exists := routingPcts[0]
+		if !exists {
+			return nil
+		}
+		raw, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			fmt.Printf("error parsing float %v", err)
+			return err
+		}
+		for _, httpRoute := range vs.Spec.Http {
+			for _, route := range httpRoute.Route {
+				if route.Destination.Subset == "west" {
+					route.Weight = int32(raw * 100)
+					west_weight = int32(raw * 100)
+				} else if route.Destination.Subset == "east" {
+					route.Weight = int32(100 - raw*100)
+					east_weight = int32(100 - raw*100)
+				}
+			}
+		}
+	}
+	fmt.Printf("UpdatePolicy, I am %s, set, west,%d, east,%d\n", clusterId, west_weight, east_weight)
 
-	// _, err = global_ic.NetworkingV1alpha3().VirtualServices("default").Update(context.Background(), vs, v1.UpdateOptions{})
-	// if err != nil {
-	// 	fmt.Printf("error updating virtual service %v", err)
-	// 	return err
-	// }
+	_, err = global_ic.NetworkingV1alpha3().VirtualServices("default").Update(context.Background(), vs, v1.UpdateOptions{})
+	if err != nil {
+		fmt.Printf("error updating virtual service %v", err)
+		return err
+	}
 	return nil
 }
 
