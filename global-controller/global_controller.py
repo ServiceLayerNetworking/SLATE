@@ -28,6 +28,7 @@ all_traces = {}
 prerecorded_trace = {}
 svc_to_rps = {}
 cluster_to_cid = {"us-west": 0, "us-east": 1}
+cid_to_cluster = {0: "us-west", 1: "us-east"}
 stats_mutex = Lock()
 stats_arr = []
 # in form of [cluster_id][dest cluster] = pct
@@ -215,8 +216,8 @@ def prof_phase():
                 if prof_percentage > 100:
                     prof_percentage = 100
                 else:
-                    app.logger.info(f"{log_prefix} OPTIMIZER, Cluster {cid}, Profiling phase: {prof_percentage}%")
-                    # app.logger.info(f"{log_prefix} OPTIMIZER, Cluster {cid}, Profiling phase: {prof_percentage}% (elapsed seconds: {counter[cid]} / required seconds: {PROF_DURATION}")
+                    #app.logger.info(f"{log_prefix} OPTIMIZER, Cluster {cid}, Profiling phase: {prof_percentage}%")
+                    app.logger.info(f"\n{log_prefix} OPTIMIZER: Cluster {cid_to_cluster[cid]}, Profiling: {prof_percentage}%")
                 if cid in complete_traces:
                     app.logger.info(f"{log_prefix} prof_phase, Cluster {cid}, NUM_COMPLETE_TRACE: {len(complete_traces[cid])}")
                 else:
@@ -290,12 +291,20 @@ def optimizer_entrypoint():
             app.logger.info(f"{log_prefix} LOAD, cluster 0: {cluster_0_num_req}")
             app.logger.info(f"{log_prefix} LOAD, cluster 1: {cluster_0_num_req}")
             num_requests = [cluster_0_num_req, cluster_1_num_req]
-            app.logger.info(f"{log_prefix} OPTIMIZER, NUM_REQUESTS: {num_requests}")
+            #app.logger.info(f"{log_prefix} OPTIMIZER, NUM_REQUESTS: {num_requests}")
+            app.logger.info(f"\n{log_prefix} OPTIMIZER: NUM_REQUESTS: us-west:{num_requests[0]}, us-east:{num_requests[1]}")
             if cluster_0_num_req == 0 and cluster_1_num_req == 0:
                 app.logger.info(f"{log_prefix} NO LOAD. Skip Optimizer")
                 cluster_pcts[0] = {0: "1.0", 1: "0.0"}
                 cluster_pcts[1] = {0: "0.0", 1: "1.0"}
-                app.logger.info(f"{log_prefix} OPTIMIZER, OUTPUT: {cluster_pcts}\n")
+                #app.logger.info(f"{log_prefix} OPTIMIZER, OUTPUT: {cluster_pcts}\n")
+                app.logger.info(f"\n{log_prefix} ********************************************")
+                app.logger.info(f"\n{log_prefix} ** OPTIMIZER: Optimized routing ************")
+                app.logger.info(f"\n{log_prefix} ** OPTIMIZER: west->west: {round(cluster_pcts[0][0]*100,0)}% ***********")
+                app.logger.info(f"\n{log_prefix} ** OPTIMIZER: west->east: {round(cluster_pcts[0][1]*100,0)}% ***********")
+                app.logger.info(f"\n{log_prefix} ** OPTIMIZER: east->east: {round(cluster_pcts[1][1]*100,0)}% ***********")
+                app.logger.info(f"\n{log_prefix} ** OPTIMIZER: east->west: {round(cluster_pcts[1][0]*100,0)}% ***********")
+                app.logger.info(f"\n{log_prefix} ********************************************")
                 return cluster_pcts
             for i in range(len(num_requests)):
                 if num_requests[i] < 0:
