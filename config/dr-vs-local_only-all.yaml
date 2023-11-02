@@ -1,0 +1,131 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: productpage
+spec:
+  host: productpage
+  subsets:
+  - name: west
+    labels:
+      topology.istio.io/network: network1
+  - name: east
+    labels:
+      topology.istio.io/network: network2
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: details
+spec:
+  host: details
+  subsets:
+  - name: west
+    labels:
+      topology.istio.io/network: network1
+  - name: east
+    labels:
+      topology.istio.io/network: network2
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: details
+spec:
+  hosts:
+  - details
+  http:
+  - name: "west-local"
+    match:
+    - sourceLabels:
+        topology.istio.io/network: network1
+    route:
+    - destination:
+        host: details
+        subset: west
+  - name: "east-local"
+    match:
+    - sourceLabels:
+        topology.istio.io/network: network2
+    route:
+    - destination:
+        host: details
+        subset: east
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: ratings
+spec:
+  host: ratings
+  subsets:
+  - name: west
+    labels:
+      topology.istio.io/network: network1
+  - name: east
+    labels:
+      topology.istio.io/network: network2
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: ratings
+spec:
+  hosts:
+  - ratings
+  http:
+  - name: "west-local"
+    match:
+    - sourceLabels:
+        topology.istio.io/network: network1
+    route:
+    - destination:
+        host: ratings
+        subset: west
+  - name: "east-local"
+    match:
+    - sourceLabels:
+        topology.istio.io/network: network2
+    route:
+    - destination:
+        host: ratings
+        subset: east
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: reviews
+spec:
+  host: reviews
+  subsets:
+  - name: west
+    labels:
+      topology.istio.io/network: network1
+  - name: east
+    labels:
+      topology.istio.io/network: network2
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: reviews
+spec:
+  hosts:
+  - reviews
+  http:
+  - name: "west-local"
+    match:
+    - sourceLabels:
+        topology.istio.io/network: network1
+    route:
+    - destination:
+        host: reviews
+        subset: west
+  - name: "east-local"
+    match:
+    - sourceLabels:
+        topology.istio.io/network: network2
+    route:
+    - destination:
+        host: reviews
+        subset: east
+
