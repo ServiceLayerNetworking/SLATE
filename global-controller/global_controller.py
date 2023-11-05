@@ -126,6 +126,15 @@ def parse_stats_into_spans(stats, cluster, service):
     #     app.logger.info(f"{log_prefix} ==================================")
     return spans
 
+def print_routing_rule(pct_df):
+    app.logger.info(f"\n{log_prefix} OPTIMIZER: ********************")
+    app.logger.info(f"\n{log_prefix} OPTIMIZER: ** Routing rule")
+    app.logger.info(f"\n{log_prefix} OPTIMIZER: ** west->west: {int(float(pct_df[0][0])*100)}%")
+    app.logger.info(f"\n{log_prefix} OPTIMIZER: ** west->east: {int(float(pct_df[0][1])*100)}%")
+    app.logger.info(f"\n{log_prefix} OPTIMIZER: ** east->east: {int(float(pct_df[1][1])*100)}%")
+    app.logger.info(f"\n{log_prefix} OPTIMIZER: ** east->west: {int(float(pct_df[1][0])*100)}%")
+    app.logger.info(f"\n{log_prefix} OPTIMIZER: ********************")
+
 
 def print_load_bucket():
     app.logger.info(f"{log_prefix} print_load_bucket")
@@ -298,14 +307,9 @@ def optimizer_entrypoint():
                 cluster_pcts[0] = {0: "1.0", 1: "0.0"}
                 cluster_pcts[1] = {0: "0.0", 1: "1.0"}
                 #app.logger.info(f"{log_prefix} OPTIMIZER, OUTPUT: {cluster_pcts}\n")
-                app.logger.info(f"\n{log_prefix} ********************************************")
-                app.logger.info(f"\n{log_prefix} ** OPTIMIZER: Optimized routing ************")
-                app.logger.info(f"\n{log_prefix} ** OPTIMIZER: west->west: {round(cluster_pcts[0][0]*100,0)}% ***********")
-                app.logger.info(f"\n{log_prefix} ** OPTIMIZER: west->east: {round(cluster_pcts[0][1]*100,0)}% ***********")
-                app.logger.info(f"\n{log_prefix} ** OPTIMIZER: east->east: {round(cluster_pcts[1][1]*100,0)}% ***********")
-                app.logger.info(f"\n{log_prefix} ** OPTIMIZER: east->west: {round(cluster_pcts[1][0]*100,0)}% ***********")
-                app.logger.info(f"\n{log_prefix} ********************************************")
-                return cluster_pcts
+                print_routing_rule(cluster_pcts)
+                return cluster_pcts ####
+
             for i in range(len(num_requests)):
                 if num_requests[i] < 0:
                     app.logger.warning(f"{log_prefix} cluster,{i}, num_request < 0, ({num_requests[i]}), reset to zero.")
@@ -336,8 +340,9 @@ def optimizer_entrypoint():
                 app.logger.info(f"{log_prefix} OPTIMIZER, ROLLBACK TO LOCAL ROUTING: {cluster_pcts}")
                 cluster_pcts[0] = {0: "1.0", 1: "0.0"}
                 cluster_pcts[1] = {0: "0.0", 1: "1.0"}
-                app.logger.info(f"{log_prefix} OPTIMIZER, OUTPUT: {cluster_pcts}\n")
-                return cluster_pcts
+                #app.logger.info(f"{log_prefix} OPTIMIZER, OUTPUT: {cluster_pcts}\n")
+                print_routing_rule(cluster_pcts)
+                return cluster_pcts ###
             
             else:
                 ingress_gw_df = percentage_df[percentage_df['src']=='ingress_gw']
@@ -354,9 +359,10 @@ def optimizer_entrypoint():
                             app.logger.info(f"{log_prefix} [ERROR] length of row can't be greater than 1.")
                             app.logger.info(f"{log_prefix} row: {row}")
                             assert len(row) <= 1
-            app.logger.info(f"{log_prefix} OPTIMIZER, OUTPUT: {cluster_pcts}\n")
+            #app.logger.info(f"{log_prefix} OPTIMIZER, OUTPUT: {cluster_pcts}\n")
             # all_traces.clear()
-            return cluster_pcts
+            print_routing_rule(cluster_pcts)
+            return cluster_pcts ###
         else:
             # app.logger.info(f"{log_prefix} prof is NOT done yet. still needs to collect more traces...")
             return
