@@ -1,19 +1,22 @@
 # SLATE
 
+adiprerepa, gangmuk
+
 This repository houses all the components of the Service Layer Traffic Engineering System.
 
-There are three major components:
-- proxy-filters (Envoy Webassembly Filter)
-- cluster-controller (Go gRPC service)
-- global-controller (Go gRPC service)
+The goal of this system is to optimize microservice traffic in real time, by instantly reacting to fluctuations in load between clusters, and optimizing egress flows in dynamic topologies.
 
-`protos/` contains all the protobuf definitions for the gRPC services (proxy <-> cluster-controller, cluster-controller <-> global-controller).
+There are three major components:
+- Sidecar WASM Plugin (`/slate-plugin`)
+- cluster-controller (`/cluster-controller`)
+- global-controller (`/global-controller`)
+
 `config/` contains various configs needed to run the system.
 `cpp-plugin/` is the C++ prototype, doesn't work as of now.
 
 The cluster controller exposes a service that the proxies talk to and the global controller exposes a service cluster controllers talk to.
 
-## Note as of 9/7/2023
+## WASM Note as of 9/7/2023
 
 The way this wasm plugin works is kind of stupid. It uses the `OnTick()` callback provided by the ABI to send
 real time stats to the cluster controller, and receives the new route recommendations. However, Envoy is run across
