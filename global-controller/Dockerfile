@@ -12,12 +12,6 @@ RUN apt-get install vim -y
 RUN apt-get install procps -y
 RUN apt-get install htop -y
 
-COPY gurobi.lic ./
-# Gurobi bin for grbgetkey binary
-# RUN wget https://packages.gurobi.com/lictools/licensetools10.0.2_linux64.tar.gz
-# Gurobi license
-# RUN gurobi1003/linux64/bin/grbgetkey 9ad8f131-3be3-4cfe-98de-32ddcf1c296b
-
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
 

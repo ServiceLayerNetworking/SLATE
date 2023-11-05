@@ -889,11 +889,6 @@ def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,1000], mod
     # How can we use gurobi WLS license?
     # - https://support.gurobi.com/hc/en-us/articles/13232844297489-How-do-I-set-up-a-Web-License-Service-WLS-client-license-
 
-    options = {
-        "WLSACCESSID": "550eb070-b4aa-491d-b81e-38edc474fa10",
-        "WLSSECRET": "aea5168e-aa53-44e6-a8f0-8676d3ecc701",
-        "LICENSEID": 2415150,
-    }
     env = gp.Env(params=options)
     gp.Model(env=env)
     model.optimize()
