@@ -1,8 +1,10 @@
-# SLATE
+# SLATE: Service Layer Traffic Engineering
 
 adiprerepa, gangmuk
 
 This repository houses all the components of the Service Layer Traffic Engineering System.
+
+To find multi-cluster survey result, ```multicluster survey reult.pdf``` in the home directory of this repo.
 
 The goal of this system is to optimize microservice traffic in real time, by instantly reacting to fluctuations in load between clusters, and optimizing egress flows in dynamic topologies.
 
