@@ -1,0 +1,4 @@
+#!/bin/bash
+pod=$1
+
+kubectl logs ${pod} -f
