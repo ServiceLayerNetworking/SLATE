@@ -128,9 +128,11 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	if pod == "" {
 		pod = "SLATE_UNKNOWN_POD"
 	}
+	//
 	meta_cid := os.Getenv("ISTIO_META_CLUSTER_ID")
 	if meta_cid == "" {
-		meta_cid = "META_CLUSTER_ID_UNKNOWN"
+		proxywasm.LogCriticalf("ERROR: ISTIO_META_CLUSTER_ID is EMPTY: %s", meta_cid)
+		// meta_cid = "META_CLUSTER_ID_UNKNOWN"
 	}
 	cid := os.Getenv("CLUSTER_ID")
 	if cid == "" {
@@ -255,11 +257,11 @@ func (p *pluginContext) OnTick() {
 	}
 
 	proxywasm.LogCriticalf("Sending load to %s", p.metaClusterId)
-	if p.metaClusterId == "kind-us-west" {
+	if p.metaClusterId == "kind-us-west" || p.metaClusterId == "cluster1" || p.metaClusterId == "us-west" {
 		proxywasm.DispatchHttpCall("outbound|8080|west|slate-controller.default.svc.cluster.local", controllerHeaders,
 			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 		// []byte(fmt.Sprintf("%d\n%s", num_cur_inflight_req, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
-	} else if p.metaClusterId == "kind-us-east" {
+	} else if p.metaClusterId == "kind-us-east" || p.metaClusterId == "cluster2" || p.metaClusterId == "us-east" {
 		proxywasm.DispatchHttpCall("outbound|8080|east|slate-controller.default.svc.cluster.local", controllerHeaders,
 			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 	} else {
