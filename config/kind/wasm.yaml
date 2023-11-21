@@ -4,13 +4,25 @@ metadata:
   name: slate-wasm-plugin
   namespace: default
 spec:
-  selector:
-    matchLabels:
-      app: httpbin
   url: oci://ghcr.io/adiprerepa/slate-plugin:latest
+  imagePullPolicy: Always
   vmConfig:
     env:
-      - name: HOSTNAME
-        valueFrom: HOST
-      - name: WORKLOAD_NAME
-        valueFrom: ISTIO_META_WORKLOAD_NAME
+    - name: HOSTNAME
+      valueFrom: HOST
+    - name: ISTIO_META_WORKLOAD_NAME
+      valueFrom: HOST
+    - name: ISTIO_META_CLUSTER_ID
+      valueFrom: HOST
+    - name: ISTIO_META_NODE_NAME
+      valueFrom: HOST
+    - name: ISTIO_META_INTERCEPTION_MODE
+      valueFrom: HOST
+    - name: ISTIO_META_OWNER
+      valueFrom: HOST
+    - name: ISTIO_META_MESH_ID
+      valueFrom: HOST
+    - name: TRUST_DOMAIN
+      valueFrom: HOST
+    - name: ISTIO_META_NETWORK
+      valueFrom: HOST
