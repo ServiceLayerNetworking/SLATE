@@ -132,23 +132,8 @@ def get_compute_arc_var_name(svc_name, cid):
 
 def get_network_arc_var_name(src_svc, src_cid, dst_svc, dst_cid):
     assert src_svc != dst_svc
-    # assert src_cid != dst_cid
     return (f'{src_svc}{DELIMITER}{src_cid}{DELIMITER}end',f'{dst_svc}{DELIMITER}{dst_cid}{DELIMITER}start') # tuple
-    # return f'{src_svc}{DELIMITER}{src_cid}{DELIMITER}end,{dst_svc}{DELIMITER}{dst_cid}{DELIMITER}start' # string
 
-
-# def spans_to_network_arc_var_name(parent_name, src_cid, child_name, dst_cid):
-#     if parent_name == "src_*_*":
-#         src_postfix = "*"
-#     else:
-#         src_postfix = "end"
-#     if child_name == "dst_*_*":
-#         dst_postfix = "*"
-#     else:
-#         dst_postfix = "start"
-#     src_name = parent_name+DELIMITER+str(src_cid)+DELIMITER+src_postfix
-#     dst_name = child_name+DELIMITER+str(dst_cid)+DELIMITER+dst_postfix
-#     return (src_name, dst_name)
 
 def is_normal_node(svc_name):
     if svc_name != source_node_name and svc_name != destination_node_name:
@@ -157,21 +142,6 @@ def is_normal_node(svc_name):
         return False
 
 def check_network_arc_var_name(net_arc_var):
-    # if ENTRANCE == tst.FRONTEND_svc:
-    #     if tst.REVIEW_V1_svc in unique_services:
-    #         assert len(net_arc_var) == 14 # bookinfo, without ingress gw, two cluster set up
-    #     else:
-    #         assert len(net_arc_var) == 18 # bookinfo, without ingress gw, two cluster set up
-    # elif ENTRANCE == INGRESS_GW_NAME:
-    #     if tst.REVIEW_V1_svc in unique_services:
-    #         assert len(net_arc_var) == 18 # bookinfo, with ingress gw, two cluster set up
-    #     elif PRODUCTPAGE_ONLY:
-    #         assert len(net_arc_var) == 8
-    #     else:
-    #         print("len(network_arc_var_name):", len(network_arc_var_name))
-    #         # assert len(network_arc_var_name) == 22 # bookinfo, with ingress gw, two cluster set up
-    # else:
-    #     assert False
     for elem in net_arc_var:
         if type(elem) == tuple:
             src_node = elem[0]
@@ -181,10 +151,10 @@ def check_network_arc_var_name(net_arc_var):
             dst_node = elem.split(",")[1]
         
         src_svc_name = src_node.split(DELIMITER)[0]
-        src_cid = src_node.split(DELIMITER)[1]
-        src_node_type = src_node.split(DELIMITER)[2]
         dst_svc_name = dst_node.split(DELIMITER)[0]
+        src_cid = src_node.split(DELIMITER)[1]
         dst_cid = dst_node.split(DELIMITER)[1]
+        src_node_type = src_node.split(DELIMITER)[2]
         dst_node_type = dst_node.split(DELIMITER)[2]
         
         if src_svc_name == dst_svc_name:
@@ -200,7 +170,22 @@ def check_network_arc_var_name(net_arc_var):
         if is_normal_node(dst_svc_name) and dst_node_type != "start":
             print(f'{dst_node_type} != "end"')
             print(dst_node)
-            assert False 
+            assert False
+
+
+def get_network_time(src_cid, dst_cid):
+    if src_cid == dst_cid:
+        return INTRA_CLUTER_RTT
+    else:
+        return INTER_CLUSTER_RTT
+
+
+def get_egress_cost(src_cid, src_svc, dst_svc, dst_cid):
+    if src_cid == dst_cid or src_svc == source_node_name or dst_svc == destination_node_name:
+        return 0
+    else:
+        return INTER_CLUSTER_EGRESS_COST * callsize_dict[(src_svc,dst_svc)]
+
 
 def translate_to_percentage(df_req_flow):
     src_list = list()
@@ -219,7 +204,6 @@ def translate_to_percentage(df_req_flow):
         src_node_type = row["From"].split(DELIMITER)[2]
         dst_node_type = row["To"].split(DELIMITER)[2]
         if src_svc == source_node_name or dst_svc == destination_node_name or (src_node_type == "end" and dst_node_type == "start"):
-            # print(src_svc)
             if src_svc != source_node_name:
                 src_cid = int(src_cid)
             if dst_svc != destination_node_name:
@@ -247,8 +231,6 @@ def translate_to_percentage(df_req_flow):
     )
     percentage_df.index.name = "index_col"
     group_by_sum = percentage_df.groupby(['index_col']).sum()
-    # print("group_by_sum:", group_by_sum)
-    # print("percentage_df.groupby(['index_col'])", percentage_df.groupby(['index_col']))
     if DISPLAY:
         display(group_by_sum)
     
@@ -257,28 +239,15 @@ def translate_to_percentage(df_req_flow):
         total = group_by_sum.loc[[index]]["flow"].tolist()[0]
         total_list.append(total)
     percentage_df["total"] = total_list
-    
-    # app.logger.error(f"{log_prefix} percentage_df: {percentage_df}")
-    
     weight_list = list()
     for index, row in percentage_df.iterrows():
         try:
             weight_list.append(row['flow']/row['total'])
         except Exception as e:
-            # row_to_df = pd.DataFrame([row], index=[index])
-            # display(row_to_df)
-            # app.logger.error(f"{log_prefix} ERROR: row: {row}")
-            # app.logger.error(f"{log_prefix} ERROR: row['flow']: {row['flow']}")
-            # app.logger.error(f"{log_prefix} ERROR: row['total']: {row['total']}")
-            # app.logger.error(f"{log_prefix} ERROR: {e}")
-            
-            ##
-            # a = 1
             weight_list.append(0)
-            
-            # assert False
     percentage_df["weight"] = weight_list
     return percentage_df
+
 '''
 For interactive run with jupyternotebook, comment out following lines "COMMENT OUT FOR JUPYTER".
 And adjust the indentation accordingly.
@@ -286,8 +255,7 @@ And adjust the indentation accordingly.
 
 # In[31]:
 
-''' start of run_optimizer function '''
-# def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,900], model_parameter=None): ## COMMENT_OUT_FOR_JUPYTER
+##############################################################
 NUM_REQUESTS = [50, 1]
 for num_req in NUM_REQUESTS:
     assert num_req >= 0
@@ -299,38 +267,26 @@ for parent_svc, children in callgraph.items():
     for child_svc in children:
         assert depth_dict[parent_svc] < depth_dict[child_svc]
         callsize_dict[(parent_svc,child_svc)] = (depth_dict[parent_svc]+1)*10
-
-
 unique_service = dict()
 unique_service[0] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
 unique_service[1] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
 # unique_service[1] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3']
 
-
-NUM_CLUSTER = len(NUM_REQUESTS)
-
-## Insert ingress gw to call graph
-# if ENTRANCE == INGRESS_GW_NAME:
-#     callgraph[INGRESS_GW_NAME] = list()
-#     for parent_svc, children in callgraph.items():
-#         if parent_svc == tst.FRONTEND_svc:
-#             callgraph[INGRESS_GW_NAME].append(parent_svc)
-#     for parent_svc, child_svc_list in callgraph.items():
-#         app.logger.debug(f"{log_prefix} {parent_svc}: {child_svc_list}")
-app.logger.info(f"{log_prefix} callgraph")
-app.logger.info(f"{log_prefix} {callgraph}")
+app.logger.info(f"{log_prefix} callgraph: {callgraph}")
 for i in range(NUM_CLUSTER):
     app.logger.info(f"{log_prefix} unique_service[{i}]: {unique_service[i]}")
+##############################################################
 
+
+NUM_CLUSTER = len(NUM_REQUESTS)
+''' start of run_optimizer function '''
+# def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,900], model_parameter=None): ## COMMENT_OUT_FOR_JUPYTER
 svc_name_list = list()
 compute_arc_var_name = list()
-per_service_compute_arc = dict()
 for cid in range(NUM_CLUSTER):
     for svc_name in unique_service[cid]:
         compute_arc_var_name.append(get_compute_arc_var_name(svc_name, cid))
                              
-                        
-# In[31]:
 
 def check_compute_arc_var_name(c_arc_var_name):
     for elem in c_arc_var_name:
@@ -585,57 +541,6 @@ LOG_TIMESTAMP("train regression model")
 
 # In[42]:
 
-
-# compute_egress_cost_data = dict()
-# for cid in range(NUM_CLUSTER):
-#     if cid not in compute_egress_cost_data:
-#         compute_egress_cost_data[cid] = dict()
-#     for svc_name in unique_services:
-#         compute_egress_cost_data[cid][svc_name] = pd.DataFrame(
-#             data={
-#                 "min_compute_egress_cost": [0],
-#                 "max_compute_egress_cost": [0],
-#             },
-#             index=span_to_compute_arc_var_name(svc_name, cid)
-#         )
-#         print(f"compute_egress_cost_data[{cid}][{svc_name}]")
-#         display(compute_egress_cost_data[cid][svc_name])
-        
-# compute_time_data = dict()
-# for svc_name in unique_services:
-#     compute_time_data[svc_name] = pd.DataFrame(
-#         data={
-#             "min_load":[min_load] * len(per_service_compute_arc[svc_name]),
-#             "max_load":[max_load] * len(per_service_compute_arc[svc_name]),
-#             "min_compute_time": [0] * len(per_service_compute_arc[svc_name]),
-#             # "max_compute_time": [max_compute_time[svc_name]] * len(per_service_compute_arc[svc_name]),
-#         },
-#         index=per_service_compute_arc[svc_name]
-#     )
-#     print(f"compute_time_data[{svc_name}]")
-#     display(compute_time_data[svc_name])
-
-# compute_time = dict()
-# compute_load = dict()
-# for svc_name in unique_services:
-#     compute_time[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="compute_time", lb="min_compute_time")
-#     compute_load[svc_name] = gppd.add_vars(model, compute_time_data[svc_name], name="load_for_compute_edge", lb="min_load", ub="max_load")
-# print("compute_time")
-# print(compute_time)
-# print("compute_load")
-# print(compute_load)
-# model.update()
-
-
-# In[42]:
-
-# compute_time = dict()
-# compute_load = dict()
-# display(compute_df["svc_name"])
-# for index, row in compute_df.iterrows():
-#     row_to_df = pd.DataFrame([row], index=[index])
-#     compute_time[index] = gppd.add_vars(model, row_to_df, name="compute_time", lb="min_compute_time")
-#     compute_load[index] = gppd.add_vars(model, row_to_df, name="load_for_compute_edge", lb="min_load", ub="max_load")
 compute_time = gppd.add_vars(model, compute_df, name="compute_time", lb="min_compute_time")
 compute_load = gppd.add_vars(model, compute_df, name="load_for_compute_edge", lb="min_load", ub="max_load")
 model.update()
@@ -656,47 +561,12 @@ for index, row in compute_df.iterrows():
         },
         index=[index]
     )
-    # print(m_feats[index])
-    # print()
-    # print(f"compute_load[{index}]: {compute_load[index]}")
-    # print()
-    # print(f"compute_time[{index}]: {compute_time[index]}")
-    # print("index: ", index)
-    # print(f'row["latency_function"]: {row["latency_function"]}')
-    # print(f'row["latency_func"]["linearregression"].coef_" {row["latency_function"]["linearregression"].coef_}')
-    # print(f'row["latency_func"]["linearregression"].intercept_" {row["latency_function"]["linearregression"].intercept_}')
-    # print(f'compute_time[{index}]: {compute_time[index]}')
     pred_constr = add_predictor_constr(model, row["latency_function"], m_feats[index], compute_time[index])
     print(index, row["latency_function"])
-    # pred_constr.print_stats()
-    # print(compute_time[index])
-
-# print(m_feats)
 
 model.update()
 
 # In[44]:
-
-
-# compute_egress_cost_data = dict()
-# for cid in range(NUM_CLUSTER):
-#     if cid not in compute_egress_cost_data:
-#         compute_egress_cost_data[cid] = dict()
-#     for svc_name in unique_services:
-#         compute_egress_cost_data[cid][svc_name] = pd.DataFrame(
-#             data={
-#                 "min_compute_egress_cost": [0],
-#                 "max_compute_egress_cost": [0],
-#             },
-#             index=span_to_compute_arc_var_name(svc_name, cid)
-#         )
-#         print(f"compute_egress_cost_data[{cid}][{svc_name}]")
-#         display(compute_egress_cost_data[cid][svc_name])
-        
-
-
-# In[35]:
-
 
 ## Define names of the variables for network arc in gurobi
 source_node_name = "SOURCE"
@@ -704,44 +574,6 @@ destination_node_name = "DESTINATION"
 none_cid = -1
 source_node_fullname = f'{source_node_name}{DELIMITER}{none_cid}{DELIMITER}{none_cid}'
 destination_node_fullname = f'{destination_node_name}{DELIMITER}{none_cid}{DELIMITER}{none_cid}'
-
-'''
-network_arc_var_name
-- key: tuple(src_node_name, dst_node_name)
-- value: request_size_in_bytes
-'''
-# network_arc_var_name = dict()
-# for parent_svc, children in callgraph.items():
-#     if len(children) == 0: # leaf service
-#         # leaf service to dst
-#         print(parent_svc + " is leaf service")
-#         for src_cid in range(NUM_CLUSTER):
-#             tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, destination_node_name, "*")
-#             if tuple_var_name not in network_arc_var_name:
-#                 network_arc_var_name[tuple_var_name] = 0 # arbitrary call size
-#     for child_svc in children:
-#         if parent_svc == ENTRANCE:
-#             for src_cid in range(NUM_CLUSTER):
-#                 # src to ingress gateway
-#                 tuple_var_name = spans_to_network_arc_var_name(source_node_name, "*", parent_svc, src_cid)
-#                 if tuple_var_name not in network_arc_var_name:
-#                     network_arc_var_name[tuple_var_name] = 0 # arbitrary call size
-#                 for dst_cid in range(NUM_CLUSTER):
-#                     tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, child_svc, dst_cid)
-#                     if tuple_var_name not in network_arc_var_name:
-#                         # ingress gateway to frontend service
-#                         network_arc_var_name[tuple_var_name] = 1 # arbitrary call size
-#         else:
-#             # service to service
-#             for src_cid in range(NUM_CLUSTER):
-#                 for dst_cid in range(NUM_CLUSTER):
-#                     tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, child_svc, dst_cid)
-#                     if tuple_var_name not in network_arc_var_name:
-#                         network_arc_var_name[tuple_var_name] = depth_dict[parent_svc]*10 # arbitrary call size
-# app.logger.info(f"{log_prefix} len(network_arc_var_name): {len(network_arc_var_name)}\n")
-# for tuple_var_name, _ in network_arc_var_name.items():
-#     app.logger.debug(f"{log_prefix} {tuple_var_name}")
-
 
 network_arc_var_name = list()
 cluster_pair = list(itertools.product(list(range(NUM_CLUSTER)), list(range(NUM_CLUSTER))))
@@ -768,25 +600,8 @@ for var in network_arc_var_name:
 
 check_network_arc_var_name(network_arc_var_name)
 
-# In[36]:
-
-network_arc_var_name
-
 
 # In[36]:
-
-
-def get_network_time(src_cid, dst_cid):
-    if src_cid == dst_cid:
-        return INTRA_CLUTER_RTT
-    else:
-        return INTER_CLUSTER_RTT
-
-def get_egress_cost(src_cid, src_svc, dst_svc, dst_cid):
-    if src_cid == dst_cid or src_svc == source_node_name or dst_svc == destination_node_name:
-        return 0
-    else:
-        return INTER_CLUSTER_EGRESS_COST * callsize_dict[(src_svc,dst_svc)]
     
 network_df = pd.DataFrame(
     columns=["src_svc", "src_cid", "dst_svc", "dst_cid", "min_network_time", "max_network_time", "min_load", "max_load", "min_egress_cost", "max_egress_cost"],
@@ -838,76 +653,8 @@ network_df["min_load"] = 0
 network_df["max_load"] = MAX_LOAD
 network_df["min_egress_cost"] = min_egress_cost_list
 network_df["max_egress_cost"] = max_egress_cost_list
-# network_df["call_size"] = call_size_list
 
 display(network_df)
-
-# In[41]:
-
-
-# network_egress_cost_data = pd.DataFrame(
-#     data={
-#         "min_network_egress_cost": min_network_egress_cost,
-#         "max_network_egress_cost": max_network_egress_cost,
-#         # "min_load":[min_load]*len(network_arc_var_name_list),
-#         # "max_load":[max_load]*len(network_arc_var_name_list),
-#     },
-#     index=network_arc_var_name
-# )
-# network_egress_cost_data
-
-
-# In[43]:
-
-
-# min_network_latency = list()
-# max_network_latency = list()
-# for network_arc_var in network_arc_var_name_list:
-#     src_node = network_arc_var[0]
-#     dst_node = network_arc_var[1]
-    
-#     src_svc_name = src_node.split(DELIMITER)[0]
-#     dst_svc_name = dst_node.split(DELIMITER)[0]
-#     if src_svc_name == "src_*_*":
-#         min_network_latency.append(0)
-#         max_network_latency.append(0)
-#     elif dst_svc_name == "dst_*_*":
-#         min_network_latency.append(0)
-#         max_network_latency.append(0)
-#     else:
-#         try:
-#             src_idx = int(src_node.split(DELIMITER)[1])
-#         except:
-#             print_error(src_svc_name, src_node.split(DELIMITER))
-#         try:
-#             dst_idx = int(dst_node.split(DELIMITER)[1])
-#         except:
-#             print_error(dst_svc_name, dst_node.split(DELIMITER))
-#         # Network latency for local routing
-#         if src_idx == dst_idx:
-#             app.logger.debug(f"{log_prefix} intra-cluster, {src_node}, {dst_node}")
-#             min_network_latency.append(INTRA_CLUTER_RTT)
-#             max_network_latency.append(INTRA_CLUTER_RTT)
-#         # Network latency for remote routing
-#         else:
-#             app.logger.debug(f"{log_prefix} inter-cluster, {src_node}, {dst_node}")
-#             min_network_latency.append(INTER_CLUSTER_RTT)
-#             max_network_latency.append(INTER_CLUSTER_RTT)
-
-# network_latency_data = pd.DataFrame(
-#     data={
-#         "min_network_latency": min_network_latency,
-#         "max_network_latency": max_network_latency,
-#         "min_load":[min_load]*len(network_arc_var_name_list),
-#         "max_load":[max_load]*len(network_arc_var_name_list),
-#     },
-#     index=network_arc_var_name_list
-#     # index=network_arc_var_name
-# )
-# LOG_TIMESTAMP("creating egress cost and compute/network latency dataframe")
-# print("network_latency_data")
-# display(network_latency_data)
-
 
 
 # In[44]:
@@ -918,43 +665,27 @@ network_egress_cost = gppd.add_vars(model, network_df, name="network_egress_cost
 compute_egress_cost = gppd.add_vars(model, compute_df, name="compute_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
 model.update()
 
-# compute_egress_cost = dict()
-# for index, row in compute_df.iterrows():
-#     row_to_df = pd.DataFrame([row], index=[index])
-#     compute_egress_cost[index] = gppd.add_vars(model, row_to_df, name="compute_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
-# model.update()
-
 # egress cost sum
 compute_egress_cost_sum = sum(compute_egress_cost.multiply(compute_load))
 network_egress_cost_sum = sum(network_egress_cost.multiply(network_load))
 print("network_egress_cost_sum")
 print(network_egress_cost_sum)
-
 print("compute_egress_cost_sum")
 print(compute_egress_cost_sum)
 model.update()
-
-# compute_egress_cost_sum = 0
-# for elem in compute_arc_var_name:
-#     compute_egress_cost_sum += sum(compute_egress_cost[elem].multiply(compute_load[elem]))
     
 
 # In[44]:
     
 total_egress_sum = network_egress_cost_sum + compute_egress_cost_sum
-app.logger.debug(f"{log_prefix} total_egress_sum:")
-app.logger.debug(f"{log_prefix} {total_egress_sum}\n")
-
-# print(network_latency)
-# print(network_latency["productpage_v1#0#end,details_v1#1#start"])
-# In[44]:
 
 network_latency_sum = sum(network_latency.multiply(network_load))
 compute_latency_sum = sum(compute_time.multiply(compute_load))
-# compute_latency_sum = 0
-# for elem in compute_arc_var_name:
-#     compute_latency_sum += sum(compute_time[elem].multiply(m_feats[elem]["observed_x"])) # m_feats[svc_name]["load"] is identical to 
 total_latency_sum = network_latency_sum + compute_latency_sum
+
+
+print('total_egress_sum')
+print(f'{total_egress_sum}\n')
 
 print("compute_latency_sum:")
 print(f"{compute_latency_sum}\n")
@@ -964,6 +695,8 @@ print(f"{network_latency_sum}\n")
 
 print("total_latency_sum:")
 print(f"{total_latency_sum}\n")
+
+
 # In[44]:
 
 # objective = "latency" # latency or egress_cost or multi-objective
@@ -997,22 +730,9 @@ print(type(network_load))
 print(type(compute_load))
 arcs, aggregated_load = gp.multidict(pd.concat([network_load, compute_load], axis=0).to_dict())
 print("arcs")
-print(arcs)
-print()
+print(f'{arcs}\n')
 print("aggregated_load")
-print(aggregated_load)
-
-
-###################################################
-# max_tput = dict()
-# tput = 100000
-# for svc_name in unique_services:
-#     for cid in range(NUM_CLUSTER):
-#         # if repl.service.name != "User":
-#         max_tput[svc_name+DELIMITER+str(cid)+DELIMITER+"start"] = tput
-#         max_tput[svc_name+DELIMITER+str(cid)+DELIMITER+"end"] = tput
-# app.logger.info(f"{log_prefix} max_tput: {max_tput}")
-
+print(f'{aggregated_load}\n')
 LOG_TIMESTAMP("gurobi add_vars and set objective")
 
 
@@ -1022,52 +742,28 @@ print(type(aggregated_load))
 for k, v in aggregated_load.items():
     print(f"key: {k}, value: {v}")
     
-    
-constraint_setup_start_time = time.time()
-###################################################
-# Constraint 1: source
+## Constraint 1: source
 source = dict()
 source[source_node_fullname] = MAX_LOAD
 src_keys = source.keys()
-
 # source(src_*_*) to *
 src_flow = model.addConstrs((gp.quicksum(aggregated_load.select(src, '*')) == source[src] for src in src_keys), name="source")
-
-####################################################################
-# * to frontend services start node
-if LOAD_IN == True:
-    for cid in range(NUM_CLUSTER):
-        start_node = f'{ENTRANCE}{DELIMITER}{cid}{DELIMITER}start'
-        per_cluster_load_in = model.addConstr((gp.quicksum(aggregated_load.select('*', start_node)) == NUM_REQUESTS[cid]), name="cluster_"+str(cid)+"_load_in")
-        print("start_node: ", start_node)
-        print(aggregated_load.select('*', start_node))
-        print(NUM_REQUESTS[cid])
-
-# if ENTRANCE == INGRESS_GW_NAME:
-#     # # frontend services end node to child nodes
-#     for cid in range(NUM_CLUSTER):
-#         ##################################
-#         # start_node = tst.FRONTEND_svc + DELIMITER + str(cid) + DELIMITER + "start"
-#         # end_node = tst.FRONTEND_svc + DELIMITER + str(cid) + DELIMITER + "end"
-#         # start_node = INGRESS_GW_NAME + DELIMITER + str(cid) + DELIMITER + "start"
-#         end_node = ENTRANCE + DELIMITER + str(cid) + DELIMITER + "end"
-#         ##################################
-#         per_cluster_load_out = model.addConstr((gp.quicksum(aggregated_load.select(end_node, '*')) == NUM_REQUESTS[cid]), name="cluster_"+str(cid)+"_load_out")
-    
-####################################################################
-
+# SOURCE to frontend services
+for cid in range(NUM_CLUSTER):
+    start_node = f'{ENTRANCE}{DELIMITER}{cid}{DELIMITER}start'
+    per_cluster_load_in = model.addConstr((gp.quicksum(aggregated_load.select('*', start_node)) == NUM_REQUESTS[cid]), name="cluster_"+str(cid)+"_load_in")
+    print("start_node: ", start_node)
+    print(aggregated_load.select('*', start_node))
+    print(NUM_REQUESTS[cid])
 model.update()
 
 
 # In[47]:
 
-
-# Constraint 2: destination
+## Constraint 2: destination
 destination = dict()
 destination[destination_node_fullname] = MAX_LOAD
 dest_keys = destination.keys()
-# print(dest_keys)
-# print(destination_node_fullname)
 leaf_services = list()
 for parent_svc, children in callgraph.items():
     if len(children) == 0: # leaf service
@@ -1075,7 +771,6 @@ for parent_svc, children in callgraph.items():
 num_leaf_services = len(leaf_services)
 app.logger.debug(f"{log_prefix} num_leaf_services: {num_leaf_services}")
 app.logger.debug(f"{log_prefix} leaf_services: {leaf_services}")
-
 dst_flow = model.addConstrs((gp.quicksum(aggregated_load.select('*', dst)) == destination[dst]*num_leaf_services for dst in dest_keys), name="destination")
 for dst in dest_keys:
     print(aggregated_load.select('*', dst))
@@ -1084,8 +779,7 @@ model.update()
 
 # In[47]:
 
-# Constraint 3: flow conservation
-
+## Constraint 3: flow conservation
 # Start node in-out flow conservation
 for cid in range(NUM_CLUSTER):
     for svc_name in unique_service[cid]:
@@ -1095,12 +789,8 @@ for cid in range(NUM_CLUSTER):
         print("==")
         print(aggregated_load.select(start_node, '*'))
         print("-"*50)
-    
-# In[47]:
-
-
 # End node in-out flow conservation
-# case 1 (start node, end&leaf node): incoming num requests == outgoing num request for all nodes
+# case 1 (start node, end node or leaf node): incoming num requests == outgoing num request for all nodes
 for parent_svc, children in callgraph.items():
     for cid in range(NUM_CLUSTER):
         if len(children) == 0: # leaf_services:
@@ -1110,8 +800,7 @@ for parent_svc, children in callgraph.items():
             print('==')
             print(aggregated_load.select(end_node, '*'))
             print("-"*50)
-
-# case 2 (end&non-leaf node): incoming num requests == outgoing num request for all nodes
+# case 2 (end node or non-leaf node): incoming num requests == outgoing num request for all nodes
 for parent_svc, children in callgraph.items():
     if len(children) > 0: # non-leaf services:
         for parent_cid in range(NUM_CLUSTER):
@@ -1136,20 +825,13 @@ model.update()
 # In[48]:
 
 
-# Constraint 4: Tree topology
-
-# all_service = list()
-# for cid in range(NUM_CLUSTER):
-#     all_service += unique_service[cid]
-# all_service = list(set(all_service))
-
+## Constraint 4: Tree topology
 service_to_cid = dict()
 for cid in range(NUM_CLUSTER):
     for svc_name in unique_service[cid]:
         if svc_name not in service_to_cid:
             service_to_cid[svc_name] = list()
         service_to_cid[svc_name].append(cid)
-        
 for svc_name in service_to_cid:
     if svc_name != ENTRANCE:
         incoming_sum = 0
@@ -1157,46 +839,24 @@ for svc_name in service_to_cid:
             node_name = svc_name +DELIMITER + str(cid) + DELIMITER+"start"
             incoming_sum += aggregated_load.sum('*', node_name)
         node_flow = model.addConstr(incoming_sum == MAX_LOAD, name="tree_topo_conservation")
-        print(incoming_sum)
-        print('==')
-        print(MAX_LOAD)
-        print("-"*50)
 model.update()
 
-###################################################
+
+# In[48]:
+
+
 # # Constraint 5: max throughput of service
+# max_tput = dict()
+# for cid in range(NUM_CLUSTER):
+#     for svc_name in unique_service[cid]:
+#         max_tput[svc_name+DELIMITER+str(cid)+DELIMITER+"start"] = MAX_LOAD
+#         max_tput[svc_name+DELIMITER+str(cid)+DELIMITER+"end"] = MAX_LOAD
+# app.logger.info(f"{log_prefix} max_tput: {max_tput}")
 # max_tput_key = max_tput.keys()
 # throughput = model.addConstrs((gp.quicksum(aggregated_load.select('*', n_)) <= max_tput[n_] for n_ in max_tput_key), name="service_capacity")
 # constraint_setup_end_time = time.time()
-###################################################
 
-# Lazy update for model
 LOG_TIMESTAMP("gurobi add constraints and model update")
-
-
-# In[49]:
-
-
-varInfo = [(v.varName, v.LB, v.UB) for v in model.getVars() ]
-df_var = pd.DataFrame(varInfo) # convert to pandas dataframe
-df_var.columns=['Variable Name','LB','UB'] # Add column headers
-if OUTPUT_WRITE:
-    df_var.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-variable.csv")
-if DISPLAY:
-    with pd.option_context('display.max_colwidth', None):
-        with pd.option_context('display.max_rows', None):
-            display(df_var)
-
-
-constrInfo = [(c.constrName, model.getRow(c), c.Sense, c.RHS) for c in model.getConstrs() ]
-df_constr = pd.DataFrame(constrInfo)
-df_constr.columns=['Constraint Name','Constraint equation', 'Sense','RHS']
-if OUTPUT_WRITE:
-    df_constr.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-constraint.csv")
-if DISPLAY:
-    with pd.option_context('display.max_colwidth', None):
-        with pd.option_context('display.max_rows', None):
-            display(df_constr)
 
 
 # In[51]:
@@ -1221,31 +881,31 @@ for line in gurobi_key:
 env = gp.Env(params=options)
 gp.Model(env=env)
 model.optimize()
-print("*"*20)
-print(arcs)
-print("*"*20)
-# option 3
-#model.optimize()
-#########################################################
 solve_end_time = time.time()
 LOG_TIMESTAMP("MODEL OPTIMIZE")
 
 ## Not belonging to optimizer critical path
 ts = time.time()
-## Variable info
-varInfo = [(v.varName, v.LB, v.UB) for v in model.getVars() ] # use list comprehension
+varInfo = [(v.varName, v.LB, v.UB) for v in model.getVars() ]
 df_var = pd.DataFrame(varInfo) # convert to pandas dataframe
 df_var.columns=['Variable Name','LB','UB'] # Add column headers
 num_var = len(df_var)
-
-## Linear constraint info
 constrInfo = [(c.constrName, model.getRow(c), c.Sense, c.RHS) for c in model.getConstrs() ]
 df_constr = pd.DataFrame(constrInfo)
 df_constr.columns=['Constraint Name','Constraint equation', 'Sense','RHS']
 num_constr = len(df_constr)
-substract_time = time.time() - ts
+if OUTPUT_WRITE:
+    df_var.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-variable.csv")
+    df_constr.to_csv(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-constraint.csv")
 if DISPLAY:
-    display(df_constr)
+    with pd.option_context('display.max_colwidth', None):
+        with pd.option_context('display.max_rows', None):
+            print("df_var")
+            display(df_var)
+            print()
+            print("df_constr")
+            display(df_constr)
+substract_time = time.time() - ts
 LOG_TIMESTAMP("get var and constraint")
 
 app.logger.info(f"{log_prefix} model.Status: {model.Status}")
@@ -1254,9 +914,6 @@ if model.Status != GRB.OPTIMAL:
     app.logger.info(f"{log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
     app.logger.info(f"{log_prefix} XXXX INFEASIBLE MODEL! XXXX")
     app.logger.info(f"{log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
-    # with pd.option_context('display.max_colwidth', None):
-        # with pd.option_context('display.max_rows', None):
-            # display(df_var)
     if DISPLAY:
         display(df_constr)
     
@@ -1278,13 +935,11 @@ else:
     optimize_end_time = time.time()
     optimizer_runtime = round((optimize_end_time - optimizer_start_time) - substract_time, 5)
     solve_runtime = round(solve_end_time - solve_start_time, 5)
-    # constraint_setup_time = round(constraint_setup_end_time - constraint_setup_start_time, 5)
     app.logger.error(f"{log_prefix} ** Objective: {objective}")
     app.logger.error(f"{log_prefix} ** Num constraints: {num_constr}")
     app.logger.error(f"{log_prefix} ** Num variables: {num_var}")
     app.logger.error(f"{log_prefix} ** Optimization runtime: {optimizer_runtime} ms")
     app.logger.error(f"{log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
-    # app.logger.error(f"{log_prefix} ** constraint_setup_time runtime: {} ms".format(constraint_setup_time))
     app.logger.error(f"{log_prefix} ** model.objVal: {model.objVal}")
     app.logger.error(f"{log_prefix} ** model.objVal / total num requests: {model.objVal/MAX_LOAD}")
     request_flow = pd.DataFrame(columns=["From", "To", "Flow"])
@@ -1303,9 +958,6 @@ else:
     # return percentage_df, "OPTIMIZER, MODEL SOLVED"
 ''' This is end of run_optimizer function'''
 
-# In[52]:
-request_flow
-# aggregated_load
 
 # In[52]:
 
@@ -1313,7 +965,11 @@ if __name__ == "__main__": ## COMMENT_OUT_FOR_JUPYTER
     num_requests = [100, 500]
     if SLATE_ON:
         app.logger.info(f"{log_prefix} SLATE_ON")
-        if REAL_DATA == False:
+        if REAL_DATA == True:
+            traces = tst.parse_trace_file_ver2(trace_file)
+            traces, callgraph, depth_dict = tst.stitch_time(traces)
+            NUM_CLUSTER = len(traces)
+        elif REAL_DATA == False:
             raw_traces=None
             trace_file=None
             app.logger.info(f"{log_prefix} No REAL DATA")
