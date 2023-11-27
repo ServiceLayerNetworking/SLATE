@@ -33,7 +33,7 @@ import time_stitching as tst
 from config import *
 import span as sp
 import zlib
-
+import itertools
 
 random.seed(1234)
 
@@ -67,7 +67,7 @@ def count_cross_cluster_routing(percent_df):
         dst_cid = row["dst_cid"]
         src_svc = row["src"]
         dst_svc = row["dst"]
-        if src_cid != "*" and dst_cid != "*":
+        if src_cid != none_cid and dst_cid != none_cid:
             if src_cid != dst_cid:
                 remote_routing += row["flow"]
             else:
@@ -96,18 +96,18 @@ def plot_request_flow(percent_df):
         dst_cid = row["dst_cid"]
         src_svc = row["src"]
         dst_svc = row["dst"]
-        if src_cid == '*' or  dst_cid == '*':
+        if src_cid == none_cid or  dst_cid == none_cid:
             edge_color = "black"
         else:
             if src_cid == dst_cid:
                 edge_color =  local_routing_edge_color # local routing
             else:
                 edge_color = remote_routing_edge_color # remote routing
-        if src_cid == "*":
+        if src_cid == none_cid:
             src_node_color = src_and_dst_node_color
         else:
             src_node_color = node_color[src_cid]
-        if dst_cid == '*':
+        if dst_cid == none_cid:
             dst_node_color = src_and_dst_node_color
         else:
             dst_node_color = node_color[dst_cid]
@@ -123,53 +123,84 @@ def plot_request_flow(percent_df):
     now =datetime .datetime.now()
     g_.render(OUTPUT_DIR + now.strftime("%Y%m%d_%H:%M:%S") + "_" + APP_NAME+ '_call_graph', view = True) # output: call_graph.pdf
     g_
+    
 
-def span_to_compute_arc_var_name(svc_name, cid):
-    # return (svc_name+DELIMITER+str(cid)+DELIMITER+"start", svc_name+DELIMITER+str(cid)+DELIMITER+"end") # return type: tuple
-    return f'{svc_name}{DELIMITER}{cid}{DELIMITER}start,{svc_name}{DELIMITER}{cid}{DELIMITER}end' # return type: tuple
+def get_compute_arc_var_name(svc_name, cid):
+    return (f'{svc_name}{DELIMITER}{cid}{DELIMITER}start', f'{svc_name}{DELIMITER}{cid}{DELIMITER}end') # tuple
+    # return f'{svc_name}{DELIMITER}{cid}{DELIMITER}start,{svc_name}{DELIMITER}{cid}{DELIMITER}end' # string
 
-def spans_to_network_arc_var_name(parent_name, src_cid, child_name, dst_cid):
-    if parent_name == "src_*_*":
-        src_postfix = "*"
+
+def get_network_arc_var_name(src_svc, src_cid, dst_svc, dst_cid):
+    assert src_svc != dst_svc
+    # assert src_cid != dst_cid
+    return (f'{src_svc}{DELIMITER}{src_cid}{DELIMITER}end',f'{dst_svc}{DELIMITER}{dst_cid}{DELIMITER}start') # tuple
+    # return f'{src_svc}{DELIMITER}{src_cid}{DELIMITER}end,{dst_svc}{DELIMITER}{dst_cid}{DELIMITER}start' # string
+
+
+# def spans_to_network_arc_var_name(parent_name, src_cid, child_name, dst_cid):
+#     if parent_name == "src_*_*":
+#         src_postfix = "*"
+#     else:
+#         src_postfix = "end"
+#     if child_name == "dst_*_*":
+#         dst_postfix = "*"
+#     else:
+#         dst_postfix = "start"
+#     src_name = parent_name+DELIMITER+str(src_cid)+DELIMITER+src_postfix
+#     dst_name = child_name+DELIMITER+str(dst_cid)+DELIMITER+dst_postfix
+#     return (src_name, dst_name)
+
+def is_normal_node(svc_name):
+    if svc_name != source_node_name and svc_name != destination_node_name:
+        return True
     else:
-        src_postfix = "end"
-    if child_name == "dst_*_*":
-        dst_postfix = "*"
-    else:
-        dst_postfix = "start"
-    src_name = parent_name+DELIMITER+str(src_cid)+DELIMITER+src_postfix
-    dst_name = child_name+DELIMITER+str(dst_cid)+DELIMITER+dst_postfix
-    return (src_name, dst_name)
-
+        return False
 
 def check_network_arc_var_name(net_arc_var):
-    if ENTRANCE == tst.FRONTEND_svc:
-        if tst.REVIEW_V1_svc in unique_services:
-            assert len(net_arc_var) == 14 # bookinfo, without ingress gw, two cluster set up
+    # if ENTRANCE == tst.FRONTEND_svc:
+    #     if tst.REVIEW_V1_svc in unique_services:
+    #         assert len(net_arc_var) == 14 # bookinfo, without ingress gw, two cluster set up
+    #     else:
+    #         assert len(net_arc_var) == 18 # bookinfo, without ingress gw, two cluster set up
+    # elif ENTRANCE == INGRESS_GW_NAME:
+    #     if tst.REVIEW_V1_svc in unique_services:
+    #         assert len(net_arc_var) == 18 # bookinfo, with ingress gw, two cluster set up
+    #     elif PRODUCTPAGE_ONLY:
+    #         assert len(net_arc_var) == 8
+    #     else:
+    #         print("len(network_arc_var_name):", len(network_arc_var_name))
+    #         # assert len(network_arc_var_name) == 22 # bookinfo, with ingress gw, two cluster set up
+    # else:
+    #     assert False
+    for elem in net_arc_var:
+        if type(elem) == tuple:
+            src_node = elem[0]
+            dst_node = elem[1]
         else:
-            assert len(net_arc_var) == 18 # bookinfo, without ingress gw, two cluster set up
-    elif ENTRANCE == INGRESS_GW_NAME:
-        if tst.REVIEW_V1_svc in unique_services:
-            assert len(net_arc_var) == 18 # bookinfo, with ingress gw, two cluster set up
-        elif PRODUCTPAGE_ONLY:
-            assert len(net_arc_var) == 8
-        else:
-            print("len(network_arc_var_name):", len(network_arc_var_name))
-            # assert len(network_arc_var_name) == 22 # bookinfo, with ingress gw, two cluster set up
-    else:
-        assert False
-    for (src, dst), _ in net_arc_var.items():
-        src_node = src.split(DELIMITER)[0]
-        dst_node = dst.split(DELIMITER)[0]
-        src_postfix = src.split(DELIMITER)[-1]
-        dst_postfix = dst.split(DELIMITER)[-1]
-        if src_node == source_name:
-            assert dst_postfix == "start" 
-        elif dst_node == destination_name:
-            assert src_postfix == "end" 
-        else:
-            assert src_postfix == "end" 
-            assert dst_postfix == "start" 
+            src_node = elem.split(",")[0]
+            dst_node = elem.split(",")[1]
+        
+        src_svc_name = src_node.split(DELIMITER)[0]
+        src_cid = src_node.split(DELIMITER)[1]
+        src_node_type = src_node.split(DELIMITER)[2]
+        dst_svc_name = dst_node.split(DELIMITER)[0]
+        dst_cid = dst_node.split(DELIMITER)[1]
+        dst_node_type = dst_node.split(DELIMITER)[2]
+        
+        if src_svc_name == dst_svc_name:
+            print(f'src_svc_name == dst_svc_name, {src_svc_name} == {dst_svc_name}')
+            assert False
+        # if src_cid == dst_cid:
+        #     print(f'src_cid == dst_cid, {src_cid} == {dst_cid}')
+        #     assert False
+        if is_normal_node(src_svc_name) and src_node_type != "end":
+            print(f'{src_node_type} != "end"')
+            print(src_node)
+            assert False
+        if is_normal_node(dst_svc_name) and dst_node_type != "start":
+            print(f'{dst_node_type} != "end"')
+            print(dst_node)
+            assert False 
 
 def translate_to_percentage(df_req_flow):
     src_list = list()
@@ -183,15 +214,15 @@ def translate_to_percentage(df_req_flow):
     for index, row in df_req_flow.iterrows():
         src_svc = row["From"].split(DELIMITER)[0]
         dst_svc = row["To"].split(DELIMITER)[0]
-        src_cid = row["From"].split(DELIMITER)[1]
-        dst_cid = row["To"].split(DELIMITER)[1]
+        src_cid = int(row["From"].split(DELIMITER)[1])
+        dst_cid = int(row["To"].split(DELIMITER)[1])
         src_node_type = row["From"].split(DELIMITER)[2]
         dst_node_type = row["To"].split(DELIMITER)[2]
-        if src_svc == source_name or dst_svc == destination_name or (src_node_type == "end" and dst_node_type == "start"):
+        if src_svc == source_node_name or dst_svc == destination_node_name or (src_node_type == "end" and dst_node_type == "start"):
             # print(src_svc)
-            if src_svc != source_name:
+            if src_svc != source_node_name:
                 src_cid = int(src_cid)
-            if dst_svc != destination_name:
+            if dst_svc != destination_node_name:
                 dst_cid = int(dst_cid)
             src_and_dst_index.append((src_svc, src_cid, dst_svc))
             src_list.append(src_svc)
@@ -216,6 +247,8 @@ def translate_to_percentage(df_req_flow):
     )
     percentage_df.index.name = "index_col"
     group_by_sum = percentage_df.groupby(['index_col']).sum()
+    # print("group_by_sum:", group_by_sum)
+    # print("percentage_df.groupby(['index_col'])", percentage_df.groupby(['index_col']))
     if DISPLAY:
         display(group_by_sum)
     
@@ -232,8 +265,18 @@ def translate_to_percentage(df_req_flow):
         try:
             weight_list.append(row['flow']/row['total'])
         except Exception as e:
-            app.logger.error(f"{log_prefix} ERROR: {e}")
-            assert False
+            # row_to_df = pd.DataFrame([row], index=[index])
+            # display(row_to_df)
+            # app.logger.error(f"{log_prefix} ERROR: row: {row}")
+            # app.logger.error(f"{log_prefix} ERROR: row['flow']: {row['flow']}")
+            # app.logger.error(f"{log_prefix} ERROR: row['total']: {row['total']}")
+            # app.logger.error(f"{log_prefix} ERROR: {e}")
+            
+            ##
+            # a = 1
+            weight_list.append(0)
+            
+            # assert False
     percentage_df["weight"] = weight_list
     return percentage_df
 '''
@@ -245,25 +288,25 @@ And adjust the indentation accordingly.
 
 ''' start of run_optimizer function '''
 # def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,900], model_parameter=None): ## COMMENT_OUT_FOR_JUPYTER
-NUM_REQUESTS = [50, 0]
+NUM_REQUESTS = [50, 1]
 for num_req in NUM_REQUESTS:
     assert num_req >= 0
 
-callgraph = {'productpage-v1': ['details-v1', 'reviews-v3'], 'ratings-v1': [], 'details-v1': [], 'reviews-v3': ['ratings-v1']}
+callgraph = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['details-v1', 'reviews-v3'], 'ratings-v1': [], 'details-v1': [], 'reviews-v3': ['ratings-v1']}
 unique_service = dict()
-unique_service[0] = ['productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
-unique_service[1] = ['productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
-depth_dict = {'productpage-v1': 1, 'details-v1': 2, 'reviews-v3': 2, 'ratings-v1': 3}
-NUM_REQUESTS=[50, 0]
+unique_service[0] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
+unique_service[1] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
+depth_dict = {'ingress_gw':0, 'productpage-v1': 1, 'details-v1': 2, 'reviews-v3': 2, 'ratings-v1': 3}
 NUM_CLUSTER = len(NUM_REQUESTS)
 
-if ENTRANCE == INGRESS_GW_NAME:
-    callgraph[INGRESS_GW_NAME] = list()
-    for parent_svc, children in callgraph.items():
-        if parent_svc == tst.FRONTEND_svc:
-            callgraph[INGRESS_GW_NAME].append(parent_svc)
-    for parent_svc, child_svc_list in callgraph.items():
-        app.logger.debug(f"{log_prefix} {parent_svc}: {child_svc_list}")
+## Insert ingress gw to call graph
+# if ENTRANCE == INGRESS_GW_NAME:
+#     callgraph[INGRESS_GW_NAME] = list()
+#     for parent_svc, children in callgraph.items():
+#         if parent_svc == tst.FRONTEND_svc:
+#             callgraph[INGRESS_GW_NAME].append(parent_svc)
+#     for parent_svc, child_svc_list in callgraph.items():
+#         app.logger.debug(f"{log_prefix} {parent_svc}: {child_svc_list}")
 app.logger.info(f"{log_prefix} callgraph")
 app.logger.info(f"{log_prefix} {callgraph}")
 for i in range(NUM_CLUSTER):
@@ -274,17 +317,19 @@ compute_arc_var_name = list()
 per_service_compute_arc = dict()
 for cid in range(NUM_CLUSTER):
     for svc_name in unique_service[cid]:
-        compute_arc_var_name.append(span_to_compute_arc_var_name(svc_name, cid))
-        
-network_arc_var_name = list()
-
-        network_arc_var_name.append(span_to_network_arc_var_name(svc_name, cid))
-        
+        compute_arc_var_name.append(get_compute_arc_var_name(svc_name, cid))
+                             
+                        
+# In[31]:
 
 def check_compute_arc_var_name(c_arc_var_name):
     for elem in c_arc_var_name:
-        src_node = elem.split(",")[0]
-        dst_node = elem.split(",")[1]
+        if type(elem) == tuple:
+            src_node = elem[0]
+            dst_node = elem[1]
+        else:
+            src_node = elem.split(",")[0]
+            dst_node = elem.split(",")[1]
         
         src_svc_name = src_node.split(DELIMITER)[0]
         src_cid = src_node.split(DELIMITER)[1]
@@ -324,9 +369,14 @@ src_cid_list = list()
 dst_cid_list = list()
 # for tup in list(compute_arc_var_name):
 for var_name in compute_arc_var_name:
-    svc_list.append(var_name.split(",")[0].split(DELIMITER)[0])
-    src_cid_list.append(int(var_name.split(",")[0].split(DELIMITER)[1]))
-    dst_cid_list.append(int(var_name.split(",")[1].split(DELIMITER)[1]))
+    if type(var_name) == tuple:
+        svc_list.append(var_name[0].split(DELIMITER)[0])
+        src_cid_list.append(int(var_name[0].split(DELIMITER)[1]))
+        dst_cid_list.append(int(var_name[1].split(DELIMITER)[1]))
+    else:
+        svc_list.append(var_name.split(",")[0].split(DELIMITER)[0])
+        src_cid_list.append(int(var_name.split(",")[0].split(DELIMITER)[1]))
+        dst_cid_list.append(int(var_name.split(",")[1].split(DELIMITER)[1]))
 # print("svc_list: ", svc_list)
 # print("src_cid_list: ", src_cid_list)
 # print("dst_cid_list: ", dst_cid_list)
@@ -361,14 +411,19 @@ def gen_fake_data(c_df):
     load_ = list(np.arange(0,num_data_point))
     for index, row in c_df.iterrows():
         comp_t = list()
-        # slope = zlib.adler32(row["svc_name"].encode('utf-8'))%5+1
         # slope = zlib.adler32((str(row["src_cid"])+row["svc_name"]).encode('utf-8'))%10+1
         # slope = (zlib.adler32(row["svc_name"].encode('utf-8'))%5+1)/(row["src_cid"]+1)
-        slope = 0
-        intercept = 0
-        if row["src_cid"] == 0 and row["svc_name"] == tst.FRONTEND_svc:
-            slope = 1
-            intercept = 0
+        
+        # slope = 0
+        # intercept = 0
+        
+        slope = zlib.adler32(row["svc_name"].encode('utf-8'))%5+1
+        intercept = 10
+        
+        # if row["src_cid"] == 0 and row["svc_name"] == tst.FRONTEND_svc:
+        #     slope = 1
+        #     intercept = 0
+        
         for j in range(num_data_point):
             comp_t.append(pow(load_[j],REGRESSOR_DEGREE)*slope + intercept)
         print(f'** cid,{row["src_cid"]}, service,{row["svc_name"]}, degree({REGRESSOR_DEGREE}), slope({slope}), intercept({intercept})')
@@ -407,28 +462,28 @@ for index, row in compute_df.iterrows():
     y = row["observed_y"]
     X_train, X_test, y_train, y_test = train_test_split(X, y,train_size=0.9, random_state=1)
     reg.fit(X_train, y_train)
-    if svc_name != tst.FRONTEND_svc:
+    if row["svc_name"] != tst.FRONTEND_svc:
         if REGRESSOR_DEGREE == 1:
             if reg["linearregression"].coef_ < 0:
                 new_c = np.array([0.])
                 reg["linearregression"].coef_ = new_c
-                app.logger.info(f"{log_prefix} Service {svc_name}, changed slope {c_} --> {new_c}, intercept: {in_}")
+                app.logger.info(f'{log_prefix} Service {row["svc_name"]}, changed slope {c_} --> {new_c}, intercept: {in_}')
                 assert False
         if REGRESSOR_DEGREE == 2:
             # print("c_[2]: ", c_[2])
             if reg["linearregression"].coef_[1] < 0:
                 new_c = np.array([0., 0.])
                 reg["linearregression"].coef_ = new_c
-                app.logger.info(f"{log_prefix} Service {svc_name}, changed slope {c_} --> {new_c}, intercept: {in_}")
+                app.logger.info(f'{log_prefix} Service {row["svc_name"]}, changed slope {c_} --> {new_c}, intercept: {in_}')
                 assert False
     c_ = reg["linearregression"].coef_
     in_ = reg["linearregression"].intercept_
     y_pred = reg.predict(X_test)
     r2 =  np.round(r2_score(y_test, y_pred),2)
-    app.logger.info(f"{log_prefix} {svc_name}, slope: {c_}, intercept: {in_}")
+    print(f'{log_prefix} {row["svc_name"]}, slope: {c_}, intercept: {in_}')
     compute_df.at[index, 'latency_function'] = reg
     
-display(compute_df)
+# display(compute_df)
 
 
 # In[38]:
@@ -504,7 +559,7 @@ def plot_latency_function(df):
         plot_list[row_idx][col_idx].plot(row["observed_x"], row["observed_y"], 'ro', label="observation", alpha=0.1)
         plot_list[row_idx][col_idx].plot(row["observed_x"], row["latency_function"].predict(X), 'bo', label="prediction", alpha=0.1)
         plot_list[row_idx][col_idx].legend()
-        plot_list[row_idx][col_idx].set_title(svc_name)
+        plot_list[row_idx][col_idx].set_title(index[0])
         if row_idx == num_subplot_row-1:
             plot_list[row_idx][col_idx].set_xlabel("ld")
         if col_idx == 0:
@@ -512,8 +567,8 @@ def plot_latency_function(df):
         idx += 1
     plt.savefig(OUTPUT_DIR+datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S") +"-latency.pdf")
     plt.show()
-if PLOT:
-    plot_latency_function(compute_df)
+# if PLOT:
+plot_latency_function(compute_df)
     
 LOG_TIMESTAMP("train regression model")
 
@@ -563,13 +618,15 @@ LOG_TIMESTAMP("train regression model")
 
 # In[42]:
 
-compute_time = dict()
-compute_load = dict()
-display(compute_df["svc_name"])
-for index, row in compute_df.iterrows():
-    row_to_df = pd.DataFrame([row], index=[index])
-    compute_time[index] = gppd.add_vars(model, row_to_df, name="compute_time", lb="min_compute_time")
-    compute_load[index] = gppd.add_vars(model, row_to_df, name="load_for_compute_edge", lb="min_load", ub="max_load")
+# compute_time = dict()
+# compute_load = dict()
+# display(compute_df["svc_name"])
+# for index, row in compute_df.iterrows():
+#     row_to_df = pd.DataFrame([row], index=[index])
+#     compute_time[index] = gppd.add_vars(model, row_to_df, name="compute_time", lb="min_compute_time")
+#     compute_load[index] = gppd.add_vars(model, row_to_df, name="load_for_compute_edge", lb="min_load", ub="max_load")
+compute_time = gppd.add_vars(model, compute_df, name="compute_time", lb="min_compute_time")
+compute_load = gppd.add_vars(model, compute_df, name="load_for_compute_edge", lb="min_load", ub="max_load")
 model.update()
 print("compute_time")
 print(compute_time)
@@ -581,7 +638,7 @@ print(compute_load)
 
 m_feats = dict()
 for index, row in compute_df.iterrows():
-    print("index: ", index)
+    # print("index: ", index)
     m_feats[index] = pd.DataFrame(
         data={
             "observed_x": compute_load[index],
@@ -599,9 +656,11 @@ for index, row in compute_df.iterrows():
     # print(f'row["latency_func"]["linearregression"].intercept_" {row["latency_function"]["linearregression"].intercept_}')
     # print(f'compute_time[{index}]: {compute_time[index]}')
     pred_constr = add_predictor_constr(model, row["latency_function"], m_feats[index], compute_time[index])
-    pred_constr.print_stats()
+    print(index, row["latency_function"])
+    # pred_constr.print_stats()
+    # print(compute_time[index])
 
-print(m_feats)
+# print(m_feats)
 
 model.update()
 
@@ -629,236 +688,266 @@ model.update()
 
 
 ## Define names of the variables for network arc in gurobi
-source_name = "src_*_*"
-destination_name = "dst_*_*"
-source_node = source_name+DELIMITER+"*"+DELIMITER+"*"
-destination_node = destination_name+DELIMITER+"*"+DELIMITER+"*"
+source_node_name = "SOURCE"
+destination_node_name = "DESTINATION"
+none_cid = -1
+source_node_fullname = f'{source_node_name}{DELIMITER}{none_cid}{DELIMITER}{none_cid}'
+destination_node_fullname = f'{destination_node_name}{DELIMITER}{none_cid}{DELIMITER}{none_cid}'
 
 '''
 network_arc_var_name
 - key: tuple(src_node_name, dst_node_name)
 - value: request_size_in_bytes
 '''
-network_arc_var_name = dict()
-for parent_svc, children in callgraph.items():
-    if len(children) == 0: # leaf service
-        # leaf service to dst
-        print(parent_svc + " is leaf service")
-        for src_cid in range(NUM_CLUSTER):
-            tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, destination_name, "*")
-            if tuple_var_name not in network_arc_var_name:
-                network_arc_var_name[tuple_var_name] = 0 # arbitrary call size
-    for child_svc in children:
-        if parent_svc == ENTRANCE:
-            for src_cid in range(NUM_CLUSTER):
-                # src to ingress gateway
-                tuple_var_name = spans_to_network_arc_var_name(source_name, "*", parent_svc, src_cid)
-                if tuple_var_name not in network_arc_var_name:
-                    network_arc_var_name[tuple_var_name] = 0 # arbitrary call size
-                for dst_cid in range(NUM_CLUSTER):
-                    tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, child_svc, dst_cid)
-                    if tuple_var_name not in network_arc_var_name:
-                        # ingress gateway to frontend service
-                        network_arc_var_name[tuple_var_name] = 1 # arbitrary call size
-        else:
-            # service to service
-            for src_cid in range(NUM_CLUSTER):
-                for dst_cid in range(NUM_CLUSTER):
-                    tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, child_svc, dst_cid)
-                    if tuple_var_name not in network_arc_var_name:
-                        network_arc_var_name[tuple_var_name] = depth_dict[parent_svc]*10 # arbitrary call size
-app.logger.info(f"{log_prefix} len(network_arc_var_name): {len(network_arc_var_name)}\n")
-for tuple_var_name, _ in network_arc_var_name.items():
-    app.logger.debug(f"{log_prefix} {tuple_var_name}")
+# network_arc_var_name = dict()
+# for parent_svc, children in callgraph.items():
+#     if len(children) == 0: # leaf service
+#         # leaf service to dst
+#         print(parent_svc + " is leaf service")
+#         for src_cid in range(NUM_CLUSTER):
+#             tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, destination_node_name, "*")
+#             if tuple_var_name not in network_arc_var_name:
+#                 network_arc_var_name[tuple_var_name] = 0 # arbitrary call size
+#     for child_svc in children:
+#         if parent_svc == ENTRANCE:
+#             for src_cid in range(NUM_CLUSTER):
+#                 # src to ingress gateway
+#                 tuple_var_name = spans_to_network_arc_var_name(source_node_name, "*", parent_svc, src_cid)
+#                 if tuple_var_name not in network_arc_var_name:
+#                     network_arc_var_name[tuple_var_name] = 0 # arbitrary call size
+#                 for dst_cid in range(NUM_CLUSTER):
+#                     tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, child_svc, dst_cid)
+#                     if tuple_var_name not in network_arc_var_name:
+#                         # ingress gateway to frontend service
+#                         network_arc_var_name[tuple_var_name] = 1 # arbitrary call size
+#         else:
+#             # service to service
+#             for src_cid in range(NUM_CLUSTER):
+#                 for dst_cid in range(NUM_CLUSTER):
+#                     tuple_var_name = spans_to_network_arc_var_name(parent_svc, src_cid, child_svc, dst_cid)
+#                     if tuple_var_name not in network_arc_var_name:
+#                         network_arc_var_name[tuple_var_name] = depth_dict[parent_svc]*10 # arbitrary call size
+# app.logger.info(f"{log_prefix} len(network_arc_var_name): {len(network_arc_var_name)}\n")
+# for tuple_var_name, _ in network_arc_var_name.items():
+#     app.logger.debug(f"{log_prefix} {tuple_var_name}")
+
+
+network_arc_var_name = list()
+cluster_pair = list(itertools.product(list(range(NUM_CLUSTER)), list(range(NUM_CLUSTER))))
+print("cluster_pair: ", cluster_pair)
+for c_pair in cluster_pair:
+    src_cid = c_pair[0]
+    dst_cid = c_pair[1]
+    # if src_cid != dst_cid:
+    for src_svc in unique_service[src_cid]:
+        for dst_svc in unique_service[dst_cid]:
+            if src_svc != dst_svc and dst_svc in callgraph[src_svc]:
+                var_name = get_network_arc_var_name(src_svc, src_cid, dst_svc, dst_cid)
+                network_arc_var_name.append(var_name)
 
 for cid in range(NUM_CLUSTER):
-    check_network_arc_var_name(network_arc_var_name[cid])
-if DISPLAY:
-    display(network_arc_var_name)
+    for svc in unique_service[cid]:
+        if svc == "ingress_gw":
+            network_arc_var_name.append((source_node_fullname, f'{svc}{DELIMITER}{cid}{DELIMITER}start'))
+        if callgraph[svc] == []:
+            network_arc_var_name.append((f'{svc}{DELIMITER}{cid}{DELIMITER}end', destination_node_fullname))
+
+for var in network_arc_var_name:
+    print(var)
+
+check_network_arc_var_name(network_arc_var_name)
 
 
-# In[39]:
+
+# In[36]:
 
 
-network_arc_var_name_list = list(network_arc_var_name.keys())
-network_arc_var_name_list
-network_arc_var_name
+def get_network_time(src_cid, dst_cid):
+    if src_cid == dst_cid:
+        return INTRA_CLUTER_RTT
+    else:
+        return INTER_CLUSTER_RTT
+    
+    
+network_df = pd.DataFrame(
+    columns=["src_svc", "src_cid", "dst_svc", "dst_cid", "min_network_time", "max_network_time", "min_load", "max_load", "min_egress_cost", "max_egress_cost"],
+    data={
+    },
+    index=network_arc_var_name
+)
+src_svc_list = list()
+dst_svc_list = list()
+src_cid_list = list()
+dst_cid_list = list()
+min_network_time_list = list()
+max_network_time_list = list()
+min_egress_cost_list = list()
+max_egress_cost_list = list()
+for var_name in network_arc_var_name:
+    if type(var_name) == tuple:
+        src_svc = var_name[0].split(DELIMITER)[0]
+        dst_svc = var_name[1].split(DELIMITER)[0]
+    else:
+        src_svc = var_name.split(",")[0].split(DELIMITER)[0]
+        dst_svc = var_name.split(",")[1].split(DELIMITER)[0]
+    src_svc_list.append(src_svc)
+    dst_svc_list.append(dst_svc)
+    if type(var_name) == tuple:
+        src_cid = int(var_name[0].split(DELIMITER)[1])
+        dst_cid = int(var_name[1].split(DELIMITER)[1])
+    else:
+        src_cid = int(var_name.split(",")[0].split(DELIMITER)[1])
+        dst_cid = int(var_name.split(",")[1].split(DELIMITER)[1])
+    src_cid_list.append(src_cid)
+    dst_cid_list.append(dst_cid)
+    n_time = get_network_time(src_cid, dst_cid)
+    min_network_time_list.append(n_time)
+    max_network_time_list.append(n_time)
+    min_egress_cost_list.append(n_time)
+    max_egress_cost_list.append(n_time)
+    
+network_df["src_svc"] = src_svc_list
+network_df["dst_svc"] = dst_svc_list
+network_df["src_cid"] = src_cid_list
+network_df["dst_cid"] = dst_cid_list
+network_df["min_network_time"] = min_network_time_list
+network_df["max_network_time"] = max_network_time_list
+network_df["min_load"] = 0
+network_df["max_load"] = MAX_LOAD
+network_df["min_egress_cost"] = min_egress_cost_list
+network_df["max_egress_cost"] = max_egress_cost_list
 
-list(network_arc_var_name.keys())
-
+display(network_df)
 
 # In[41]:
 
 
-min_load = 0
-max_load = sum(NUM_REQUESTS)
-print("max_load = sum(NUM_REQUESTS): ", max_load)
-
-min_network_egress_cost = list()
-max_network_egress_cost = list()
-
-network_arc_var_name_list = list(network_arc_var_name.keys())
-print("network_arc_var_name_list")
-print(network_arc_var_name_list)
-for network_arc_var in network_arc_var_name_list:
-    src_node = network_arc_var[0]
-    dst_node = network_arc_var[1]
-    src_svc_name = src_node.split(DELIMITER)[0] # A
-    dst_svc_name = dst_node.split(DELIMITER)[0] # B
-    if src_svc_name == "src_*_*":
-        min_network_egress_cost.append(0)
-        max_network_egress_cost.append(0)
-    elif dst_svc_name == "dst_*_*":
-        min_network_egress_cost.append(0)
-        max_network_egress_cost.append(0)
-    else:
-        try:
-            src_cid = int(src_node.split(DELIMITER)[1])
-        except:
-            app.logger.error(f"{log_prefix} Can't parse src_cid {src_svc_name}, {src_node}, {src_node.split(DELIMITER)}")
-            assert False
-        try:
-            dst_cid = int(dst_node.split(DELIMITER)[1])
-        except:
-            app.logger.error(f"{log_prefix}  Can't parse src_cid {dst_svc_name}, {dst_node}, {dst_node.split(DELIMITER)}")
-            assert False
-        if src_cid == dst_cid:
-            # local routing
-            min_network_egress_cost.append(0) 
-            max_network_egress_cost.append(0)
-        else:
-            # remote routing
-            min_network_egress_cost.append(network_arc_var_name[network_arc_var])
-            max_network_egress_cost.append(network_arc_var_name[network_arc_var])
-
-display(network_arc_var_name)
-display(min_network_egress_cost)
-display(max_network_egress_cost)
-
-network_egress_cost_data = pd.DataFrame(
-    data={
-        "min_network_egress_cost": min_network_egress_cost,
-        "max_network_egress_cost": max_network_egress_cost,
-        # "min_load":[min_load]*len(network_arc_var_name_list),
-        # "max_load":[max_load]*len(network_arc_var_name_list),
-    },
-    index=network_arc_var_name_list
-    # index=network_arc_var_name
-)
-network_egress_cost_data
+# network_egress_cost_data = pd.DataFrame(
+#     data={
+#         "min_network_egress_cost": min_network_egress_cost,
+#         "max_network_egress_cost": max_network_egress_cost,
+#         # "min_load":[min_load]*len(network_arc_var_name_list),
+#         # "max_load":[max_load]*len(network_arc_var_name_list),
+#     },
+#     index=network_arc_var_name
+# )
+# network_egress_cost_data
 
 
 # In[43]:
 
 
-min_network_latency = list()
-max_network_latency = list()
-for network_arc_var in network_arc_var_name_list:
-    src_node = network_arc_var[0]
-    dst_node = network_arc_var[1]
+# min_network_latency = list()
+# max_network_latency = list()
+# for network_arc_var in network_arc_var_name_list:
+#     src_node = network_arc_var[0]
+#     dst_node = network_arc_var[1]
     
-    src_svc_name = src_node.split(DELIMITER)[0]
-    dst_svc_name = dst_node.split(DELIMITER)[0]
-    if src_svc_name == "src_*_*":
-        min_network_latency.append(0)
-        max_network_latency.append(0)
-    elif dst_svc_name == "dst_*_*":
-        min_network_latency.append(0)
-        max_network_latency.append(0)
-    else:
-        try:
-            src_idx = int(src_node.split(DELIMITER)[1])
-        except:
-            print_error(src_svc_name, src_node.split(DELIMITER))
-        try:
-            dst_idx = int(dst_node.split(DELIMITER)[1])
-        except:
-            print_error(dst_svc_name, dst_node.split(DELIMITER))
-        # Network latency for local routing
-        if src_idx == dst_idx:
-            app.logger.debug(f"{log_prefix} intra-cluster, {src_node}, {dst_node}")
-            min_network_latency.append(INTRA_CLUTER_RTT)
-            max_network_latency.append(INTRA_CLUTER_RTT)
-        # Network latency for remote routing
-        else:
-            app.logger.debug(f"{log_prefix} inter-cluster, {src_node}, {dst_node}")
-            min_network_latency.append(INTER_CLUSTER_RTT)
-            max_network_latency.append(INTER_CLUSTER_RTT)
+#     src_svc_name = src_node.split(DELIMITER)[0]
+#     dst_svc_name = dst_node.split(DELIMITER)[0]
+#     if src_svc_name == "src_*_*":
+#         min_network_latency.append(0)
+#         max_network_latency.append(0)
+#     elif dst_svc_name == "dst_*_*":
+#         min_network_latency.append(0)
+#         max_network_latency.append(0)
+#     else:
+#         try:
+#             src_idx = int(src_node.split(DELIMITER)[1])
+#         except:
+#             print_error(src_svc_name, src_node.split(DELIMITER))
+#         try:
+#             dst_idx = int(dst_node.split(DELIMITER)[1])
+#         except:
+#             print_error(dst_svc_name, dst_node.split(DELIMITER))
+#         # Network latency for local routing
+#         if src_idx == dst_idx:
+#             app.logger.debug(f"{log_prefix} intra-cluster, {src_node}, {dst_node}")
+#             min_network_latency.append(INTRA_CLUTER_RTT)
+#             max_network_latency.append(INTRA_CLUTER_RTT)
+#         # Network latency for remote routing
+#         else:
+#             app.logger.debug(f"{log_prefix} inter-cluster, {src_node}, {dst_node}")
+#             min_network_latency.append(INTER_CLUSTER_RTT)
+#             max_network_latency.append(INTER_CLUSTER_RTT)
 
-network_latency_data = pd.DataFrame(
-    data={
-        "min_network_latency": min_network_latency,
-        "max_network_latency": max_network_latency,
-        "min_load":[min_load]*len(network_arc_var_name_list),
-        "max_load":[max_load]*len(network_arc_var_name_list),
-    },
-    index=network_arc_var_name_list
-    # index=network_arc_var_name
-)
-LOG_TIMESTAMP("creating egress cost and compute/network latency dataframe")
-print("network_latency_data")
-display(network_latency_data)
+# network_latency_data = pd.DataFrame(
+#     data={
+#         "min_network_latency": min_network_latency,
+#         "max_network_latency": max_network_latency,
+#         "min_load":[min_load]*len(network_arc_var_name_list),
+#         "max_load":[max_load]*len(network_arc_var_name_list),
+#     },
+#     index=network_arc_var_name_list
+#     # index=network_arc_var_name
+# )
+# LOG_TIMESTAMP("creating egress cost and compute/network latency dataframe")
+# print("network_latency_data")
+# display(network_latency_data)
 
 
 
 # In[44]:
 
-network_latency = gppd.add_vars(model, network_latency_data, name="network_latency", lb="min_network_latency", ub="max_network_latency")
-
-network_load = gppd.add_vars(model, network_latency_data, name="load_for_network_edge", lb="min_load", ub="max_load")
-# network_load = gppd.add_vars(model, network_latency_data, name="load_for_network_edge")
-
+network_latency = gppd.add_vars(model, network_df, name="network_latency", lb="min_network_time", ub="max_network_time")
+network_load = gppd.add_vars(model, network_df, name="load_for_network_edge", lb="min_load", ub="max_load")
+network_egress_cost = gppd.add_vars(model, network_df, name="network_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
+compute_egress_cost = gppd.add_vars(model, compute_df, name="compute_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
 model.update()
 
-network_egress_cost = gppd.add_vars(model, network_egress_cost_data, name="network_egress_cost", lb="min_network_egress_cost", ub="max_network_egress_cost")
-
-compute_egress_cost = dict()
-# for svc_name in unique_services:
-for index, row in compute_df.iterrows():
-    row_to_df = pd.DataFrame([row], index=[index])
-    compute_egress_cost[index] = gppd.add_vars(model, row_to_df, name="compute_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
-model.update()
+# compute_egress_cost = dict()
+# for index, row in compute_df.iterrows():
+#     row_to_df = pd.DataFrame([row], index=[index])
+#     compute_egress_cost[index] = gppd.add_vars(model, row_to_df, name="compute_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
+# model.update()
 
 # egress cost sum
+compute_egress_cost_sum = sum(compute_egress_cost.multiply(compute_load))
 network_egress_cost_sum = sum(network_egress_cost.multiply(network_load))
-compute_egress_cost_sum = 0
-# for svc_name in unique_services:
-for elem in compute_arc_var_name:
-    compute_egress_cost_sum += sum(compute_egress_cost[elem].multiply(compute_load[elem]))
+print("network_egress_cost_sum")
+print(network_egress_cost_sum)
+
+print("compute_egress_cost_sum")
+print(compute_egress_cost_sum)
+model.update()
+
+# compute_egress_cost_sum = 0
+# for elem in compute_arc_var_name:
+#     compute_egress_cost_sum += sum(compute_egress_cost[elem].multiply(compute_load[elem]))
+    
+
+# In[44]:
+    
 total_egress_sum = network_egress_cost_sum + compute_egress_cost_sum
 app.logger.debug(f"{log_prefix} total_egress_sum:")
 app.logger.debug(f"{log_prefix} {total_egress_sum}\n")
 
-# total latency sum
-network_latency_sum = sum(network_latency.multiply(network_load))
+# print(network_latency)
+# print(network_latency["productpage_v1#0#end,details_v1#1#start"])
+# In[44]:
 
-compute_latency_sum = 0
-# for svc_name in unique_services:
-for elem in compute_arc_var_name:
-    compute_latency_sum += sum(compute_time[elem].multiply(m_feats[elem]["observed_x"])) # m_feats[svc_name]["load"] is identical to compute_load[svc_name]
-    # print("compute_latency_sum, ", svc_name)
-    # display(compute_latency_sum)
-# print()
-# print("network_latency_sum")
-# print(network_latency_sum)
-# print()
-# print("compute_latency_sum")
-# print(compute_latency_sum)
+network_latency_sum = sum(network_latency.multiply(network_load))
+compute_latency_sum = sum(compute_time.multiply(compute_load))
+# compute_latency_sum = 0
+# for elem in compute_arc_var_name:
+#     compute_latency_sum += sum(compute_time[elem].multiply(m_feats[elem]["observed_x"])) # m_feats[svc_name]["load"] is identical to 
 total_latency_sum = network_latency_sum + compute_latency_sum
 
-app.logger.debug(f"{log_prefix} compute_latency_sum:")
-app.logger.debug(f"{log_prefix} {compute_latency_sum}\n")
+print("compute_latency_sum:")
+print(f"{compute_latency_sum}\n")
 
-app.logger.debug(f"{log_prefix} network_latency_sum:")
-app.logger.debug(f"{log_prefix} {network_latency_sum}\n")
+print("network_latency_sum:")
+print(f"{network_latency_sum}\n")
 
-app.logger.debug(f"{log_prefix} total_latency_sum:")
-app.logger.debug(f"{log_prefix} {total_latency_sum}\n")
+print("total_latency_sum:")
+print(f"{total_latency_sum}\n")
+# In[44]:
 
-objective = "latency" # latency or egress_cost or multi-objective
+# objective = "latency" # latency or egress_cost or multi-objective
+objective = "multi-objective" # latency or egress_cost or multi-objective
 if objective == "latency":
-    # model.setObjective(total_latency_sum, gp.GRB.MINIMIZE)
-    model.setObjective(compute_latency_sum, gp.GRB.MINIMIZE)
+    model.setObjective(total_latency_sum, gp.GRB.MINIMIZE)
+    # model.setObjective(compute_latency_sum, gp.GRB.MINIMIZE)
 elif objective == "egress_cost":
     model.setObjective(total_egress_sum, gp.GRB.MINIMIZE)
 elif objective == "multi-objective":
@@ -875,12 +964,21 @@ app.logger.info(f"{log_prefix} model objective: {model.getObjective()}")
 
 # arcs is the keys
 # aggregated_load is dictionary
-concat_compute_load = pd.Series()
-# for svc_name, c_load in compute_load.items():
+# aggregated_load = dict()
+# concat_compute_load = pd.Series()
+# for elem in compute_arc_var_name:
+#     concat_compute_load = pd.concat([concat_compute_load, compute_load[elem]], axis=0)
+# arcs, aggregated_load = gp.multidict(pd.concat([network_load, concat_compute_load], axis=0).to_dict())
+print(help(gp.multidict))
+print(type(network_load))
+print(type(compute_load))
+arcs, aggregated_load = gp.multidict(pd.concat([network_load, compute_load], axis=0).to_dict())
+print("arcs")
+print(arcs)
+print()
+print("aggregated_load")
+print(aggregated_load)
 
-for elem in compute_arc_var_name:
-    concat_compute_load = pd.concat([concat_compute_load, compute_load[elem]], axis=0)
-arcs, aggregated_load = gp.multidict(pd.concat([network_load, concat_compute_load], axis=0).to_dict())
 
 ###################################################
 # max_tput = dict()
@@ -897,12 +995,16 @@ LOG_TIMESTAMP("gurobi add_vars and set objective")
 
 # In[45]:
 
+print(type(aggregated_load))
+for k, v in aggregated_load.items():
+    print(f"key: {k}, value: {v}")
+    
+    
 constraint_setup_start_time = time.time()
 ###################################################
 # Constraint 1: source
 source = dict()
-TOTAL_NUM_REQUEST = sum(NUM_REQUESTS)
-source[source_node] = TOTAL_NUM_REQUEST
+source[source_node_fullname] = MAX_LOAD
 src_keys = source.keys()
 
 # source(src_*_*) to *
@@ -912,14 +1014,11 @@ src_flow = model.addConstrs((gp.quicksum(aggregated_load.select(src, '*')) == so
 # * to frontend services start node
 if LOAD_IN == True:
     for cid in range(NUM_CLUSTER):
-        #############################################################################
-        # start_node = tst.FRONTEND_svc + DELIMITER + str(cid) + DELIMITER + "start"
-        # end_node = tst.FRONTEND_svc + DELIMITER + str(cid) + DELIMITER + "end"
-        start_node = ENTRANCE + DELIMITER + str(cid) + DELIMITER + "start"
-        # end_node = INGRESS_GW_NAME + DELIMITER + str(cid) + DELIMITER + "end"
-        #############################################################################
-        
+        start_node = f'{ENTRANCE}{DELIMITER}{cid}{DELIMITER}start'
         per_cluster_load_in = model.addConstr((gp.quicksum(aggregated_load.select('*', start_node)) == NUM_REQUESTS[cid]), name="cluster_"+str(cid)+"_load_in")
+        print("start_node: ", start_node)
+        print(aggregated_load.select('*', start_node))
+        print(NUM_REQUESTS[cid])
 
 # if ENTRANCE == INGRESS_GW_NAME:
 #     # # frontend services end node to child nodes
@@ -940,11 +1039,12 @@ model.update()
 # In[47]:
 
 
-###################################################
 # Constraint 2: destination
 destination = dict()
-destination[destination_node] = TOTAL_NUM_REQUEST
+destination[destination_node_fullname] = MAX_LOAD
 dest_keys = destination.keys()
+# print(dest_keys)
+# print(destination_node_fullname)
 leaf_services = list()
 for parent_svc, children in callgraph.items():
     if len(children) == 0: # leaf service
@@ -954,17 +1054,27 @@ app.logger.debug(f"{log_prefix} num_leaf_services: {num_leaf_services}")
 app.logger.debug(f"{log_prefix} leaf_services: {leaf_services}")
 
 dst_flow = model.addConstrs((gp.quicksum(aggregated_load.select('*', dst)) == destination[dst]*num_leaf_services for dst in dest_keys), name="destination")
+for dst in dest_keys:
+    print(aggregated_load.select('*', dst))
 model.update()
 
-###################################################
+
+# In[47]:
+
 # Constraint 3: flow conservation
 
 # Start node in-out flow conservation
-for svc_name in unique_services:
-    for cid in range(NUM_CLUSTER):
+for cid in range(NUM_CLUSTER):
+    for svc_name in unique_service[cid]:
         start_node = svc_name + DELIMITER + str(cid) + DELIMITER + "start"
         node_flow = model.addConstr((gp.quicksum(aggregated_load.select('*', start_node)) == gp.quicksum(aggregated_load.select(start_node, '*'))), name="flow_conservation["+start_node+"]-start_node")
+        print(aggregated_load.select('*', start_node))
+        print("==")
+        print(aggregated_load.select(start_node, '*'))
+        print("-"*50)
     
+# In[47]:
+
 
 # End node in-out flow conservation
 # case 1 (start node, end&leaf node): incoming num requests == outgoing num request for all nodes
@@ -973,6 +1083,10 @@ for parent_svc, children in callgraph.items():
         if len(children) == 0: # leaf_services:
             end_node = parent_svc + DELIMITER + str(cid) + DELIMITER + "end"
             node_flow = model.addConstr((gp.quicksum(aggregated_load.select('*', end_node)) == gp.quicksum(aggregated_load.select(end_node, '*'))), name="flow_conservation["+end_node+"]-leaf_endnode")
+            print(aggregated_load.select('*', end_node))
+            print('==')
+            print(aggregated_load.select(end_node, '*'))
+            print("-"*50)
 
 # case 2 (end&non-leaf node): incoming num requests == outgoing num request for all nodes
 for parent_svc, children in callgraph.items():
@@ -987,6 +1101,10 @@ for parent_svc, children in callgraph.items():
                     child_list.append(child_start_node)
                     out_sum += aggregated_load.sum(end_node, child_start_node)
                 node_flow = model.addConstr((gp.quicksum(aggregated_load.select('*', end_node)) == out_sum), name="flow_conservation["+end_node+"]-nonleaf_endnode")
+                print(aggregated_load.select('*', end_node))
+                print('==')
+                print(out_sum)
+                print("-"*50)
                 app.logger.debug(f"{log_prefix} nonleaf end_node flow conservation")
                 app.logger.debug(f"{log_prefix} {end_node}, {child_list}")
 model.update()
@@ -995,18 +1113,31 @@ model.update()
 # In[48]:
 
 
-###################################################
 # Constraint 4: Tree topology
-for svc_name in unique_services:
-    #####################################
-    # if svc_name != tst.FRONTEND_svc:
+
+# all_service = list()
+# for cid in range(NUM_CLUSTER):
+#     all_service += unique_service[cid]
+# all_service = list(set(all_service))
+
+service_to_cid = dict()
+for cid in range(NUM_CLUSTER):
+    for svc_name in unique_service[cid]:
+        if svc_name not in service_to_cid:
+            service_to_cid[svc_name] = list()
+        service_to_cid[svc_name].append(cid)
+        
+for svc_name in service_to_cid:
     if svc_name != ENTRANCE:
-    #####################################
-        sum_ = 0
-        for cid in range(NUM_CLUSTER):
+        incoming_sum = 0
+        for cid in service_to_cid[svc_name]:
             node_name = svc_name +DELIMITER + str(cid) + DELIMITER+"start"
-            sum_ += aggregated_load.sum('*', node_name)
-        node_flow = model.addConstr(sum_ == TOTAL_NUM_REQUEST, name="tree_topo_conservation")
+            incoming_sum += aggregated_load.sum('*', node_name)
+        node_flow = model.addConstr(incoming_sum == MAX_LOAD, name="tree_topo_conservation")
+        print(incoming_sum)
+        print('==')
+        print(MAX_LOAD)
+        print("-"*50)
 model.update()
 
 ###################################################
@@ -1132,7 +1263,7 @@ else:
     app.logger.error(f"{log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
     # app.logger.error(f"{log_prefix} ** constraint_setup_time runtime: {} ms".format(constraint_setup_time))
     app.logger.error(f"{log_prefix} ** model.objVal: {model.objVal}")
-    app.logger.error(f"{log_prefix} ** model.objVal / total num requests: {model.objVal/TOTAL_NUM_REQUEST}")
+    app.logger.error(f"{log_prefix} ** model.objVal / total num requests: {model.objVal/MAX_LOAD}")
     request_flow = pd.DataFrame(columns=["From", "To", "Flow"])
     for arc in arcs:
         if aggregated_load[arc].x > 1e-6:
@@ -1143,11 +1274,15 @@ else:
     percentage_df = translate_to_percentage(request_flow)
     if DISPLAY:
         display(percentage_df)
-        
+    if percentage_df.empty == False:
+        plot_request_flow(percentage_df)
     # prettyprint_timestamp()
     # return percentage_df, "OPTIMIZER, MODEL SOLVED"
 ''' This is end of run_optimizer function'''
 
+# In[52]:
+request_flow
+# aggregated_load
 
 # In[52]:
 
