@@ -293,10 +293,20 @@ for num_req in NUM_REQUESTS:
     assert num_req >= 0
 
 callgraph = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['details-v1', 'reviews-v3'], 'ratings-v1': [], 'details-v1': [], 'reviews-v3': ['ratings-v1']}
+depth_dict = {'ingress_gw':0, 'productpage-v1': 1, 'details-v1': 2, 'reviews-v3': 2, 'ratings-v1': 3}
+callsize_dict = dict()
+for parent_svc, children in callgraph.items():
+    for child_svc in children:
+        assert depth_dict[parent_svc] < depth_dict[child_svc]
+        callsize_dict[(parent_svc,child_svc)] = (depth_dict[parent_svc]+1)*10
+
+
 unique_service = dict()
 unique_service[0] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
 unique_service[1] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
-depth_dict = {'ingress_gw':0, 'productpage-v1': 1, 'details-v1': 2, 'reviews-v3': 2, 'ratings-v1': 3}
+# unique_service[1] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3']
+
+
 NUM_CLUSTER = len(NUM_REQUESTS)
 
 ## Insert ingress gw to call graph
@@ -359,7 +369,7 @@ if DISPLAY:
 MAX_LOAD = sum(NUM_REQUESTS)
 compute_df = pd.DataFrame(
     # columns=["svc_name", "src_cid", "dst_cid", "min_compute_time", "max_compute_time", "min_load", "max_load", "min_compute_egress_cost", "max_compute_egress_cost", "compute_time", "compute_load", "observed_x", "observed_y", "latency_function", "predicted_y"],
-    columns=["svc_name", "src_cid", "dst_cid", "min_compute_time", "min_load", "max_load", "min_egress_cost", "max_egress_cost", "observed_x", "observed_y", "latency_function"],
+    columns=["svc_name", "src_cid", "dst_cid", "min_compute_time", "min_load", "max_load", "min_egress_cost", "max_egress_cost", "observed_x", "observed_y", "latency_function", "call_size"],
     data={
     },
     index=compute_arc_var_name
@@ -393,6 +403,7 @@ compute_df["min_load"] = 0
 compute_df["max_load"] = MAX_LOAD
 compute_df["min_egress_cost"] = 0
 compute_df["max_egress_cost"] = 0
+compute_df["call_size"] = 0
 optimizer_start_time = time.time()
 model = gp.Model('RequestRouting')
 
@@ -757,6 +768,9 @@ for var in network_arc_var_name:
 
 check_network_arc_var_name(network_arc_var_name)
 
+# In[36]:
+
+network_arc_var_name
 
 
 # In[36]:
@@ -767,7 +781,12 @@ def get_network_time(src_cid, dst_cid):
         return INTRA_CLUTER_RTT
     else:
         return INTER_CLUSTER_RTT
-    
+
+def get_egress_cost(src_cid, src_svc, dst_svc, dst_cid):
+    if src_cid == dst_cid or src_svc == source_node_name or dst_svc == destination_node_name:
+        return 0
+    else:
+        return INTER_CLUSTER_EGRESS_COST * callsize_dict[(src_svc,dst_svc)]
     
 network_df = pd.DataFrame(
     columns=["src_svc", "src_cid", "dst_svc", "dst_cid", "min_network_time", "max_network_time", "min_load", "max_load", "min_egress_cost", "max_egress_cost"],
@@ -783,7 +802,9 @@ min_network_time_list = list()
 max_network_time_list = list()
 min_egress_cost_list = list()
 max_egress_cost_list = list()
+call_size_list = list()
 for var_name in network_arc_var_name:
+    print(var_name)
     if type(var_name) == tuple:
         src_svc = var_name[0].split(DELIMITER)[0]
         dst_svc = var_name[1].split(DELIMITER)[0]
@@ -803,8 +824,9 @@ for var_name in network_arc_var_name:
     n_time = get_network_time(src_cid, dst_cid)
     min_network_time_list.append(n_time)
     max_network_time_list.append(n_time)
-    min_egress_cost_list.append(n_time)
-    max_egress_cost_list.append(n_time)
+    e_cost = get_egress_cost(src_cid, src_svc, dst_svc, dst_cid)
+    min_egress_cost_list.append(e_cost)
+    max_egress_cost_list.append(e_cost)
     
 network_df["src_svc"] = src_svc_list
 network_df["dst_svc"] = dst_svc_list
@@ -816,6 +838,7 @@ network_df["min_load"] = 0
 network_df["max_load"] = MAX_LOAD
 network_df["min_egress_cost"] = min_egress_cost_list
 network_df["max_egress_cost"] = max_egress_cost_list
+# network_df["call_size"] = call_size_list
 
 display(network_df)
 
