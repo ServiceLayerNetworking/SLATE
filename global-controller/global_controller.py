@@ -3,14 +3,15 @@ import logging
 from threading import Lock
 import atexit
 from apscheduler.schedulers.background import BackgroundScheduler
-import optimizer as opt ## NOTE: COMMENT OUT when you run optimizer in standalone
+# import optimizer as opt ## NOTE: COMMENT OUT when you run optimizer in standalone
 from config import *
 import span as sp
+import pandas as pd
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
 werklog = logging.getLogger('werkzeug')
-werklog.setLevel(logging.ERROR)
+werklog.setLevel(logging.DEBUG)
 
 """
 2
@@ -322,8 +323,12 @@ def optimizer_entrypoint():
                 # if USE_MODEL_DIRECTLY:
                 #     percentage_df = opt.run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=num_requests, models=MODEL_DICT)
                 if USE_TRACE_FILE:
+                    TRACE_FILE_PATH="/app/wrk_prof_log2_west.txt"
                     percentage_df, desc = opt.run_optimizer(raw_traces=None, trace_file=TRACE_FILE_PATH, NUM_REQUESTS=num_requests, model_parameter=None)
-                elif USE_PRERECORDED_TRACE:
+                elif USE_PRERECORDED_TRACE: ## envoycon demo
+                    TRACE_PATH="/app/sampled_both_trace.txt"
+                    df = pd.read_csv(TRACE_PATH)
+                    pre_recorded_trace = sp.df_to_trace(df)
                     percentage_df, desc = opt.run_optimizer(pre_recorded_trace, trace_file=None, NUM_REQUESTS=num_requests, model_parameter=None)
                 else:
                     percentage_df, desc = opt.run_optimizer(complete_traces.copy(), trace_file=None, NUM_REQUESTS=num_requests, model_parameter=None)

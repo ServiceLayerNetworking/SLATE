@@ -1,5 +1,4 @@
-import pandas as pd
-import span as sp
+import datetime
 
 log_prefix="[SLATE]"
 
@@ -30,11 +29,11 @@ MIN_NUM_TRACE = 30
 ###############
 ## Optimizer ##
 ###############
-OUTPUT_DIR="./optimizer_output/"
 VERBOSITY=1
 DELIMITER="#"
-
 OUTPUT_WRITE=False
+cur_time = datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S")
+OUTPUT_DIR="./optimizer_output/"+cur_time
 DISPLAY=True
 PLOT=False
 GRAPHVIZ=True
