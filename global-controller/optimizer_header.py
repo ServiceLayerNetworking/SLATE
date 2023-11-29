@@ -1,9 +1,13 @@
 import config as cfg
-import graphviz
 from global_controller import app
-import time
+import graphviz
+import itertools
 import pandas as pd
+import matplotlib.pyplot as plt
 import math
+import numpy as np
+import time
+import zlib
 
 timestamp_list = list()
 source_node_name = "SOURCE"
@@ -11,6 +15,109 @@ destination_node_name = "DESTINATION"
 none_cid = -1
 source_node_fullname = f'{source_node_name}{cfg.DELIMITER}{none_cid}{cfg.DELIMITER}{none_cid}'
 destination_node_fullname = f'{destination_node_name}{cfg.DELIMITER}{none_cid}{cfg.DELIMITER}{none_cid}'
+
+
+
+def get_compute_arc_var_name(svc_name, cid):
+    return (f'{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start', f'{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end') # tuple
+    # return f'{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start,{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end' # string
+
+def create_compute_arc_var_name(unique_service, NUM_CLUSTER):
+    compute_arc_var_name = list()
+    for cid in range(NUM_CLUSTER):
+        for svc_name in unique_service[cid]:
+            compute_arc_var_name.append(get_compute_arc_var_name(svc_name, cid))
+    return compute_arc_var_name
+
+
+def gen_fake_data(c_df):
+    num_data_point = 50
+    load_ = list(np.arange(0,num_data_point))
+    for index, row in c_df.iterrows():
+        comp_t = list()
+        # slope = zlib.adler32((str(row["src_cid"])+row["svc_name"]).encode('utf-8'))%10+1
+        # slope = (zlib.adler32(row["svc_name"].encode('utf-8'))%5+1)/(row["src_cid"]+1)
+        
+        # slope = 0
+        # intercept = 0
+        
+        slope = zlib.adler32(row["svc_name"].encode('utf-8'))%5+1
+        intercept = 10
+        
+        # if row["src_cid"] == 0 and row["svc_name"] == tst.FRONTEND_svc:
+        #     slope = 1
+        #     intercept = 0
+        
+        for j in range(num_data_point):
+            comp_t.append(pow(load_[j],cfg.REGRESSOR_DEGREE)*slope + intercept)
+        print(f'** cid,{row["src_cid"]}, service,{row["svc_name"]}, degree({cfg.REGRESSOR_DEGREE}), slope({slope}), intercept({intercept})')
+        assert len(load_) == len(comp_t)
+        # c_df.at[index, "observed_x"] = np.array(load_).reshape(-1, 1)
+        c_df.at[index, "observed_x"] = np.array(load_)
+        c_df.at[index, "observed_y"] = np.array(comp_t)
+    # return c_df
+
+
+def plot_latency_function(df, NUM_CLUSTER):
+    idx = 0
+    num_subplot_row = NUM_CLUSTER
+    num_subplot_col = 5
+    fig, (plot_list) = plt.subplots(num_subplot_row, num_subplot_col, figsize=(16,6))
+    fig.tight_layout()
+    for index, row in df.iterrows():
+        temp_df = pd.DataFrame(
+            data={
+                "observed_x": row["observed_x"],
+                "observed_y": row["observed_y"],
+            }
+        )
+        X = temp_df[["observed_x"]]
+        y = row["observed_y"]
+        row_idx = int(idx/num_subplot_col)
+        col_idx = idx%num_subplot_col
+        plot_list[row_idx][col_idx].plot(row["observed_x"], row["observed_y"], 'ro', label="observation", alpha=0.1)
+        plot_list[row_idx][col_idx].plot(row["observed_x"], row["latency_function"].predict(X), 'bo', label="prediction", alpha=0.1)
+        plot_list[row_idx][col_idx].legend()
+        plot_list[row_idx][col_idx].set_title(index[0])
+        if row_idx == num_subplot_row-1:
+            plot_list[row_idx][col_idx].set_xlabel("ld")
+        if col_idx == 0:
+            plot_list[row_idx][col_idx].set_ylabel("Compute time")
+        idx += 1
+    plt.savefig(cfg.OUTPUT_DIR+"/latency.pdf")
+    plt.show()
+
+
+def get_network_arc_var_name(src_svc, src_cid, dst_svc, dst_cid):
+    assert src_svc != dst_svc
+    return (f'{src_svc}{cfg.DELIMITER}{src_cid}{cfg.DELIMITER}end',f'{dst_svc}{cfg.DELIMITER}{dst_cid}{cfg.DELIMITER}start') # tuple
+
+
+def create_network_arc_var_name(unique_service, NUM_CLUSTER, callgraph):
+    network_arc_var_name = list()
+    cluster_pair = list(itertools.product(list(range(NUM_CLUSTER)), list(range(NUM_CLUSTER))))
+    print("cluster_pair: ", cluster_pair)
+    for c_pair in cluster_pair:
+        src_cid = c_pair[0]
+        dst_cid = c_pair[1]
+        # if src_cid != dst_cid:
+        for src_svc in unique_service[src_cid]:
+            for dst_svc in unique_service[dst_cid]:
+                if src_svc != dst_svc and dst_svc in callgraph[src_svc]:
+                    var_name = get_network_arc_var_name(src_svc, src_cid, dst_svc, dst_cid)
+                    network_arc_var_name.append(var_name)
+
+    for cid in range(NUM_CLUSTER):
+        for svc in unique_service[cid]:
+            if svc == "ingress_gw":
+                network_arc_var_name.append((source_node_fullname, f'{svc}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'))
+            # if callgraph[svc] == []:
+            #     network_arc_var_name.append((f'{svc}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end', opt_func.destination_node_fullname))
+
+    for var in network_arc_var_name:
+        print(var)
+    return network_arc_var_name
+
 
 def write_arguments_to_file(num_reqs, callgraph, depth_dict, callsize_dict, unique_service):
     num_cluster = len(num_reqs)
@@ -163,16 +270,6 @@ def plot_request_flow(percent_df):
             
     g_.render(f'{cfg.OUTPUT_DIR}/call_graph', view = True) # output: call_graph.pdf
     g_
-    
-
-def get_compute_arc_var_name(svc_name, cid):
-    return (f'{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start', f'{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end') # tuple
-    # return f'{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start,{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end' # string
-
-
-def get_network_arc_var_name(src_svc, src_cid, dst_svc, dst_cid):
-    assert src_svc != dst_svc
-    return (f'{src_svc}{cfg.DELIMITER}{src_cid}{cfg.DELIMITER}end',f'{dst_svc}{cfg.DELIMITER}{dst_cid}{cfg.DELIMITER}start') # tuple
 
 
 def is_normal_node(svc_name):

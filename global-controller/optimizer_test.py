@@ -21,14 +21,11 @@ from sklearn.pipeline import make_pipeline
 from sklearn.metrics import r2_score
 import gurobipy_pandas as gppd
 from gurobi_ml import add_predictor_constr
-import matplotlib.pyplot as plt
 from IPython.display import display
 from global_controller import app
 import time_stitching as tst
 import config as cfg
 import span as sp
-import zlib
-import itertools
 import optimizer_header as opt_func
 import os
 
@@ -49,6 +46,8 @@ else:
     print(f"{cfg.log_prefix} {cfg.OUTPUT_DIR} already exists")
     print("If you are using jupyter notebook, you should restart the kernel to load the new config.py")
     assert False
+    
+    
 # In[31]:
 
 NUM_REQUESTS = [50, 1]
@@ -56,14 +55,10 @@ MAX_LOAD = sum(NUM_REQUESTS)
 NUM_CLUSTER = len(NUM_REQUESTS)
 
 callgraph = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['details-v1', 'reviews-v3'], 'ratings-v1': [], 'details-v1': [], 'reviews-v3': ['ratings-v1']}
-
 depth_dict = {'ingress_gw':0, 'productpage-v1': 1, 'details-v1': 2, 'reviews-v3': 2, 'ratings-v1': 3}
-
 unique_service = dict()
 unique_service[0] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
-
 unique_service[1] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
-
 callsize_dict = dict()
 for parent_svc, children in callgraph.items():
     for child_svc in children:
@@ -71,26 +66,17 @@ for parent_svc, children in callgraph.items():
         callsize_dict[(parent_svc,child_svc)] = (depth_dict[parent_svc]+1)*10
 
 
-
 # In[31]:
 
 
 ''' START of run_optimizer function '''
 # def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,900], model_parameter=None): ## COMMENT_OUT_FOR_JUPYTER
-svc_name_list = list()
-compute_arc_var_name = list()
-for cid in range(NUM_CLUSTER):
-    for svc_name in unique_service[cid]:
-        compute_arc_var_name.append(opt_func.get_compute_arc_var_name(svc_name, cid))
-
-
+compute_arc_var_name = opt_func.create_compute_arc_var_name(unique_service, NUM_CLUSTER)
 opt_func.check_compute_arc_var_name(compute_arc_var_name)
 opt_func.log_timestamp("defining compute_arc_var_name")
-if cfg.DISPLAY:
-    display(compute_arc_var_name)
+if cfg.DISPLAY: display(compute_arc_var_name)
     
 compute_df = pd.DataFrame(
-    # columns=["svc_name", "src_cid", "dst_cid", "min_compute_time", "max_compute_time", "min_load", "max_load", "min_compute_egress_cost", "max_compute_egress_cost", "compute_time", "compute_load", "observed_x", "observed_y", "latency_function", "predicted_y"],
     columns=["svc_name", "src_cid", "dst_cid", "min_compute_time", "min_load", "max_load", "min_egress_cost", "max_egress_cost", "observed_x", "observed_y", "latency_function", "call_size"],
     data={
     },
@@ -99,7 +85,6 @@ compute_df = pd.DataFrame(
 svc_list = list()
 src_cid_list = list()
 dst_cid_list = list()
-# for tup in list(compute_arc_var_name):
 for var_name in compute_arc_var_name:
     if type(var_name) == tuple:
         svc_list.append(var_name[0].split(cfg.DELIMITER)[0])
@@ -109,13 +94,6 @@ for var_name in compute_arc_var_name:
         svc_list.append(var_name.split(",")[0].split(cfg.DELIMITER)[0])
         src_cid_list.append(int(var_name.split(",")[0].split(cfg.DELIMITER)[1]))
         dst_cid_list.append(int(var_name.split(",")[1].split(cfg.DELIMITER)[1]))
-# print("svc_list: ", svc_list)
-# print("src_cid_list: ", src_cid_list)
-# print("dst_cid_list: ", dst_cid_list)
-
-
-# In[31]:
-
 compute_df["svc_name"] = svc_list
 compute_df["src_cid"] = src_cid_list
 compute_df["dst_cid"] = dst_cid_list
@@ -126,49 +104,13 @@ compute_df["max_load"] = MAX_LOAD
 compute_df["min_egress_cost"] = 0
 compute_df["max_egress_cost"] = 0
 compute_df["call_size"] = 0
+
 optimizer_start_time = time.time()
 model = gp.Model('RequestRouting')
 
-# for index, row in compute_df.iterrows():
-#     compute_df.at[index, 'compute_time'] = \
-#         model.addVar(name="compute_time", lb=row["min_compute_time"])
-#     compute_df.at[index, 'compute_load'] = \
-#         model.addVar(name="compute_load", lb=row["min_load"], ub=row["max_load"])
-display(compute_df)
-
-
 # In[35]:
 
-def gen_fake_data(c_df):
-    num_data_point = 50
-    load_ = list(np.arange(0,num_data_point))
-    for index, row in c_df.iterrows():
-        comp_t = list()
-        # slope = zlib.adler32((str(row["src_cid"])+row["svc_name"]).encode('utf-8'))%10+1
-        # slope = (zlib.adler32(row["svc_name"].encode('utf-8'))%5+1)/(row["src_cid"]+1)
-        
-        # slope = 0
-        # intercept = 0
-        
-        slope = zlib.adler32(row["svc_name"].encode('utf-8'))%5+1
-        intercept = 10
-        
-        # if row["src_cid"] == 0 and row["svc_name"] == tst.FRONTEND_svc:
-        #     slope = 1
-        #     intercept = 0
-        
-        for j in range(num_data_point):
-            comp_t.append(pow(load_[j],cfg.REGRESSOR_DEGREE)*slope + intercept)
-        print(f'** cid,{row["src_cid"]}, service,{row["svc_name"]}, degree({cfg.REGRESSOR_DEGREE}), slope({slope}), intercept({intercept})')
-        assert len(load_) == len(comp_t)
-        # c_df.at[index, "observed_x"] = np.array(load_).reshape(-1, 1)
-        c_df.at[index, "observed_x"] = np.array(load_)
-        c_df.at[index, "observed_y"] = np.array(comp_t)
-    return c_df
-
-compute_df = gen_fake_data(compute_df)
-display(compute_df)
-
+opt_func.gen_fake_data(compute_df)
 
 
 # In[38]:
@@ -216,93 +158,13 @@ for index, row in compute_df.iterrows():
     print(f'{cfg.log_prefix} {row["svc_name"]}, slope: {c_}, intercept: {in_}')
     compute_df.at[index, 'latency_function'] = reg
     
-# display(compute_df)
-
-
-# In[38]:
-    
-# regressor_dict = dict()
-# for cid in range(NUM_CLUSTER):
-#     if cid not in regressor_dict:
-#         regressor_dict[cid] = dict()
-#     cid_df =  ct_obs[ct_obs["cluster_id"]==cid]
-#     for svc_name in unique_services:
-#         temp_df = cid_df[cid_df["service_name"] == svc_name]
-#         X = temp_df[["ld"]]
-#         y = temp_df["ct"]
-#         display(X)
-#         display(y)
-#         temp_x = X.copy()
-#         for i in range(max(temp_x["ld"])):
-#             temp_x.iloc[i, 0] = i
-#         X_train, X_test, y_train, y_test = train_test_split(X, y,train_size=0.9, random_state=1)
-#         feat_transform = make_column_transformer(
-#             (StandardScaler(), ["ld"]),
-#             # ("passthrough", ["ld"]),
-#             verbose_feature_names_out=False,
-#             remainder='drop'
-#         )
-#         if cfg.REGRESSOR_DEGREE == 1:
-#             regressor_dict[cid][svc_name] = make_pipeline(feat_transform, LinearRegression())
-#         elif cfg.REGRESSOR_DEGREE > 1:
-#             poly = PolynomialFeatures(degree=cfg.REGRESSOR_DEGREE, include_bias=True)
-#             regressor_dict[cid][svc_name] = make_pipeline(feat_transform, poly, LinearRegression())
-#         regressor_dict[cid][svc_name].fit(X_train, y_train)
-#         if svc_name != tst.FRONTEND_svc:
-#             if cfg.REGRESSOR_DEGREE == 1:
-#                 if c_ < 0:
-#                     new_c = np.array([0.])
-#                     regressor_dict[cid][svc_name]["linearregression"].coef_ = new_c
-#                     app.logger.info(f"{cfg.log_prefix} Service {svc_name}, changed slope {c_} --> {new_c}, intercept: {in_}")
-#                     assert False
-#             if cfg.REGRESSOR_DEGREE == 2:
-#                 # print("c_[2]: ", c_[2])
-#                 if c_[1] < 0:
-#                     new_c = np.array([0., 0.])
-#                     regressor_dict[cid][svc_name]["linearregression"].coef_ = new_c
-#                     app.logger.info(f"{cfg.log_prefix} Service {svc_name}, changed slope {c_} --> {new_c}, intercept: {in_}")
-#                     assert False
-#         y_pred = regressor_dict[cid][svc_name].predict(X_test)
-#         c_ = regressor_dict[cid][svc_name]["linearregression"].coef_
-#         in_ = regressor_dict[cid][svc_name]["linearregression"].intercept_
-#         r2 =  np.round(r2_score(y_test, y_pred),2)
-#         app.logger.info(f"{cfg.log_prefix} {svc_name}, slope: {c_}, intercept: {in_}, R^2: {r2}")
+display(compute_df)
 
 
 # In[38]:
 
-
-def plot_latency_function(df):
-    idx = 0
-    num_subplot_row = NUM_CLUSTER
-    num_subplot_col = 5
-    fig, (plot_list) = plt.subplots(num_subplot_row, num_subplot_col, figsize=(16,6))
-    fig.tight_layout()
-    for index, row in df.iterrows():
-        temp_df = pd.DataFrame(
-            data={
-                "observed_x": row["observed_x"],
-                "observed_y": row["observed_y"],
-            }
-        )
-        X = temp_df[["observed_x"]]
-        y = row["observed_y"]
-        row_idx = int(idx/num_subplot_col)
-        col_idx = idx%num_subplot_col
-        plot_list[row_idx][col_idx].plot(row["observed_x"], row["observed_y"], 'ro', label="observation", alpha=0.1)
-        plot_list[row_idx][col_idx].plot(row["observed_x"], row["latency_function"].predict(X), 'bo', label="prediction", alpha=0.1)
-        plot_list[row_idx][col_idx].legend()
-        plot_list[row_idx][col_idx].set_title(index[0])
-        if row_idx == num_subplot_row-1:
-            plot_list[row_idx][col_idx].set_xlabel("ld")
-        if col_idx == 0:
-            plot_list[row_idx][col_idx].set_ylabel("Compute time")
-        idx += 1
-    plt.savefig(cfg.OUTPUT_DIR+"/latency.pdf")
-    plt.show()
 # if PLOT:
-plot_latency_function(compute_df)
-    
+opt_func.plot_latency_function(compute_df, NUM_CLUSTER)
 opt_func.log_timestamp("train regression model")
 
 # In[42]:
@@ -335,29 +197,7 @@ model.update()
 # In[44]:
 
 ## Define names of the variables for network arc in gurobi
-network_arc_var_name = list()
-cluster_pair = list(itertools.product(list(range(NUM_CLUSTER)), list(range(NUM_CLUSTER))))
-print("cluster_pair: ", cluster_pair)
-for c_pair in cluster_pair:
-    src_cid = c_pair[0]
-    dst_cid = c_pair[1]
-    # if src_cid != dst_cid:
-    for src_svc in unique_service[src_cid]:
-        for dst_svc in unique_service[dst_cid]:
-            if src_svc != dst_svc and dst_svc in callgraph[src_svc]:
-                var_name = opt_func.get_network_arc_var_name(src_svc, src_cid, dst_svc, dst_cid)
-                network_arc_var_name.append(var_name)
-
-for cid in range(NUM_CLUSTER):
-    for svc in unique_service[cid]:
-        if svc == "ingress_gw":
-            network_arc_var_name.append((opt_func.source_node_fullname, f'{svc}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'))
-        # if callgraph[svc] == []:
-        #     network_arc_var_name.append((f'{svc}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end', opt_func.destination_node_fullname))
-
-for var in network_arc_var_name:
-    print(var)
-
+network_arc_var_name = opt_func.create_network_arc_var_name(unique_service, NUM_CLUSTER, callgraph)
 opt_func.check_network_arc_var_name(network_arc_var_name)
 
 
