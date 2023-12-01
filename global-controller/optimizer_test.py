@@ -50,20 +50,52 @@ else:
     
 # In[31]:
 
-NUM_REQUESTS = [50, 1]
-MAX_LOAD = sum(NUM_REQUESTS)
+# cluster
+NUM_REQUESTS = list()
+NUM_REQUESTS.append({"A": 10, "B": 20}) # cluster 0, {call graph A, B}
+NUM_REQUESTS.append({"A": 30, "B": 40}) # cluster 1, {call graph A, B}
 NUM_CLUSTER = len(NUM_REQUESTS)
+MAX_LOAD = dict()
+for cid in range(NUM_CLUSTER):
+    for request_type in NUM_REQUESTS[cid]:
+        if request_type not in MAX_LOAD:
+            MAX_LOAD[request_type] = 0
+        MAX_LOAD[request_type] += NUM_REQUESTS[cid][request_type]
+print("NUM_REQUESTS: ", NUM_REQUESTS)
+print("MAX_LOAD: ", MAX_LOAD)
 
-callgraph = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['details-v1', 'reviews-v3'], 'ratings-v1': [], 'details-v1': [], 'reviews-v3': ['ratings-v1']}
-depth_dict = {'ingress_gw':0, 'productpage-v1': 1, 'details-v1': 2, 'reviews-v3': 2, 'ratings-v1': 3}
-unique_service = dict()
-unique_service[0] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
-unique_service[1] = ['ingress_gw', 'productpage-v1', 'details-v1', 'reviews-v3', 'ratings-v1']
+## Deployment of each service in each cluster
+unique_service = {0: {'ingress_gw', 'productpage-v1', 'reviews-v3', 'details-v1'}, 1: {'ingress_gw', 'productpage-v1', 'details-v1'}}
+assert len(unique_service) == NUM_CLUSTER
+all_unique_service = set()
+for cid in range(NUM_CLUSTER):
+    all_unique_service = all_unique_service.union(unique_service[cid])
+print(f"{cfg.log_prefix} all_unique_service: {all_unique_service}")
+
+## Different call graph.
+## NOTE: It is decoupled from the deployment of each service in each cluster
+callgraph = dict()
+callgraph["A"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['reviews-v3'], 'reviews-v3':[]}
+callgraph["B"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['details-v1'], 'details-v1':[]}
+for k, v in callgraph.items():
+    print(f"callgraph[{k}]: {v}")
+depth_dict = dict()
+for key in callgraph:
+    depth_dict = opt_func.graph_depth(callgraph[key], depth_dict)
+print("depth_dict: ", depth_dict)
+
+per_svc_max_load = opt_func.calc_max_load_of_each_callgraph(callgraph, MAX_LOAD)
+for k, v in per_svc_max_load.items():
+    print(f"per_svc_max_load[{k}]: {v}")
+
 callsize_dict = dict()
-for parent_svc, children in callgraph.items():
-    for child_svc in children:
-        assert depth_dict[parent_svc] < depth_dict[child_svc]
-        callsize_dict[(parent_svc,child_svc)] = (depth_dict[parent_svc]+1)*10
+for key in callgraph:
+    for parent_svc, children in callgraph[key].items():
+        for child_svc in children:
+            assert depth_dict[parent_svc] > depth_dict[child_svc]
+            callsize_dict[(parent_svc,child_svc)] = (depth_dict[parent_svc]+1)
+for k, v in callsize_dict.items():
+    print(f"callsize_dict[{k}]: {v}")
 
 
 # In[31]:
@@ -71,17 +103,46 @@ for parent_svc, children in callgraph.items():
 
 ''' START of run_optimizer function '''
 # def run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=[100,900], model_parameter=None): ## COMMENT_OUT_FOR_JUPYTER
-compute_arc_var_name = opt_func.create_compute_arc_var_name(unique_service, NUM_CLUSTER)
+compute_arc_var_name = opt_func.create_compute_arc_var_name(unique_service)
 opt_func.check_compute_arc_var_name(compute_arc_var_name)
 opt_func.log_timestamp("defining compute_arc_var_name")
 if cfg.DISPLAY: display(compute_arc_var_name)
+
+
+# In[31]:
     
+
+columns=["svc_name", "src_cid", "dst_cid", "latency_function", "call_size", "observed_y"]
+for key in callgraph:
+    columns.append("max_load_"+key)
+for key in callgraph:
+    columns.append("min_load_"+key)
+for key in callgraph:
+    columns.append("observed_x_"+key)
+for key in callgraph:
+    columns.append("min_compute_time_"+key)
+print("columns: ", columns)
+
+
 compute_df = pd.DataFrame(
-    columns=["svc_name", "src_cid", "dst_cid", "min_compute_time", "min_load", "max_load", "min_egress_cost", "max_egress_cost", "observed_x", "observed_y", "latency_function", "call_size"],
+    columns=columns,
     data={
     },
     index=compute_arc_var_name
 )
+display(compute_df)
+
+
+# In[31]:
+
+
+# compute_df["observed_y"] = 0
+# for key in callgraph:
+#     compute_df["max_load_"+key] = np.nan
+# for key in callgraph:
+#     compute_df["min_load_"+key] = np.nan
+# for key in callgraph:
+#     compute_df["observed_x_"+key] = np.nan
 svc_list = list()
 src_cid_list = list()
 dst_cid_list = list()
@@ -97,27 +158,36 @@ for var_name in compute_arc_var_name:
 compute_df["svc_name"] = svc_list
 compute_df["src_cid"] = src_cid_list
 compute_df["dst_cid"] = dst_cid_list
-compute_df["min_compute_time"] = 0
-# compute_df["max_compute_time"] = math.inf
-compute_df["min_load"] = 0
-compute_df["max_load"] = MAX_LOAD
-compute_df["min_egress_cost"] = 0
-compute_df["max_egress_cost"] = 0
+for index, row in compute_df.iterrows():
+    for key in callgraph:
+        compute_df.at[index, 'max_load_'+key] = per_svc_max_load[row["svc_name"]][key]
+        compute_df.at[index, 'min_load_'+key] = 0
+        compute_df.at[index, "min_compute_time_"+key] = 0
 compute_df["call_size"] = 0
-
+# compute_df["min_egress_cost"] = 0
+# compute_df["max_egress_cost"] = 0
+display(compute_df)
+print(callgraph)
 optimizer_start_time = time.time()
 model = gp.Model('RequestRouting')
 
 # In[35]:
 
-opt_func.gen_fake_data(compute_df)
+display(compute_df)
+
+opt_func.gen_fake_data(compute_df, callgraph)
+
+display(compute_df)
 
 
 # In[38]:
 
 for index, row in compute_df.iterrows():
+    numeric_features = list()
+    for key in callgraph:
+        numeric_features.append("observed_x_"+key)
     feat_transform = make_column_transformer(
-        (StandardScaler(), ["observed_x"]),
+        (StandardScaler(), numeric_features),
         # ("passthrough", ["ld"]),
         verbose_feature_names_out=False,
         remainder='drop'
@@ -127,88 +197,128 @@ for index, row in compute_df.iterrows():
     elif cfg.REGRESSOR_DEGREE > 1:
         poly = PolynomialFeatures(degree=cfg.REGRESSOR_DEGREE, include_bias=True)
         reg = make_pipeline(feat_transform, poly, LinearRegression())
+    data = dict()
+    for key in callgraph:
+        data["observed_x_"+key] = row["observed_x_"+key]
+    data["observed_y"] = row["observed_y"]
+    # print(row["observed_x_A"])
+    # print(row["observed_x_B"])
+    # print(row["observed_y"])
     temp_df = pd.DataFrame(
-        data={
-            "observed_x": row["observed_x"],
-            "observed_y": row["observed_y"],
-        }
+        data=data,
     )
-    X = temp_df[["observed_x"]]
-    y = row["observed_y"]
-    X_train, X_test, y_train, y_test = train_test_split(X, y,train_size=0.9, random_state=1)
+    X_ = temp_df[["observed_x_A", "observed_x_B"]]
+    # print(X_)
+    y_ = row["observed_y"]
+    X_train, X_test, y_train, y_test = train_test_split(X_, y_, train_size=0.9, random_state=1)
+    # print("X_traint: ", X_train)
     reg.fit(X_train, y_train)
     if row["svc_name"] != tst.FRONTEND_svc:
         if cfg.REGRESSOR_DEGREE == 1:
-            if reg["linearregression"].coef_ < 0:
-                new_c = np.array([0.])
-                reg["linearregression"].coef_ = new_c
-                app.logger.info(f'{cfg.log_prefix} Service {row["svc_name"]}, changed slope {c_} --> {new_c}, intercept: {in_}')
-                assert False
+            # print("reg.coef_: ", reg["linearregression"].coef_)
+            # print("type(reg.coef_): ", type(reg["linearregression"].coef_))
+            for i in range(len(reg["linearregression"].coef_)):
+                if reg["linearregression"].coef_[i] < 0:
+                    new_c = np.array([0.])
+                    reg["linearregression"].coef_[i] = new_c
+                    app.logger.info(f'{cfg.log_prefix} Service {row["svc_name"]}, changed slope {reg["linearregression"].coef_[i]} --> {new_c}, intercept: {in_}')
+                    assert False
         if cfg.REGRESSOR_DEGREE == 2:
             # print("c_[2]: ", c_[2])
-            if reg["linearregression"].coef_[1] < 0:
-                new_c = np.array([0., 0.])
-                reg["linearregression"].coef_ = new_c
-                app.logger.info(f'{cfg.log_prefix} Service {row["svc_name"]}, changed slope {c_} --> {new_c}, intercept: {in_}')
-                assert False
+            for i in range(len(reg["linearregression"].coef_)):
+                if reg["linearregression"].coef_[i][1] < 0:
+                    new_c = np.array([0., 0.])
+                    reg["linearregression"].coef_[i] = new_c
+                    app.logger.info(f'{cfg.log_prefix} Service {row["svc_name"]}, changed slope {reg["linearregression"].coef_[i]} --> {new_c}, intercept: {in_}')
+                    assert False
     c_ = reg["linearregression"].coef_
     in_ = reg["linearregression"].intercept_
     y_pred = reg.predict(X_test)
     r2 =  np.round(r2_score(y_test, y_pred),2)
-    print(f'{cfg.log_prefix} {row["svc_name"]}, slope: {c_}, intercept: {in_}')
+    print(f'{row["svc_name"]}, slope: {c_}, intercept: {in_}')
     compute_df.at[index, 'latency_function'] = reg
     
-display(compute_df)
 
+# In[38]:
+
+display(compute_df)
 
 # In[38]:
 
 # if PLOT:
-opt_func.plot_latency_function(compute_df, NUM_CLUSTER)
+opt_func.plot_latency_function_2d(compute_df)
 opt_func.log_timestamp("train regression model")
 
 # In[42]:
-
-compute_time = gppd.add_vars(model, compute_df, name="compute_time", lb="min_compute_time")
-compute_load = gppd.add_vars(model, compute_df, name="load_for_compute_edge", lb="min_load", ub="max_load")
+compute_time = dict()
+for key in callgraph:
+    compute_time[key] = gppd.add_vars(model, compute_df, name="compute_time_"+key, lb="min_compute_time_"+key)
+compute_load = dict()
+for key in callgraph:
+    compute_load[key] = gppd.add_vars(model, compute_df, name="load_for_compute_edge_"+key, lb="min_load_"+key, ub="max_load_"+key)
 model.update()
-print("compute_time")
-print(compute_time)
-print("compute_load")
-print(compute_load)
-
+    
 
 # In[44]:
 
 m_feats = dict()
 for index, row in compute_df.iterrows():
-    # print("index: ", index)
-    m_feats[index] = pd.DataFrame(
-        data={
-            "observed_x": compute_load[index],
-        },
-        index=[index]
-    )
-    pred_constr = add_predictor_constr(model, row["latency_function"], m_feats[index], compute_time[index])
-    print(index, row["latency_function"])
-
+    for key in callgraph:
+        data = dict()
+        for key in callgraph:
+            data["observed_x_"+key] = compute_load[key][index]
+        if key not in m_feats:
+            m_feats[key] = dict()
+        m_feats[key][index] = pd.DataFrame(
+            data=data,
+            index=[index]
+        )
+        display(m_feats[key][index])
+        print(compute_time[key][index])
+        pred_constr = add_predictor_constr(model, row["latency_function"], m_feats[key][index], compute_time[key][index])
+        print(index, row["latency_function"])
 model.update()
+
 
 # In[44]:
 
+
 ## Define names of the variables for network arc in gurobi
-network_arc_var_name = opt_func.create_network_arc_var_name(unique_service, NUM_CLUSTER, callgraph)
+network_arc_var_name = opt_func.create_network_arc_var_name(unique_service, callgraph)
+for var in network_arc_var_name:
+    print(var)
 opt_func.check_network_arc_var_name(network_arc_var_name)
+# opt_func.plot_full_arc(compute_arc_var_name, network_arc_var_name, callgraph)
+for key in callgraph:
+    opt_func.plot_arc_var_for_callgraph(network_arc_var_name, unique_service, callgraph, key)
+    break
 
 
 # In[36]:
-    
+
+
+columns=["src_svc", "src_cid", "dst_svc", "dst_cid", "min_network_time", "max_network_time"]
+for key in callgraph:
+    columns.append("max_load_"+key)
+for key in callgraph:
+    columns.append("min_load_"+key)
+for key in callgraph:
+     columns.append("min_egress_cost_"+key)
+for key in callgraph:
+     columns.append("max_egress_cost_"+key)
 network_df = pd.DataFrame(
-    columns=["src_svc", "src_cid", "dst_svc", "dst_cid", "min_network_time", "max_network_time", "min_load", "max_load", "min_egress_cost", "max_egress_cost"],
+    columns=columns,
     data={
     },
     index=network_arc_var_name
 )
+
+display(network_df)
+
+
+# In[36]:
+
+
 src_svc_list = list()
 dst_svc_list = list()
 src_cid_list = list()
@@ -219,21 +329,25 @@ min_egress_cost_list = list()
 max_egress_cost_list = list()
 call_size_list = list()
 for var_name in network_arc_var_name:
-    print(var_name)
+    # print(var_name)
     if type(var_name) == tuple:
         src_svc = var_name[0].split(cfg.DELIMITER)[0]
         dst_svc = var_name[1].split(cfg.DELIMITER)[0]
     else:
+        print("var_name MUST be tuple datatype")
+        assert False
         src_svc = var_name.split(",")[0].split(cfg.DELIMITER)[0]
         dst_svc = var_name.split(",")[1].split(cfg.DELIMITER)[0]
-    src_svc_list.append(src_svc)
-    dst_svc_list.append(dst_svc)
     if type(var_name) == tuple:
         src_cid = int(var_name[0].split(cfg.DELIMITER)[1])
         dst_cid = int(var_name[1].split(cfg.DELIMITER)[1])
     else:
+        print("var_name MUST be tuple datatype")
+        assert False
         src_cid = int(var_name.split(",")[0].split(cfg.DELIMITER)[1])
         dst_cid = int(var_name.split(",")[1].split(cfg.DELIMITER)[1])
+    src_svc_list.append(src_svc)
+    dst_svc_list.append(dst_svc)
     src_cid_list.append(src_cid)
     dst_cid_list.append(dst_cid)
     n_time = opt_func.get_network_time(src_cid, dst_cid)
@@ -249,40 +363,68 @@ network_df["src_cid"] = src_cid_list
 network_df["dst_cid"] = dst_cid_list
 network_df["min_network_time"] = min_network_time_list
 network_df["max_network_time"] = max_network_time_list
-network_df["min_load"] = 0
-network_df["max_load"] = MAX_LOAD
-network_df["min_egress_cost"] = min_egress_cost_list
-network_df["max_egress_cost"] = max_egress_cost_list
+for index, row in network_df.iterrows():
+    for key in callgraph:
+        # if this network arc is in the callgraph
+        if row["src_svc"] in callgraph[key] and row["dst_svc"] in callgraph[key][row["src_svc"]]:
+            network_df.at[index, 'max_load_'+key] = MAX_LOAD[key]
+        else:
+            if row["src_svc"] == opt_func.source_node_name:
+                network_df.at[index, 'max_load_'+key] = MAX_LOAD[key]
+            else:
+                network_df.at[index, 'max_load_'+key] = 0
+        network_df.at[index, 'min_load_'+key] = 0
+for key in callgraph:
+    network_df["min_egress_cost_"+key] = min_egress_cost_list
+    network_df["max_egress_cost_"+key] = max_egress_cost_list
+
+
+# In[44]:
+
+
 
 display(network_df)
 
 
+
 # In[44]:
 
-network_latency = gppd.add_vars(model, network_df, name="network_latency", lb="min_network_time", ub="max_network_time")
-network_load = gppd.add_vars(model, network_df, name="load_for_network_edge", lb="min_load", ub="max_load")
-network_egress_cost = gppd.add_vars(model, network_df, name="network_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
-compute_egress_cost = gppd.add_vars(model, compute_df, name="compute_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
+network_latency = dict()
+for key in callgraph:
+    network_latency[key] = gppd.add_vars(model, network_df, name="network_latency", lb="min_network_time", ub="max_network_time")
+network_load = dict()
+for key in callgraph:
+    network_load[key] = gppd.add_vars(model, network_df, name="load_for_network_edge_"+key, lb="min_load_"+key, ub="max_load_"+key)
+
+network_egress_cost = dict()
+for key in callgraph:
+    network_egress_cost[key] = gppd.add_vars(model, network_df, name="network_egress_cost", lb="min_egress_cost_"+key, ub="max_egress_cost_"+key)
+    
 model.update()
 
-# egress cost sum
-compute_egress_cost_sum = sum(compute_egress_cost.multiply(compute_load))
-network_egress_cost_sum = sum(network_egress_cost.multiply(network_load))
-print("network_egress_cost_sum")
-print(network_egress_cost_sum)
-print("compute_egress_cost_sum")
-print(compute_egress_cost_sum)
+network_egress_cost_sum = 0
+for key in callgraph:
+    network_egress_cost_sum += sum(network_egress_cost[key].multiply(network_load[key]))
+
+# compute_egress_cost = dict()
+# compute_egress_cost = gppd.add_vars(model, compute_df, name="compute_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
+# compute_egress_cost_sum = sum(compute_egress_cost.multiply(compute_load))
+# print("compute_egress_cost_sum")
+# print(compute_egress_cost_sum)
 model.update()
     
 
 # In[44]:
     
-total_egress_sum = network_egress_cost_sum + compute_egress_cost_sum
+# total_egress_sum = network_egress_cost_sum + compute_egress_cost_sum
+total_egress_sum = network_egress_cost_sum
 
-network_latency_sum = sum(network_latency.multiply(network_load))
-compute_latency_sum = sum(compute_time.multiply(compute_load))
+network_latency_sum = 0
+compute_latency_sum = 0
+for key in callgraph:
+    network_latency_sum += sum(network_latency[key].multiply(network_load[key]))
+    compute_latency_sum += sum(compute_time[key].multiply(compute_load[key]))
 total_latency_sum = network_latency_sum + compute_latency_sum
-
 
 print('total_egress_sum')
 print(f'{total_egress_sum}\n')
@@ -319,43 +461,66 @@ else:
 model.update()
 app.logger.info(f"{cfg.log_prefix} model objective: {model.getObjective()}")
 
-# arcs is the keys
-# aggregated_load is dictionary
-# aggregated_load = dict()
-# concat_compute_load = pd.Series()
-# for elem in compute_arc_var_name:
-#     concat_compute_load = pd.concat([concat_compute_load, compute_load[elem]], axis=0)
-# arcs, aggregated_load = gp.multidict(pd.concat([network_load, concat_compute_load], axis=0).to_dict())
-print(help(gp.multidict))
-print(type(network_load))
-print(type(compute_load))
-arcs, aggregated_load = gp.multidict(pd.concat([network_load, compute_load], axis=0).to_dict())
-print("arcs")
-print(f'{arcs}\n')
+
+# In[44]:
+
+
+# print(help(gp.multidict))
+# print(type(network_load))
+# print(type(compute_load))
+
+# arggreagated_load: dictionary
+# arc: keys
+
+temp = dict()
+for key in callgraph:
+    temp[key] = pd.concat([network_load[key], compute_load[key]], axis=0)
+# concat_df = pd.concat(temp, axis=0)
+# print("type(concat_df): ", type(concat_df))
+# print("concat_df.to_dict()")
+# concat_dict = concat_df.to_dict()
+# for k, v in concat_dict.items():
+    # print(f"key: {k}\nvalue: {v}")
+# print()
+arcs = dict()
+aggregated_load = dict()
+for key in callgraph:
+    arcs[key], aggregated_load[key] = gp.multidict(temp[key].to_dict())
+# print("arcs")
+# print(f'{arcs}\n')
+# print("aggregated_load")
+# print(f'{aggregated_load}\n')
 print("aggregated_load")
-print(f'{aggregated_load}\n')
+# print(type(aggregated_load))
+for key in callgraph:
+    for k, v in aggregated_load[key].items():
+        print(f"key: {k}\nvalue: {v}")
+        print()
+    
 opt_func.log_timestamp("gurobi add_vars and set objective")
 
 
 # In[45]:
 
-print(type(aggregated_load))
-for k, v in aggregated_load.items():
-    print(f"key: {k}, value: {v}")
     
-## Constraint 1: source
+## Constraint 1: SOURCE
 source = dict()
-source[opt_func.source_node_fullname] = MAX_LOAD
-src_keys = source.keys()
-# source(src_*_*) to *
-src_flow = model.addConstrs((gp.quicksum(aggregated_load.select(src, '*')) == source[src] for src in src_keys), name="source")
-# SOURCE to frontend services
-for cid in range(NUM_CLUSTER):
-    start_node = f'{cfg.ENTRANCE}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
-    per_cluster_load_in = model.addConstr((gp.quicksum(aggregated_load.select('*', start_node)) == NUM_REQUESTS[cid]), name="cluster_"+str(cid)+"_load_in")
-    print("start_node: ", start_node)
-    print(aggregated_load.select('*', start_node))
-    print(NUM_REQUESTS[cid])
+for key in callgraph:
+    source[key] = dict()
+    source[key][opt_func.source_node_fullname] = MAX_LOAD[key]
+for key in callgraph:
+    src_keys = source[key].keys()
+    src_flow = model.addConstrs((gp.quicksum(aggregated_load[key].select(src, '*')) == source[key][src] for src in src_keys), name="source_"+key)
+    for cid in unique_service:
+        for svc in unique_service[cid]:
+            if opt_func.is_ingress_gw(svc, callgraph):
+                ingress_gw_start_node = f'{svc}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
+                per_cluster_load_in = model.addConstr((gp.quicksum(aggregated_load[key].select('*', ingress_gw_start_node)) == NUM_REQUESTS[cid][key]), name="cluster_"+str(cid)+"_load_in-"+key)
+                print(aggregated_load[key].select('*', ingress_gw_start_node))
+                print("==")
+                print(NUM_REQUESTS[cid][key])
+                print("-"*80)
+
 model.update()
 
 
@@ -382,14 +547,22 @@ model.update()
 
 ## Constraint 3: flow conservation
 # Start node in-out flow conservation
-for cid in range(NUM_CLUSTER):
-    for svc_name in unique_service[cid]:
-        start_node = svc_name + cfg.DELIMITER + str(cid) + cfg.DELIMITER + "start"
-        node_flow = model.addConstr((gp.quicksum(aggregated_load.select('*', start_node)) == gp.quicksum(aggregated_load.select(start_node, '*'))), name="flow_conservation["+start_node+"]-start_node")
-        print(aggregated_load.select('*', start_node))
-        print("==")
-        print(aggregated_load.select(start_node, '*'))
-        print("-"*50)
+for key in callgraph:
+    for svc in callgraph[key]:
+        for cid in unique_service:
+            if svc in unique_service[cid]:
+                start_node = svc + cfg.DELIMITER + str(cid) + cfg.DELIMITER + "start"
+                node_flow = model.addConstr((gp.quicksum(aggregated_load[key].select('*', start_node)) == gp.quicksum(aggregated_load[key].select(start_node, '*'))), name="flow_conservation-start_node-"+key)
+                
+                print(aggregated_load[key].select('*', start_node))
+                print("==")
+                print(aggregated_load[key].select(start_node, '*'))
+                print("-"*50)
+        
+        
+# In[47]:
+
+
 # End node in-out flow conservation
 # case 1 (leaf node to destination): incoming num requests == outgoing num request for all nodes
 # for parent_svc, children in callgraph.items():
@@ -404,25 +577,31 @@ for cid in range(NUM_CLUSTER):
 #             print("-"*50)
 #             print("*"*50)
 
-# case 2 (non-leaf node AND end node): <incoming to end node == outgoing>
-for parent_svc, children in callgraph.items():
-    if len(children) > 0: # non-leaf services:
-        for parent_cid in range(NUM_CLUSTER):
-            end_node = parent_svc + cfg.DELIMITER + str(parent_cid) + cfg.DELIMITER + "end"
-            for child_svc in children:
-                out_sum = 0
-                child_list = list()
-                for child_cid in range(NUM_CLUSTER):
-                    child_start_node = child_svc +cfg.DELIMITER + str(child_cid) + cfg.DELIMITER+"start"
-                    child_list.append(child_start_node)
-                    out_sum += aggregated_load.sum(end_node, child_start_node)
-                node_flow = model.addConstr((gp.quicksum(aggregated_load.select('*', end_node)) == out_sum), name="flow_conservation["+end_node+"]-nonleaf_endnode")
-                print(aggregated_load.select('*', end_node))
-                print('==')
-                print(out_sum)
-                print("-"*50)
-                app.logger.debug(f"{cfg.log_prefix} nonleaf end_node flow conservation")
-                app.logger.debug(f"{cfg.log_prefix} {end_node}, {child_list}")
+# In[47]:
+
+
+# case 2 
+# For non-leaf node and end node, incoming to end node == sum of outgoing
+for key in callgraph:
+    for parent_svc, children in callgraph[key].items():
+        if len(children) > 0: # non-leaf services:
+            for parent_cid in unique_service:
+                if parent_svc in unique_service[parent_cid]:
+                    end_node = opt_func.end_node_name(parent_svc, parent_cid)
+                    for child_svc in children:
+                        outgoing_sum = 0
+                        child_list = list()
+                        for child_cid in unique_service:
+                            if child_svc in unique_service[child_cid]:
+                                child_start_node = opt_func.start_node_name(child_svc, child_cid)
+                                child_list.append(child_start_node)
+                                outgoing_sum += aggregated_load[key].sum(end_node, child_start_node)
+                        node_flow = model.addConstr((gp.quicksum(aggregated_load[key].select('*', end_node)) == outgoing_sum), name="flow_conservation-nonleaf_endnode-"+key)
+                        
+                        print(aggregated_load[key].select('*', end_node))
+                        print('==')
+                        print(outgoing_sum)
+                        print("-"*80)
 model.update()
 
 
@@ -431,18 +610,24 @@ model.update()
 
 ## Constraint 4: Tree topology
 service_to_cid = dict()
-for cid in range(NUM_CLUSTER):
+for cid in unique_service:
     for svc_name in unique_service[cid]:
         if svc_name not in service_to_cid:
             service_to_cid[svc_name] = list()
         service_to_cid[svc_name].append(cid)
-for svc_name in service_to_cid:
-    if svc_name != cfg.ENTRANCE:
-        incoming_sum = 0
-        for cid in service_to_cid[svc_name]:
-            node_name = svc_name +cfg.DELIMITER + str(cid) + cfg.DELIMITER+"start"
-            incoming_sum += aggregated_load.sum('*', node_name)
-        node_flow = model.addConstr(incoming_sum == MAX_LOAD, name="tree_topo_conservation")
+        
+for key in callgraph:
+    for svc_name in service_to_cid:
+        if svc_name != cfg.ENTRANCE and svc_name in callgraph[key]:
+            incoming_sum = 0
+            for cid in service_to_cid[svc_name]:
+                start_node = opt_func.start_node_name(svc_name, cid)
+                incoming_sum += aggregated_load[key].sum('*', start_node)
+            node_flow = model.addConstr(incoming_sum == MAX_LOAD[key], name="tree_topo_conservation_"+key)
+            print(incoming_sum)
+            print('==')
+            print(MAX_LOAD[key])
+            print("-"*50)
 model.update()
 
 
@@ -460,11 +645,11 @@ model.update()
 # throughput = model.addConstrs((gp.quicksum(aggregated_load.select('*', n_)) <= max_tput[n_] for n_ in max_tput_key), name="service_capacity")
 # constraint_setup_end_time = time.time()
 
-opt_func.log_timestamp("gurobi add constraints and model update")
 
 
 # In[51]:
 
+opt_func.log_timestamp("gurobi add constraints and model update")
 
 ## Defining objective function
 model.setParam('NonConvex', 2)
@@ -546,20 +731,28 @@ else:
     app.logger.error(f"{cfg.log_prefix} ** Optimization runtime: {optimizer_runtime} ms")
     app.logger.error(f"{cfg.log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
     app.logger.error(f"{cfg.log_prefix} ** model.objVal: {model.objVal}")
-    app.logger.error(f"{cfg.log_prefix} ** model.objVal / total num requests: {model.objVal/MAX_LOAD}")
-    request_flow = pd.DataFrame(columns=["From", "To", "Flow"])
-    for arc in arcs:
-        if aggregated_load[arc].x > 1e-6:
-            temp = pd.DataFrame({"From": [arc[0]], "To": [arc[1]], "Flow": [aggregated_load[arc].x]})
-            request_flow = pd.concat([request_flow, temp], ignore_index=True)
+    # app.logger.error(f"{cfg.log_prefix} ** model.objVal / total num requests: {model.objVal/MAX_LOAD}")
+    request_flow = dict()
+    for key in callgraph:
+        request_flow[key] = pd.DataFrame(columns=["Callgraph", "From", "To", "Flow"])
+    for key in callgraph:
+        for arc in arcs[key]:
+            if aggregated_load[key][arc].x > 1e-6:
+                temp = pd.DataFrame({"Callgraph":key, "From": [arc[0]], "To": [arc[1]], "Flow": [aggregated_load[key][arc].x]})
+                request_flow[key] = pd.concat([request_flow[key], temp], ignore_index=True)
     if cfg.DISPLAY:
-        display(request_flow)
-    percentage_df = opt_func.translate_to_percentage(request_flow)
-    if cfg.DISPLAY:
-        display(percentage_df)
-    if percentage_df.empty == False:
-        percentage_df.to_csv(cfg.OUTPUT_DIR+"/routing.csv")
-        opt_func.plot_request_flow(percentage_df)
+        for key in callgraph:
+            display(request_flow[key])
+    percentage_df = dict()
+    for key in callgraph:
+        percentage_df[key] = opt_func.translate_to_percentage(request_flow[key])
+    for key in callgraph:
+        print(f"percentage_df[{key}]")
+        display(percentage_df[key])
+        if percentage_df[key].empty == False:
+            percentage_df[key].to_csv(f'{cfg.OUTPUT_DIR}/routing-{key}.csv')
+            opt_func.plot_request_flow(percentage_df, key, unique_service, callgraph, network_arc_var_name)
+            # opt_func.plot_request_flow(percentage_df[key])
     # opt_func.prettyprint_timestamp()
     # return percentage_df, "OPTIMIZER, MODEL SOLVED"
 ''' END of run_optimizer function'''
