@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  annotations:
+    deployment.kubernetes.io/desired-replicas: "2"
+    deployment.kubernetes.io/max-replicas: "3"
+    deployment.kubernetes.io/revision: "11"
+  creationTimestamp: "2023-11-28T07:08:52Z"
+  generation: 4
+  labels:
+    app: productpage
+    pod-template-hash: 5475896c85
+    version: v1
+  name: productpage-v1-5475896c85
+  namespace: default
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Deployment
+    name: productpage-v1
+    uid: c18c93bd-42ac-4820-8519-2f73bd1b84f5
+  resourceVersion: "1937906"
+  uid: f0ace9e2-1c30-47bb-8887-37821e331ff4
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: productpage
+      pod-template-hash: 5475896c85
+      version: v1
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2023-11-17T20:34:40Z"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9080"
+        prometheus.io/scrape: "true"
+      creationTimestamp: null
+      labels:
+        app: productpage
+        pod-template-hash: 5475896c85
+        version: v1
+    spec:
+      containers:
+      - image: docker.io/istio/examples-bookinfo-productpage-v1:1.18.0
+        imagePullPolicy: IfNotPresent
+        name: productpage
+        ports:
+        - containerPort: 9080
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: bookinfo-productpage
+      serviceAccountName: bookinfo-productpage
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: productpage
+        maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+      volumes:
+      - emptyDir: {}
+        name: tmp
+status:
+  observedGeneration: 4
+  replicas: 0

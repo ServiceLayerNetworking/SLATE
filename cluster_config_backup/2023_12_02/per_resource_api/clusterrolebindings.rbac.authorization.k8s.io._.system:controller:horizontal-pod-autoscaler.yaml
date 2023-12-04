@@ -1,0 +1,19 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+  creationTimestamp: "2023-11-16T20:16:07Z"
+  labels:
+    kubernetes.io/bootstrapping: rbac-defaults
+  name: system:controller:horizontal-pod-autoscaler
+  resourceVersion: "161"
+  uid: 70d2d651-94bf-4c09-a875-0bd19674cf5c
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:controller:horizontal-pod-autoscaler
+subjects:
+- kind: ServiceAccount
+  name: horizontal-pod-autoscaler
+  namespace: kube-system

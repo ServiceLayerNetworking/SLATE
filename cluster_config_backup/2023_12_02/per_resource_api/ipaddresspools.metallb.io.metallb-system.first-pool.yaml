@@ -1,0 +1,17 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"metallb.io/v1beta1","kind":"IPAddressPool","metadata":{"annotations":{},"name":"first-pool","namespace":"metallb-system"},"spec":{"addresses":["192.168.1.245-192.168.1.250"]}}
+  creationTimestamp: "2023-11-17T20:43:52Z"
+  generation: 1
+  name: first-pool
+  namespace: metallb-system
+  resourceVersion: "171154"
+  uid: 31a2af81-7878-4978-8b3e-85dfb0ff6def
+spec:
+  addresses:
+  - 192.168.1.245-192.168.1.250
+  autoAssign: true
+  avoidBuggyIPs: false

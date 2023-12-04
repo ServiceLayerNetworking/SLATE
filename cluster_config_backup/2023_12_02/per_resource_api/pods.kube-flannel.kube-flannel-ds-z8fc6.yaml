@@ -1,0 +1,258 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: "2023-11-26T05:35:03Z"
+  generateName: kube-flannel-ds-
+  labels:
+    app: flannel
+    controller-revision-hash: 6fbbc5c975
+    pod-template-generation: "1"
+    tier: node
+  name: kube-flannel-ds-z8fc6
+  namespace: kube-flannel
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: DaemonSet
+    name: kube-flannel-ds
+    uid: e8d16249-4ce1-44ba-af74-e2ce4c8e6716
+  resourceVersion: "1570316"
+  uid: 7c62b2ce-74f5-4423-b47d-ac3d730cf89f
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchFields:
+          - key: metadata.name
+            operator: In
+            values:
+            - node4.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+  containers:
+  - args:
+    - --ip-masq
+    - --kube-subnet-mgr
+    command:
+    - /opt/bin/flanneld
+    env:
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: metadata.name
+    - name: POD_NAMESPACE
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: metadata.namespace
+    - name: EVENT_QUEUE_DEPTH
+      value: "5000"
+    image: docker.io/flannel/flannel:v0.22.3
+    imagePullPolicy: IfNotPresent
+    name: kube-flannel
+    resources:
+      requests:
+        cpu: 100m
+        memory: 50Mi
+    securityContext:
+      capabilities:
+        add:
+        - NET_ADMIN
+        - NET_RAW
+      privileged: false
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /run/flannel
+      name: run
+    - mountPath: /etc/kube-flannel/
+      name: flannel-cfg
+    - mountPath: /run/xtables.lock
+      name: xtables-lock
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-d7qxb
+      readOnly: true
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: true
+  hostNetwork: true
+  initContainers:
+  - args:
+    - -f
+    - /flannel
+    - /opt/cni/bin/flannel
+    command:
+    - cp
+    image: docker.io/flannel/flannel-cni-plugin:v1.2.0
+    imagePullPolicy: IfNotPresent
+    name: install-cni-plugin
+    resources: {}
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /opt/cni/bin
+      name: cni-plugin
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-d7qxb
+      readOnly: true
+  - args:
+    - -f
+    - /etc/kube-flannel/cni-conf.json
+    - /etc/cni/net.d/10-flannel.conflist
+    command:
+    - cp
+    image: docker.io/flannel/flannel:v0.22.3
+    imagePullPolicy: IfNotPresent
+    name: install-cni
+    resources: {}
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /etc/cni/net.d
+      name: cni
+    - mountPath: /etc/kube-flannel/
+      name: flannel-cfg
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-d7qxb
+      readOnly: true
+  nodeName: node4.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+  preemptionPolicy: PreemptLowerPriority
+  priority: 2000001000
+  priorityClassName: system-node-critical
+  restartPolicy: Always
+  schedulerName: default-scheduler
+  securityContext: {}
+  serviceAccount: flannel
+  serviceAccountName: flannel
+  terminationGracePeriodSeconds: 30
+  tolerations:
+  - effect: NoSchedule
+    operator: Exists
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/disk-pressure
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/memory-pressure
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/pid-pressure
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/unschedulable
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/network-unavailable
+    operator: Exists
+  volumes:
+  - hostPath:
+      path: /run/flannel
+      type: ""
+    name: run
+  - hostPath:
+      path: /opt/cni/bin
+      type: ""
+    name: cni-plugin
+  - hostPath:
+      path: /etc/cni/net.d
+      type: ""
+    name: cni
+  - configMap:
+      defaultMode: 420
+      name: kube-flannel-cfg
+    name: flannel-cfg
+  - hostPath:
+      path: /run/xtables.lock
+      type: FileOrCreate
+    name: xtables-lock
+  - name: kube-api-access-d7qxb
+    projected:
+      defaultMode: 420
+      sources:
+      - serviceAccountToken:
+          expirationSeconds: 3607
+          path: token
+      - configMap:
+          items:
+          - key: ca.crt
+            path: ca.crt
+          name: kube-root-ca.crt
+      - downwardAPI:
+          items:
+          - fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+            path: namespace
+status:
+  conditions:
+  - lastProbeTime: null
+    lastTransitionTime: "2023-11-26T05:35:28Z"
+    status: "True"
+    type: Initialized
+  - lastProbeTime: null
+    lastTransitionTime: "2023-11-26T05:35:29Z"
+    status: "True"
+    type: Ready
+  - lastProbeTime: null
+    lastTransitionTime: "2023-11-26T05:35:29Z"
+    status: "True"
+    type: ContainersReady
+  - lastProbeTime: null
+    lastTransitionTime: "2023-11-26T05:35:03Z"
+    status: "True"
+    type: PodScheduled
+  containerStatuses:
+  - containerID: containerd://272d492a265d95f14268cb2bfc17735d058ef80dd5ed51c0ca277818bc01cf06
+    image: docker.io/flannel/flannel:v0.22.3
+    imageID: docker.io/flannel/flannel@sha256:34585231b69718efc4f926ebca734659f01221554f37a925d9a1190bb16e5b91
+    lastState: {}
+    name: kube-flannel
+    ready: true
+    restartCount: 0
+    started: true
+    state:
+      running:
+        startedAt: "2023-11-26T05:35:28Z"
+  hostIP: 130.127.133.123
+  initContainerStatuses:
+  - containerID: containerd://a2bd0836bfe0f342fa70f4d73f254b18b5daad603ffeadb922b905779f78ac55
+    image: docker.io/flannel/flannel-cni-plugin:v1.2.0
+    imageID: docker.io/flannel/flannel-cni-plugin@sha256:ca6779c6ad63b77af8a00151cefc08578241197b9a6fe144b0e55484bc52b852
+    lastState: {}
+    name: install-cni-plugin
+    ready: true
+    restartCount: 0
+    started: false
+    state:
+      terminated:
+        containerID: containerd://a2bd0836bfe0f342fa70f4d73f254b18b5daad603ffeadb922b905779f78ac55
+        exitCode: 0
+        finishedAt: "2023-11-26T05:35:18Z"
+        reason: Completed
+        startedAt: "2023-11-26T05:35:18Z"
+  - containerID: containerd://845eb14482a7ab7b0fb77e69dab8fddee9b0e4236a48d2ed32611a2a56d500db
+    image: docker.io/flannel/flannel:v0.22.3
+    imageID: docker.io/flannel/flannel@sha256:34585231b69718efc4f926ebca734659f01221554f37a925d9a1190bb16e5b91
+    lastState: {}
+    name: install-cni
+    ready: true
+    restartCount: 0
+    started: false
+    state:
+      terminated:
+        containerID: containerd://845eb14482a7ab7b0fb77e69dab8fddee9b0e4236a48d2ed32611a2a56d500db
+        exitCode: 0
+        finishedAt: "2023-11-26T05:35:26Z"
+        reason: Completed
+        startedAt: "2023-11-26T05:35:26Z"
+  phase: Running
+  podIP: 130.127.133.123
+  podIPs:
+  - ip: 130.127.133.123
+  qosClass: Burstable
+  startTime: "2023-11-26T05:35:06Z"

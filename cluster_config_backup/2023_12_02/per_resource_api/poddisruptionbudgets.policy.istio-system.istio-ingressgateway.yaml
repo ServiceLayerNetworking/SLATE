@@ -1,0 +1,38 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  creationTimestamp: "2023-11-16T23:17:54Z"
+  generation: 1
+  labels:
+    app: istio-ingressgateway
+    install.operator.istio.io/owning-resource: installed-state
+    install.operator.istio.io/owning-resource-namespace: istio-system
+    istio: ingressgateway
+    istio.io/rev: default
+    operator.istio.io/component: IngressGateways
+    operator.istio.io/managed: Reconcile
+    operator.istio.io/version: 1.20.0
+    release: istio
+  name: istio-ingressgateway
+  namespace: istio-system
+  resourceVersion: "2566742"
+  uid: 5ab91e8e-8c18-49dd-a8b2-34781371cc20
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: istio-ingressgateway
+      istio: ingressgateway
+status:
+  conditions:
+  - lastTransitionTime: "2023-12-01T20:55:00Z"
+    message: ""
+    observedGeneration: 1
+    reason: SufficientPods
+    status: "True"
+    type: DisruptionAllowed
+  currentHealthy: 2
+  desiredHealthy: 1
+  disruptionsAllowed: 1
+  expectedPods: 3
+  observedGeneration: 1

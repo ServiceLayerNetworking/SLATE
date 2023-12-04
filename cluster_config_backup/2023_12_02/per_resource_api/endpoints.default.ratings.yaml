@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Endpoints
+metadata:
+  creationTimestamp: "2023-11-16T21:02:34Z"
+  labels:
+    app: ratings
+    service: ratings
+  name: ratings
+  namespace: default
+  resourceVersion: "2566151"
+  uid: 40e760a0-800a-4941-b72c-dae0a1739841
+subsets:
+- addresses:
+  - ip: 10.244.1.133
+    nodeName: node1.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+    targetRef:
+      kind: Pod
+      name: ratings-v1-6776df769d-gj8s7
+      namespace: default
+      uid: bae8b1c7-fdd1-484c-b6c7-f0996eb01f67
+  - ip: 10.244.2.54
+    nodeName: node4.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+    targetRef:
+      kind: Pod
+      name: ratings-v1-6776df769d-42hdw
+      namespace: default
+      uid: 8944fedc-01bd-4e95-82a2-8460d5380e3f
+  ports:
+  - name: http
+    port: 9080
+    protocol: TCP

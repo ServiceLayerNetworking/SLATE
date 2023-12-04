@@ -1,0 +1,17 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"rbac.authorization.k8s.io/v1","kind":"ClusterRole","metadata":{"annotations":{},"name":"slate-global-controller-cr"},"rules":[{"apiGroups":[""],"resources":["*"],"verbs":["*"]}]}
+  creationTimestamp: "2023-11-17T05:32:10Z"
+  name: slate-global-controller-cr
+  resourceVersion: "61091"
+  uid: f635d075-c0d7-42ab-a08e-8c56e496e23c
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - '*'
+  verbs:
+  - '*'

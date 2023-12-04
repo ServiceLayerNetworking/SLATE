@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  annotations:
+    deployment.kubernetes.io/desired-replicas: "2"
+    deployment.kubernetes.io/max-replicas: "3"
+    deployment.kubernetes.io/revision: "15"
+  creationTimestamp: "2023-12-01T20:48:52Z"
+  generation: 4
+  labels:
+    app: productpage
+    pod-template-hash: 67b6cbf988
+    version: v1
+  name: productpage-v1-67b6cbf988
+  namespace: default
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Deployment
+    name: productpage-v1
+    uid: c18c93bd-42ac-4820-8519-2f73bd1b84f5
+  resourceVersion: "2566131"
+  uid: cc6ad139-8398-4b6f-8927-53b263401307
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: productpage
+      pod-template-hash: 67b6cbf988
+      version: v1
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2023-12-01T14:48:52-06:00"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9080"
+        prometheus.io/scrape: "true"
+      creationTimestamp: null
+      labels:
+        app: productpage
+        pod-template-hash: 67b6cbf988
+        version: v1
+    spec:
+      containers:
+      - image: docker.io/istio/examples-bookinfo-productpage-v1:1.18.0
+        imagePullPolicy: IfNotPresent
+        name: productpage
+        ports:
+        - containerPort: 9080
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: bookinfo-productpage
+      serviceAccountName: bookinfo-productpage
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: productpage
+        maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+      volumes:
+      - emptyDir: {}
+        name: tmp
+status:
+  observedGeneration: 4
+  replicas: 0

@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Namespace","metadata":{"annotations":{},"labels":{"pod-security.kubernetes.io/audit":"privileged","pod-security.kubernetes.io/enforce":"privileged","pod-security.kubernetes.io/warn":"privileged"},"name":"metallb-system"}}
+  creationTimestamp: "2023-11-17T20:43:26Z"
+  labels:
+    kubernetes.io/metadata.name: metallb-system
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+  name: metallb-system
+  resourceVersion: "170996"
+  uid: 60ddef5c-59be-4b9d-b0b4-a3dc524167b1
+spec:
+  finalizers:
+  - kubernetes
+status:
+  phase: Active

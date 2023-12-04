@@ -1,0 +1,59 @@
+addressType: IPv4
+apiVersion: discovery.k8s.io/v1
+endpoints:
+- addresses:
+  - 10.244.2.46
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: node4.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+  targetRef:
+    kind: Pod
+    name: istiod-586b5556b7-pcgkp
+    namespace: istio-system
+    uid: df4635d3-aced-431e-b8a1-9d6f4b7bf341
+  zone: us-east-1a
+kind: EndpointSlice
+metadata:
+  annotations:
+    endpoints.kubernetes.io/last-change-trigger-time: "2023-12-01T20:43:08Z"
+  creationTimestamp: "2023-11-16T21:13:04Z"
+  generateName: istiod-
+  generation: 11
+  labels:
+    app: istiod
+    endpointslice.kubernetes.io/managed-by: endpointslice-controller.k8s.io
+    install.operator.istio.io/owning-resource: installed-state
+    install.operator.istio.io/owning-resource-namespace: istio-system
+    istio: pilot
+    istio.io/rev: default
+    kubernetes.io/service-name: istiod
+    operator.istio.io/component: Pilot
+    operator.istio.io/managed: Reconcile
+    operator.istio.io/version: 1.20.0
+    release: istio
+  name: istiod-7qtft
+  namespace: istio-system
+  ownerReferences:
+  - apiVersion: v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Service
+    name: istiod
+    uid: 4069683e-edce-4e26-b42f-dd219ca2b5d5
+  resourceVersion: "2564123"
+  uid: ee18d329-0d27-4507-96b6-c929b87bb0ae
+ports:
+- name: https-dns
+  port: 15012
+  protocol: TCP
+- name: https-webhook
+  port: 15017
+  protocol: TCP
+- name: grpc-xds
+  port: 15010
+  protocol: TCP
+- name: http-monitoring
+  port: 15014
+  protocol: TCP

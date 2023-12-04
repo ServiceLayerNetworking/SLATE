@@ -1,0 +1,22 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+  creationTimestamp: "2023-11-16T20:16:07Z"
+  labels:
+    kubernetes.io/bootstrapping: rbac-defaults
+  name: system:controller:cloud-provider
+  namespace: kube-system
+  resourceVersion: "186"
+  uid: 70afa530-31df-4286-83d3-2e97cd7d5915
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - get
+  - list
+  - watch

@@ -1,0 +1,21 @@
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  creationTimestamp: "2023-11-17T20:43:27Z"
+  labels:
+    kube-aggregator.kubernetes.io/automanaged: "true"
+  name: v1alpha1.metallb.io
+  resourceVersion: "170999"
+  uid: 2b56d05d-e012-4bfb-898f-9be64726b103
+spec:
+  group: metallb.io
+  groupPriorityMinimum: 1000
+  version: v1alpha1
+  versionPriority: 100
+status:
+  conditions:
+  - lastTransitionTime: "2023-11-17T20:43:27Z"
+    message: Local APIServices are always available
+    reason: Local
+    status: "True"
+    type: Available

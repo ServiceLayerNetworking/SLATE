@@ -1,0 +1,28 @@
+apiVersion: v1
+count: 91970
+eventTime: null
+firstTimestamp: "2023-11-16T21:22:34Z"
+involvedObject:
+  apiVersion: autoscaling/v2
+  kind: HorizontalPodAutoscaler
+  name: istio-eastwestgateway
+  namespace: istio-system
+  resourceVersion: "5792"
+  uid: c8384612-8440-4ae1-816b-d0928c8d67e6
+kind: Event
+lastTimestamp: "2023-12-02T20:52:42Z"
+message: 'failed to get cpu utilization: unable to get metrics for resource cpu: unable
+  to fetch metrics from resource metrics API: the server could not find the requested
+  resource (get pods.metrics.k8s.io)'
+metadata:
+  creationTimestamp: "2023-11-16T21:22:34Z"
+  name: istio-eastwestgateway.1798376229c88fd2
+  namespace: istio-system
+  resourceVersion: "2743844"
+  uid: 36159f06-792a-48b6-828b-a182bca8d8c4
+reason: FailedGetResourceMetric
+reportingComponent: horizontal-pod-autoscaler
+reportingInstance: ""
+source:
+  component: horizontal-pod-autoscaler
+type: Warning

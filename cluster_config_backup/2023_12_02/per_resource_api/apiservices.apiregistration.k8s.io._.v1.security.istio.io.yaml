@@ -1,0 +1,21 @@
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  creationTimestamp: "2023-11-16T21:13:01Z"
+  labels:
+    kube-aggregator.kubernetes.io/automanaged: "true"
+  name: v1.security.istio.io
+  resourceVersion: "4917"
+  uid: 70ff030c-684c-41d4-8354-d8c0b7f6e557
+spec:
+  group: security.istio.io
+  groupPriorityMinimum: 1000
+  version: v1
+  versionPriority: 100
+status:
+  conditions:
+  - lastTransitionTime: "2023-11-16T21:13:01Z"
+    message: Local APIServices are always available
+    reason: Local
+    status: "True"
+    type: Available

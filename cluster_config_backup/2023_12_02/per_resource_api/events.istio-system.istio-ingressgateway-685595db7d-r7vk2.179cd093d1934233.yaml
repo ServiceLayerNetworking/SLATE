@@ -1,0 +1,29 @@
+apiVersion: v1
+count: 289
+eventTime: null
+firstTimestamp: "2023-12-01T20:54:52Z"
+involvedObject:
+  apiVersion: v1
+  kind: Pod
+  name: istio-ingressgateway-685595db7d-r7vk2
+  namespace: istio-system
+  resourceVersion: "2566675"
+  uid: 2ce0033b-de7c-4036-8009-e52b7c7c720c
+kind: Event
+lastTimestamp: "2023-12-02T20:50:05Z"
+message: '0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane:
+  }, 2 node(s) didn''t match pod topology spread constraints. preemption: 0/3 nodes
+  are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims
+  found for incoming pod..'
+metadata:
+  creationTimestamp: "2023-12-01T20:54:52Z"
+  name: istio-ingressgateway-685595db7d-r7vk2.179cd093d1934233
+  namespace: istio-system
+  resourceVersion: "2743521"
+  uid: d7f23076-4386-4545-8bf5-c07cdf1fe323
+reason: FailedScheduling
+reportingComponent: default-scheduler
+reportingInstance: ""
+source:
+  component: default-scheduler
+type: Warning

@@ -1,0 +1,21 @@
+addressType: IPv4
+apiVersion: discovery.k8s.io/v1
+endpoints:
+- addresses:
+  - 130.127.133.109
+  conditions:
+    ready: true
+kind: EndpointSlice
+metadata:
+  creationTimestamp: "2023-11-16T20:16:08Z"
+  generation: 1
+  labels:
+    kubernetes.io/service-name: kubernetes
+  name: kubernetes
+  namespace: default
+  resourceVersion: "202"
+  uid: d07eab72-6dc3-4d1d-85ae-0bf7e8a6b836
+ports:
+- name: https
+  port: 6443
+  protocol: TCP

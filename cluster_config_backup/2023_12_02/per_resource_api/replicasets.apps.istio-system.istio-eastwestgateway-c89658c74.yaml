@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  annotations:
+    deployment.kubernetes.io/desired-replicas: "1"
+    deployment.kubernetes.io/max-replicas: "2"
+    deployment.kubernetes.io/revision: "1"
+  creationTimestamp: "2023-11-16T21:22:18Z"
+  generation: 2
+  labels:
+    app: istio-eastwestgateway
+    chart: gateways
+    heritage: Tiller
+    install.operator.istio.io/owning-resource: unknown
+    istio: eastwestgateway
+    operator.istio.io/component: IngressGateways
+    pod-template-hash: c89658c74
+    release: istio
+    sidecar.istio.io/inject: "true"
+    topology.istio.io/network: network1
+  name: istio-eastwestgateway-c89658c74
+  namespace: istio-system
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Deployment
+    name: istio-eastwestgateway
+    uid: 3c0449e9-5bcd-4667-9548-e06c47f4238d
+  resourceVersion: "2564079"
+  uid: ff11cd3b-315a-4a72-8ba1-3c729ba3348b
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: istio-eastwestgateway
+      istio: eastwestgateway
+      pod-template-hash: c89658c74
+      topology.istio.io/network: network1
+  template:
+    metadata:
+      annotations:
+        inject.istio.io/templates: gateway
+        prometheus.io/path: /stats/prometheus
+        prometheus.io/port: "15020"
+        prometheus.io/scrape: "true"
+        sidecar.istio.io/inject: "true"
+      creationTimestamp: null
+      labels:
+        app: istio-eastwestgateway
+        chart: gateways
+        heritage: Tiller
+        install.operator.istio.io/owning-resource: unknown
+        istio: eastwestgateway
+        operator.istio.io/component: IngressGateways
+        pod-template-hash: c89658c74
+        release: istio
+        sidecar.istio.io/inject: "true"
+        topology.istio.io/network: network1
+    spec:
+      affinity:
+        nodeAffinity: {}
+      containers:
+      - env:
+        - name: ISTIO_META_REQUESTED_NETWORK_VIEW
+          value: network1
+        - name: ISTIO_META_UNPRIVILEGED_POD
+          value: "true"
+        image: auto
+        imagePullPolicy: Always
+        name: istio-proxy
+        ports:
+        - containerPort: 15021
+          protocol: TCP
+        - containerPort: 15443
+          protocol: TCP
+        - containerPort: 15012
+          protocol: TCP
+        - containerPort: 15017
+          protocol: TCP
+        - containerPort: 15090
+          name: http-envoy-prom
+          protocol: TCP
+        resources:
+          limits:
+            cpu: "2"
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          privileged: false
+          readOnlyRootFilesystem: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/istio/ingressgateway-certs
+          name: ingressgateway-certs
+          readOnly: true
+        - mountPath: /etc/istio/ingressgateway-ca-certs
+          name: ingressgateway-ca-certs
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        runAsGroup: 1337
+        runAsNonRoot: true
+        runAsUser: 1337
+      serviceAccount: istio-eastwestgateway-service-account
+      serviceAccountName: istio-eastwestgateway-service-account
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: ingressgateway-certs
+        secret:
+          defaultMode: 420
+          optional: true
+          secretName: istio-ingressgateway-certs
+      - name: ingressgateway-ca-certs
+        secret:
+          defaultMode: 420
+          optional: true
+          secretName: istio-ingressgateway-ca-certs
+status:
+  observedGeneration: 2
+  replicas: 0

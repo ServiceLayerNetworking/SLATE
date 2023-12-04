@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Endpoints
+metadata:
+  annotations:
+    endpoints.kubernetes.io/last-change-trigger-time: "2023-11-16T20:16:24Z"
+  creationTimestamp: "2023-11-16T20:16:22Z"
+  labels:
+    k8s-app: kube-dns
+    kubernetes.io/cluster-service: "true"
+    kubernetes.io/name: CoreDNS
+  name: kube-dns
+  namespace: kube-system
+  resourceVersion: "381"
+  uid: ea969a59-afb2-4e9e-95c6-05d1c2d1c472
+subsets:
+- addresses:
+  - ip: 10.244.0.4
+    nodeName: node0.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+    targetRef:
+      kind: Pod
+      name: coredns-5dd5756b68-b5ld5
+      namespace: kube-system
+      uid: 132702db-1b0d-42ed-8402-8cac0d8f05d9
+  - ip: 10.244.0.5
+    nodeName: node0.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+    targetRef:
+      kind: Pod
+      name: coredns-5dd5756b68-t8ft2
+      namespace: kube-system
+      uid: 8585986b-f8a2-4cf8-9aea-beea87bc0d23
+  ports:
+  - name: dns-tcp
+    port: 53
+    protocol: TCP
+  - name: dns
+    port: 53
+    protocol: UDP
+  - name: metrics
+    port: 9153
+    protocol: TCP

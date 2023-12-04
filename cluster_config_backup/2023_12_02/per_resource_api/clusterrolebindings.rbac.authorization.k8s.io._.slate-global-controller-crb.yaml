@@ -1,0 +1,18 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"rbac.authorization.k8s.io/v1","kind":"ClusterRoleBinding","metadata":{"annotations":{},"name":"slate-global-controller-crb"},"roleRef":{"apiGroup":"rbac.authorization.k8s.io","kind":"ClusterRole","name":"slate-global-controller-cr"},"subjects":[{"kind":"ServiceAccount","name":"slate-global-controller-sa","namespace":"default"}]}
+  creationTimestamp: "2023-11-17T05:32:10Z"
+  name: slate-global-controller-crb
+  resourceVersion: "61092"
+  uid: 8adf43d5-f6c8-45ac-815a-eb771ac39485
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: slate-global-controller-cr
+subjects:
+- kind: ServiceAccount
+  name: slate-global-controller-sa
+  namespace: default

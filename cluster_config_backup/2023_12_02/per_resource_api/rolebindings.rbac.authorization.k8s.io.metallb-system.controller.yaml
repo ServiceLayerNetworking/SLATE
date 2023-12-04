@@ -1,0 +1,21 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"rbac.authorization.k8s.io/v1","kind":"RoleBinding","metadata":{"annotations":{},"labels":{"app":"metallb"},"name":"controller","namespace":"metallb-system"},"roleRef":{"apiGroup":"rbac.authorization.k8s.io","kind":"Role","name":"controller"},"subjects":[{"kind":"ServiceAccount","name":"controller","namespace":"metallb-system"}]}
+  creationTimestamp: "2023-11-17T20:43:28Z"
+  labels:
+    app: metallb
+  name: controller
+  namespace: metallb-system
+  resourceVersion: "171030"
+  uid: 12ea512c-eec5-42e7-b857-742a8dbc0f3a
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: controller
+subjects:
+- kind: ServiceAccount
+  name: controller
+  namespace: metallb-system

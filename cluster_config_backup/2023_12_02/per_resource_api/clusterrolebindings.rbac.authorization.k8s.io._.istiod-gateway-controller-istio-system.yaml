@@ -1,0 +1,24 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: "2023-11-16T21:13:04Z"
+  labels:
+    app: istiod
+    install.operator.istio.io/owning-resource: installed-state
+    install.operator.istio.io/owning-resource-namespace: istio-system
+    istio.io/rev: default
+    operator.istio.io/component: Pilot
+    operator.istio.io/managed: Reconcile
+    operator.istio.io/version: 1.20.0
+    release: istio
+  name: istiod-gateway-controller-istio-system
+  resourceVersion: "4977"
+  uid: 1672f53e-2341-41ef-b4c4-91c1987ee249
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: istiod-gateway-controller-istio-system
+subjects:
+- kind: ServiceAccount
+  name: istiod
+  namespace: istio-system

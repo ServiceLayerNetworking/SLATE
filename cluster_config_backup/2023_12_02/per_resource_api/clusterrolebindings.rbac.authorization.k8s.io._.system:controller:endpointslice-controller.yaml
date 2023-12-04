@@ -1,0 +1,19 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+  creationTimestamp: "2023-11-16T20:16:07Z"
+  labels:
+    kubernetes.io/bootstrapping: rbac-defaults
+  name: system:controller:endpointslice-controller
+  resourceVersion: "156"
+  uid: 65ffc67f-9e57-4b9c-b7b2-54e6267fd16b
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:controller:endpointslice-controller
+subjects:
+- kind: ServiceAccount
+  name: endpointslice-controller
+  namespace: kube-system

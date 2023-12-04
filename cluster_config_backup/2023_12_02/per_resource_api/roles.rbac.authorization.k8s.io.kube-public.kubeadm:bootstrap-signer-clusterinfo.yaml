@@ -1,0 +1,17 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: "2023-11-16T20:16:09Z"
+  name: kubeadm:bootstrap-signer-clusterinfo
+  namespace: kube-public
+  resourceVersion: "237"
+  uid: 68ede4f1-c230-4058-88be-108bb185db07
+rules:
+- apiGroups:
+  - ""
+  resourceNames:
+  - cluster-info
+  resources:
+  - configmaps
+  verbs:
+  - get

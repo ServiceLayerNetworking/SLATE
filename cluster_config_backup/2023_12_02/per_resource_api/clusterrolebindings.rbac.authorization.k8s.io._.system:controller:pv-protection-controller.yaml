@@ -1,0 +1,19 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+  creationTimestamp: "2023-11-16T20:16:07Z"
+  labels:
+    kubernetes.io/bootstrapping: rbac-defaults
+  name: system:controller:pv-protection-controller
+  resourceVersion: "181"
+  uid: 08b2f24f-cfe5-498c-81c2-b31136143cfc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:controller:pv-protection-controller
+subjects:
+- kind: ServiceAccount
+  name: pv-protection-controller
+  namespace: kube-system
