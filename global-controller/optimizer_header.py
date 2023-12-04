@@ -8,6 +8,10 @@ import math
 import numpy as np
 import time
 import zlib
+from IPython.display import display
+import random
+
+random.seed(1234)
 
 timestamp_list = list()
 source_node_name = "SOURCE"
@@ -61,38 +65,80 @@ def create_compute_arc_var_name(unique_service):
             compute_arc_var_name.append(get_compute_arc_var_name(svc_name, cid))
     return compute_arc_var_name
 
-
-def gen_fake_data(compute_df, callgraph):
-    def latency(x_list, s_list, ic):
-        ret = 0
-        for x, s, in zip(x_list, s_list):
-            ret += pow(x, cfg.REGRESSOR_DEGREE)*s
-        lat = ret + ic
-        print(lat)
-        return lat
-    
+def fake_load_gen(callgraph):
     num_data_point = 50
-    load_ = list(np.arange(0,num_data_point))
+    load_list = list()
+    for ld in range(num_data_point):
+        temp_dict = dict()
+        for key in callgraph:
+            temp_dict[key] = ld
+        # TODO
+        load_list.append(temp_dict) ## [{'A':load_of_callgraph_A, 'B':load_of_callgraph_B}, ...]
+    return np.array(load_list)
+
+def get_slope(svc_name, target_cg):
+    # TODO: the target_cg is not being used currently. 
+    # The same slopep for all callgraphs of the same serivce.
+    # Ideally, the different callgraphs of the same service should have different slope.
+    if target_cg == "A" or target_cg == "B":
+        if svc_name == "ingress_gw":
+            return {"A": 0, "B": 0}
+        # return {"slope": zlib.adler32(svc_name.encode('utf-8'))%5+1, "intercept": 10}
+        return {"A": 1, "B": 0}
+    # elif target_cg == "B":
+    #     ...
+
+def gen_compute_latency(load, svc_name, slope, intercept, target_cg, callgraph):
+    assert len(load) == len(slope)
+    if svc_name == "ingress_gw":
+        return 0
+    ret = 0
+    for key in callgraph:
+        ret += pow(load[key], cfg.REGRESSOR_DEGREE) * slope[key]
+    # ret += intercept + random.randint(0, 5)
+    ret += intercept
+    # TODO: the s not being used currently, target_cg. 
+    # Hence, the same regression function is used for all callgraphs.
+    # Ideally,
+    # if = "A, target_cg":
+    #     latency_function = XXX
+    # elif = "B, target_cg":
+    #     latency_function = YYY
+    return ret
+
+
+## Deprecated
+def gen_fake_data(compute_df, callgraph, y_axis_target_cg_key):
+    # Why there is only one intercept and slope have mulitple values?
+    # because one regression function has one intercept but can have multiple coefficients which is slope in this case.
+    slope_dict = dict()
     for index, row in compute_df.iterrows():
-        compute_latency = list()
-        slope_list = [zlib.adler32(row["svc_name"].encode('utf-8'))%5+1]*len(callgraph)
-        intercept = 10
-        for j in range(num_data_point):
-            # NOTE: there is always one compute latency per service that we want to figure out
-            lat = latency([load_[j], load_[j]], slope_list, intercept)
-            compute_latency.append(lat)
-        print(f'** cid,{row["src_cid"]}, service,{row["svc_name"]}, degree({cfg.REGRESSOR_DEGREE}), slope({slope_list}), intercept({intercept})')
-        assert len(load_) == len(compute_latency)
+        if row["svc_name"] not in slope_dict:
+            slope_dict[row['svc_name']] = dict()
+        # TODO: Currently all callgraphs will use the same slope.
+        # We need a list of slopes whose length is equal to the number of callgraph
+        for key in callgraph:
+            for x_feat_key in callgraph:
+                slope_dict[row['svc_name']][key] = [get_slope(row["svc_name"], y_axis_target_cg_key)] * len(callgraph)
+    
+    observed_y_of_target_cg = list()
+    for index, row in compute_df.iterrows():
+        for key in callgraph:
+            for ld in load_list:
+                observed_y_of_target_cg.append(create_compute_time(y_axis_target_cg_key, ld, slope_dict['svc_name'][key], intercept_=0))
+        # print(f'** cid,{row["src_cid"]}, service,{row["svc_name"]}, degree({cfg.REGRESSOR_DEGREE}), slope({slope_dict['svc_name']}), intercept({intercept})')
+        assert len(load_list) == len(observed_y_of_target_cg)
         # If you want to use polynomial regression, you need to reshape it to (-1, 1)
-        # compute_df.at[index, "observed_x"] = np.array(load_).reshape(-1, 1)
-        compute_df.at[index, "observed_y"] = np.array(compute_latency)
+        # compute_df.at[index, "observed_x"] = np.array(load_list).reshape(-1, 1)
+        compute_df.at[index, "observed_y_of_target_cg_"+y_axis_target_cg_key] = np.array(observed_y_of_target_cg)
         for key in callgraph:
             # requests from different callgraph have different latency function
-            compute_df.at[index, "observed_x_"+key] = np.array(load_)
+            load_of_certain_cg = [ld[key] for ld in load_list]
+            compute_df.at[index, "observed_x_"+key] = np.array(load_of_certain_cg)
     # return compute_df
 
 
-def plot_latency_function_3d(compute_df):
+def plot_latency_function_3d(compute_df, y_axis_target_cg_key):
     idx = 0
     ylim = 0
     num_subplot_row = len(compute_df["src_cid"].unique())
@@ -102,19 +148,19 @@ def plot_latency_function_3d(compute_df):
     fig = plt.figure()
     fig.tight_layout()
     for index, row in compute_df.iterrows():
+        data = dict()
+        for key in callgraph:
+            data["observed_x_"+key] = row["observed_x_"+key]
         temp_df = pd.DataFrame(
-            data={
-                "observed_x_A": row["observed_x_A"],
-                "observed_x_B": row["observed_x_B"],
-                "observed_y": row["observed_y"],
-            }
+            data=data
         )
-        X_ = temp_df[["observed_x_A", "observed_x_B"]]
+        # X_ = temp_df[["observed_x_A", "observed_x_B"]]
+        X_ = temp_df
         row_idx = int(idx/num_subplot_col)
         col_idx = idx%num_subplot_col
         ax = fig.add_subplot(100 + (row_idx+1)*10 + (col_idx+1), projection='3d')
-        ax.scatter(row["observed_x_A"], row["observed_x_B"], row["observed_y"], c='r', marker='o', label="observation", alpha=0.1)
-        ylim = max(ylim, max(row["observed_y"]), max(row["latency_function"].predict(X_)))
+        ax.scatter(row["observed_x_A"], row["observed_x_B"], row["observed_y_"+y_axis_target_cg_key], c='r', marker='o', label="observation", alpha=0.1)
+        ylim = max(ylim, max(row["observed_y_"+y_axis_target_cg_key]), max(row["latency_function"].predict(X_)))
         # axs[row_idx][col_idx].legend()
         # axs[row_idx][col_idx].set_title(index[0])
         # if row_idx == num_subplot_row-1:
@@ -124,7 +170,7 @@ def plot_latency_function_3d(compute_df):
         # idx += 1
 
     
-def plot_latency_function_2d(compute_df):
+def plot_latency_function_2d(compute_df, callgraph, y_axis_target_cg_key):
     idx = 0
     ylim = 0
     num_subplot_row = len(compute_df["src_cid"].unique())
@@ -132,29 +178,32 @@ def plot_latency_function_2d(compute_df):
     fig, axs = plt.subplots(num_subplot_row, num_subplot_col, figsize=(16,6))
     fig.tight_layout()
     for index, row in compute_df.iterrows():
+        data = dict()
+        for key in callgraph:
+            data["observed_x_"+key] = row["observed_x_"+key]
         temp_df = pd.DataFrame(
-            data={
-                "observed_x_A": row["observed_x_A"],
-                "observed_x_B": row["observed_x_B"],
-                "observed_y": row["observed_y"],
-            }
+            data=data
         )
-        X = temp_df[["observed_x_A", "observed_x_B"]]
+        # X_ = temp_df[["observed_x_A", "observed_x_B"]]
+        X_ = temp_df
         row_idx = int(idx/num_subplot_col)
         col_idx = idx%num_subplot_col
-        axs[row_idx][col_idx].plot(row["observed_x_A"], row["observed_y"], 'ro', label="observation", alpha=0.1)
-        axs[row_idx][col_idx].plot(row["observed_x_A"], row["latency_function"].predict(X), 'bo', label="prediction", alpha=0.1)
-        ylim = max(ylim, max(row["observed_y"]), max(row["latency_function"].predict(X)))
+        # NOTE: It only plots callgraph A as a x-axis for visualization
+        # If you want to plot latency function having all callgraph in x-axis, you need higher dimesnion plot like 3d plot.
+        x_axis_cg = "A"
+        axs[row_idx][col_idx].plot(row["observed_x_"+x_axis_cg], row["observed_y_"+y_axis_target_cg_key], 'ro', label="observation", alpha=0.1)
+        axs[row_idx][col_idx].plot(row["observed_x_"+x_axis_cg], row["latency_function_"+key].predict(X_), 'bo', label="prediction", alpha=0.1)
+        ylim = max(ylim, max(row["observed_y_"+y_axis_target_cg_key]), max(row["latency_function_"+key].predict(X_)))
         axs[row_idx][col_idx].legend()
         axs[row_idx][col_idx].set_title(index[0])
         if row_idx == num_subplot_row-1:
-            axs[row_idx][col_idx].set_xlabel("ld")
+            axs[row_idx][col_idx].set_xlabel("Load in " + x_axis_cg + "callgraph")
         if col_idx == 0:
             axs[row_idx][col_idx].set_ylabel("Compute time")
         idx += 1
     for ax in axs.flat:
         ax.set_ylim(0, ylim)
-    plt.savefig(cfg.OUTPUT_DIR+"/latency.pdf")
+    plt.savefig(cfg.OUTPUT_DIR+"/latency_callgraph"+y_axis_target_cg_key+".pdf")
     plt.show()
 
 
@@ -330,13 +379,22 @@ def is_local_routing(src_cid, dst_cid):
         return False
         
 
-def get_network_edge_color(src_cid, dst_cid):
-    if src_cid == NONE_CID or dst_cid == NONE_CID:
-        return "black"
-    elif src_cid == dst_cid:
-        return "black"
-    else:
-        return "blue"
+def get_network_edge_color(src_cid, dst_cid, key=""):
+    # if src_cid == NONE_CID or dst_cid == NONE_CID:
+    #     return "black"
+    if key == "":
+        if src_cid == dst_cid:
+            return "black"
+        else:
+            return "blue"
+    else: # key != ""
+        if key == "A":
+            # return "#6f00ff" # purple
+            return "red"
+        elif key == "B":
+            return "blue" # blue
+        else:
+            return "green"
     
 def get_node_color(cid):
     if cid == NONE_CID:
@@ -450,11 +508,46 @@ def plot_arc_var_for_callgraph(network_arc, unique_service, callgraph, key):
     g_ = graphviz.Digraph()
     plot_dict_wo_compute_edge(network_arc, g_)
     plot_call_graph_path(callgraph, key, unique_service, g_)
-    g_.render(f'{cfg.OUTPUT_DIR}/callgraph', view = True) # output: call_graph.pdf
+    g_.render(f'{cfg.OUTPUT_DIR}/callgraph-'+key, view = True) # output: call_graph.pdf
+    g_
+    
+    
+def plot_all_request_flow(percent_df, unique_service, callgraph, network_arc):
+    g_ = graphviz.Digraph()
+    plot_dict_wo_compute_edge(network_arc, g_)
+    node_pw = "1"
+    edge_pw = "0.5"
+    fs = "8"
+    edge_fs = "10"
+    fn="times bold italic"
+    edge_arrowsize="0.5"
+    edge_minlen="1"
+    name_cut = 6
+    for key in callgraph:
+        for index, row in percent_df[key].iterrows():
+            if row["flow"] <= 0 or row["weight"] <= 0:
+                continue
+            src_cid = row["src_cid"]
+            dst_cid = row["dst_cid"]
+            src_svc = row["src"]
+            dst_svc = row["dst"]
+            edge_color = get_network_edge_color(src_cid, dst_cid, key)
+            src_node_color = get_node_color(src_cid)
+            dst_node_color = get_node_color(dst_cid)
+            src_node_name = src_svc+str(src_cid)
+            dst_node_name = dst_svc+str(dst_cid)
+            # src_node
+            g_.node(name=src_node_name, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=src_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+            # dst_node
+            g_.node(name=dst_node_name, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+            # edge from src_node to dst_node        
+            g_.edge(src_node_name, dst_node_name, label=f'{row["flow"]}({round(row["weight"], 2)})', penwidth=edge_pw, style="filled", fontsize=edge_fs, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
+            
+    g_.render(f'{cfg.OUTPUT_DIR}/call_graph-{key}', view = True)
     g_
 
 
-def plot_request_flow(percent_df, key, unique_service, callgraph, network_arc):
+def plot_callgraph_request_flow(percent_df, key, unique_service, callgraph, network_arc):
     g_ = graphviz.Digraph()
     plot_dict_wo_compute_edge(network_arc, g_)
     node_pw = "1"
@@ -527,6 +620,8 @@ def check_network_arc_var_name(net_arc_var):
 
 
 def get_network_time(src_cid, dst_cid):
+    if src_cid == NONE_CID or dst_cid == NONE_CID:
+        return 0
     if src_cid == dst_cid:
         return cfg.INTRA_CLUTER_RTT
     else:
