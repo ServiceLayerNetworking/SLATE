@@ -80,10 +80,17 @@ for cid in range(NUM_CLUSTER):
         MAX_LOAD[request_type] += NUM_REQUESTS[cid][request_type]
 unique_service = dict()
 callgraph = dict()
+##
 unique_service[0] = {'ingress_gw', 'productpage-v1', 'reviews-v3', 'details-v1'}
-unique_service[1] = {'ingress_gw', 'productpage-v1', 'reviews-v3', 'details-v1'}
+unique_service[1] = {'ingress_gw', 'productpage-v1', 'details-v1'}
 callgraph["A"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['reviews-v3'], 'reviews-v3':[]}
 callgraph["B"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['details-v1'], 'details-v1':[]}
+##
+# unique_service[0] = {'ingress_gw', 'productpage-v1', 'reviews-v3', 'details-v1'}
+# unique_service[1] = {'ingress_gw', 'productpage-v1', 'reviews-v3', 'details-v1'}
+# callgraph["A"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['reviews-v3'], 'reviews-v3':[]}
+# callgraph["B"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['details-v1'], 'details-v1':[]}
+## 
 # unique_service[0] = {'ingress_gw', 'productpage-v1'}
 # unique_service[1] = {'ingress_gw', 'productpage-v1'}
 # callgraph["A"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': []}
@@ -274,7 +281,6 @@ for index, row in compute_df.iterrows():
 # In[38]:
 
 
-opt_func.plot_latency_function_2d(compute_df, callgraph, "A")
 if cfg.PLOT:
     # NOTE: It plots latency function of call graph "A"
     opt_func.plot_latency_function_2d(compute_df, callgraph, "A")
@@ -325,10 +331,10 @@ gurobi_model.update()
 network_arc_var_name = opt_func.create_network_arc_var_name(unique_service, callgraph)
 opt_func.check_network_arc_var_name(network_arc_var_name)
 
-opt_func.plot_full_arc(compute_arc_var_name, network_arc_var_name, callgraph)
 if cfg.PLOT:
-    for key in callgraph:
-        opt_func.plot_arc_var_for_callgraph(network_arc_var_name, unique_service, callgraph, key)
+    opt_func.plot_full_arc(compute_arc_var_name, network_arc_var_name, callgraph)
+    # for key in callgraph:
+    #     opt_func.plot_arc_var_for_callgraph(network_arc_var_name, unique_service, callgraph, key)
 
 
 # In[36]:
@@ -783,8 +789,9 @@ else:
             # opt_func.plot_callgraph_request_flow(percentage_df, key, unique_service, callgraph, network_arc_var_name)
     
     cg_keys = callgraph.keys()
+    # for key in callgraph:
+    #     opt_func.plot_callgraph_request_flow(percentage_df, [key], network_arc_var_name)
     opt_func.plot_callgraph_request_flow(percentage_df, cg_keys, network_arc_var_name)
-    opt_func.plot_all_request_flow(percentage_df, callgraph, network_arc_var_name)
     
     # Print optimized gurobi variables    
     for v in gurobi_model.getVars():
@@ -793,8 +800,72 @@ else:
 
 
 # In[52]:
+
+
 for key in callgraph:
     display(percentage_df[key])
+
+
+# In[52]:
+
+
+concat_df = pd.DataFrame()
+for key in callgraph:
+    if concat_df.empty:
+        concat_df = percentage_df[key]
+        continue
+    concat_df = pd.concat([concat_df, percentage_df[key]], axis=0,  ignore_index=True)
+    # concat_df = pd.concat([concat_df, percentage_df[key]], axis=0)
+# for i in range(len(concat_df)):
+for index, row in concat_df.iterrows():
+    # concat_df.at[index, "merge_col"] = f"{row['src']},{row['src_cid']},{row['dst']},{row['dst_cid']}"
+    concat_df.loc[index, "merge_col_1"] = f"{row['src']},{row['src_cid']},{row['dst']}"
+    concat_df.loc[index, "merge_col_2"] = f"{row['src']},{row['src_cid']},{row['dst']},{row['dst_cid']}"
+display(concat_df)
+
+
+# group_by_sum = concat_df.groupby(['merge_col_1']).sum()
+# display(group_by_sum)
+
+
+another_group_by_df = concat_df.groupby(['merge_col_2']).sum()
+for index, row in another_group_by_df.iterrows():
+    another_group_by_df.at[index, "src"] = index.split(",")[0]
+    another_group_by_df.at[index, "src_cid"] = int(index.split(",")[1])
+    another_group_by_df.at[index, "dst"] = index.split(",")[2]
+    another_group_by_df.at[index, "dst_cid"] = int(index.split(",")[3])
+    another_group_by_df.at[index, "weight"] = row["flow"]/row["total"]
+print("another_group_by_df")
+display(another_group_by_df)
+opt_func.plot_merged_request_flow(another_group_by_df, network_arc_var_name)
+
+
+
+
+
+# In[52]:
+
+
+total_list = list()
+for index, row in concat_df.iterrows():
+    total = group_by_sum.loc[[index]]["flow"].tolist()[0]
+    total_list.append(total)
+concat_df["total"] = total_list
+weight_list = list()
+for index, row in concat_df.iterrows():
+    try:
+        weight_list.append(row['flow']/row['total'])
+    except Exception as e:
+        weight_list.append(0)
+concat_df["weight"] = weight_list
+display(concat_df)
+
+
+# In[52]:
+
+opt_func.plot_merged_request_flow(concat_df, network_arc_var_name)
+
+
 
 # In[52]:
 

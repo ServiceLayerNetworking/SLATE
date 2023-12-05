@@ -383,6 +383,8 @@ def get_network_edge_color(src_cid, dst_cid, key=""):
     # if src_cid == NONE_CID or dst_cid == NONE_CID:
     #     return "black"
     if key == "":
+        if src_cid == NONE_CID or dst_cid == NONE_CID:
+            return "black"
         if src_cid == dst_cid:
             return "black"
         else:
@@ -395,6 +397,14 @@ def get_network_edge_color(src_cid, dst_cid, key=""):
             return "blue" # blue
         else:
             return "green"
+
+def get_network_edge_style(src_cid, dst_cid):
+    if src_cid == NONE_CID or dst_cid == NONE_CID:
+        return "filled"
+    if src_cid == dst_cid:
+        return "filled"
+    else:
+        return "dashed"
     
 def get_node_color(cid):
     if cid == NONE_CID:
@@ -532,6 +542,7 @@ def plot_callgraph_request_flow(percent_df, cg_key_list, network_arc):
             src_svc = row["src"]
             dst_svc = row["dst"]
             edge_color = get_network_edge_color(src_cid, dst_cid, cg_key)
+            edge_style = get_network_edge_style(src_cid, dst_cid)
             src_node_color = get_node_color(src_cid)
             dst_node_color = get_node_color(dst_cid)
             src_node_name = src_svc+str(src_cid)
@@ -541,12 +552,13 @@ def plot_callgraph_request_flow(percent_df, cg_key_list, network_arc):
             # dst_node
             g_.node(name=dst_node_name, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
             # edge from src_node to dst_node        
-            g_.edge(src_node_name, dst_node_name, label=f'{row["flow"]}({round(row["weight"], 2)})', penwidth=edge_pw, style="filled", fontsize=edge_fs, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
-    g_.render(f'{cfg.OUTPUT_DIR}/call_graph-{cg_key}', view = True)
+            g_.edge(src_node_name, dst_node_name, label=f'{row["flow"]}({round(row["weight"], 2)})', penwidth=edge_pw, style=edge_style, fontsize=edge_fs, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
+    result_string = ''.join(cg_key_list)
+    g_.render(f'{cfg.OUTPUT_DIR}/call_graph-{result_string}', view = True)
     g_
 
 
-def plot_all_request_flow(percent_df, callgraph, network_arc):
+def plot_merged_request_flow(concat_df, network_arc):
     g_ = graphviz.Digraph()
     plot_dict_wo_compute_edge(network_arc, g_)
     node_pw = "1"
@@ -559,41 +571,26 @@ def plot_all_request_flow(percent_df, callgraph, network_arc):
     name_cut = 6
     weight = dict()
     num_req = dict()
-    for key in callgraph:
-        for index, row in percent_df[key].iterrows():
-            if row["flow"] <= 0 or row["weight"] <= 0:
-                continue
-            src_cid = row["src_cid"]
-            dst_cid = row["dst_cid"]
-            src_svc = row["src"]
-            dst_svc = row["dst"]
-            src_node_color = get_node_color(src_cid)
-            dst_node_color = get_node_color(dst_cid)
-            src_node_name = src_svc+str(src_cid)
-            dst_node_name = dst_svc+str(dst_cid)
-            # src_node
-            g_.node(name=src_node_name, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=src_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
-            # dst_node
-            g_.node(name=dst_node_name, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
-            if src_node_name+dst_node_name not in weight:
-                weight[src_node_name+dst_node_name] = 0
-            if src_node_name+dst_node_name not in num_req:
-                num_req[src_node_name+dst_node_name] = 0
-            weight[src_node_name+dst_node_name] += row["weight"]
-            num_req[src_node_name+dst_node_name] += row["flow"]
-
-    plotted = set()
-    for key in callgraph:
-        for index, row in percent_df[key].iterrows():
-            if row["flow"] <= 0 or row["weight"] <= 0:
-                continue
-            src_node_name = row["src"] + str(row["src_cid"])
-            dst_node_name = row["dst"] + str(row["dst_cid"])
-            if src_node_name+dst_node_name in plotted:
-                continue
-            plotted.add(src_node_name+dst_node_name)
-            g_.edge(src_node_name, dst_node_name, label=f'{num_req[src_node_name+dst_node_name]}({round(weight[src_node_name+dst_node_name], 2)})', penwidth=edge_pw, style="filled", fontsize=edge_fs, fontcolor="purple", color="purple", arrowsize=edge_arrowsize, minlen=edge_minlen)
-    g_.render(f'{cfg.OUTPUT_DIR}/call_graph', view = True)
+    for index, row in concat_df.iterrows():
+        if row["flow"] <= 0 or row["weight"] <= 0:
+            continue
+        src_cid = row["src_cid"]
+        dst_cid = row["dst_cid"]
+        src_svc = row["src"]
+        dst_svc = row["dst"]
+        edge_color = get_network_edge_color(src_cid, dst_cid)
+        edge_style = get_network_edge_style(src_cid, dst_cid)
+        src_node_color = get_node_color(src_cid)
+        dst_node_color = get_node_color(dst_cid)
+        src_node_name = src_svc+str(src_cid)
+        dst_node_name = dst_svc+str(dst_cid)
+        # src_node
+        g_.node(name=src_node_name, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=src_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+        # dst_node
+        g_.node(name=dst_node_name, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+        # edge from src_node to dst_node        
+        g_.edge(src_node_name, dst_node_name, label=f'{row["flow"]}({round(row["weight"], 2)})', penwidth=edge_pw, style=edge_style, fontsize=edge_fs, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
+    g_.render(f'{cfg.OUTPUT_DIR}/call_graph-merged', view = True)
     g_
 
 
