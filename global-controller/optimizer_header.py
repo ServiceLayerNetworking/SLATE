@@ -512,7 +512,7 @@ def plot_arc_var_for_callgraph(network_arc, unique_service, callgraph, key):
     g_
     
     
-def plot_all_request_flow(percent_df, unique_service, callgraph, network_arc):
+def plot_callgraph_request_flow(percent_df, cg_key_list, network_arc):
     g_ = graphviz.Digraph()
     plot_dict_wo_compute_edge(network_arc, g_)
     node_pw = "1"
@@ -523,15 +523,15 @@ def plot_all_request_flow(percent_df, unique_service, callgraph, network_arc):
     edge_arrowsize="0.5"
     edge_minlen="1"
     name_cut = 6
-    for key in callgraph:
-        for index, row in percent_df[key].iterrows():
+    for cg_key in cg_key_list:
+        for index, row in percent_df[cg_key].iterrows():
             if row["flow"] <= 0 or row["weight"] <= 0:
                 continue
             src_cid = row["src_cid"]
             dst_cid = row["dst_cid"]
             src_svc = row["src"]
             dst_svc = row["dst"]
-            edge_color = get_network_edge_color(src_cid, dst_cid, key)
+            edge_color = get_network_edge_color(src_cid, dst_cid, cg_key)
             src_node_color = get_node_color(src_cid)
             dst_node_color = get_node_color(dst_cid)
             src_node_name = src_svc+str(src_cid)
@@ -542,12 +542,11 @@ def plot_all_request_flow(percent_df, unique_service, callgraph, network_arc):
             g_.node(name=dst_node_name, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
             # edge from src_node to dst_node        
             g_.edge(src_node_name, dst_node_name, label=f'{row["flow"]}({round(row["weight"], 2)})', penwidth=edge_pw, style="filled", fontsize=edge_fs, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
-            
-    g_.render(f'{cfg.OUTPUT_DIR}/call_graph-{key}', view = True)
+    g_.render(f'{cfg.OUTPUT_DIR}/call_graph-{cg_key}', view = True)
     g_
 
 
-def plot_callgraph_request_flow(percent_df, key, unique_service, callgraph, network_arc):
+def plot_all_request_flow(percent_df, callgraph, network_arc):
     g_ = graphviz.Digraph()
     plot_dict_wo_compute_edge(network_arc, g_)
     node_pw = "1"
@@ -558,26 +557,43 @@ def plot_callgraph_request_flow(percent_df, key, unique_service, callgraph, netw
     edge_arrowsize="0.5"
     edge_minlen="1"
     name_cut = 6
-    for index, row in percent_df[key].iterrows():
-        if row["flow"] <= 0 or row["weight"] <= 0:
-            continue
-        src_cid = row["src_cid"]
-        dst_cid = row["dst_cid"]
-        src_svc = row["src"]
-        dst_svc = row["dst"]
-        edge_color = get_network_edge_color(src_cid, dst_cid)
-        src_node_color = get_node_color(src_cid)
-        dst_node_color = get_node_color(dst_cid)
-        src_node_name = src_svc+str(src_cid)
-        dst_node_name = dst_svc+str(dst_cid)
-        # src_node
-        g_.node(name=src_node_name, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=src_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
-        # dst_node
-        g_.node(name=dst_node_name, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
-        # edge from src_node to dst_node        
-        g_.edge(src_node_name, dst_node_name, label=str(row["flow"]) + " ("+str(int(row["weight"]*100))+"%)", penwidth=edge_pw, style="filled", fontsize=edge_fs, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
-            
-    g_.render(f'{cfg.OUTPUT_DIR}/call_graph-{key}', view = True) # output: call_graph.pdf
+    weight = dict()
+    num_req = dict()
+    for key in callgraph:
+        for index, row in percent_df[key].iterrows():
+            if row["flow"] <= 0 or row["weight"] <= 0:
+                continue
+            src_cid = row["src_cid"]
+            dst_cid = row["dst_cid"]
+            src_svc = row["src"]
+            dst_svc = row["dst"]
+            src_node_color = get_node_color(src_cid)
+            dst_node_color = get_node_color(dst_cid)
+            src_node_name = src_svc+str(src_cid)
+            dst_node_name = dst_svc+str(dst_cid)
+            # src_node
+            g_.node(name=src_node_name, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=src_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+            # dst_node
+            g_.node(name=dst_node_name, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+            if src_node_name+dst_node_name not in weight:
+                weight[src_node_name+dst_node_name] = 0
+            if src_node_name+dst_node_name not in num_req:
+                num_req[src_node_name+dst_node_name] = 0
+            weight[src_node_name+dst_node_name] += row["weight"]
+            num_req[src_node_name+dst_node_name] += row["flow"]
+
+    plotted = set()
+    for key in callgraph:
+        for index, row in percent_df[key].iterrows():
+            if row["flow"] <= 0 or row["weight"] <= 0:
+                continue
+            src_node_name = row["src"] + str(row["src_cid"])
+            dst_node_name = row["dst"] + str(row["dst_cid"])
+            if src_node_name+dst_node_name in plotted:
+                continue
+            plotted.add(src_node_name+dst_node_name)
+            g_.edge(src_node_name, dst_node_name, label=f'{num_req[src_node_name+dst_node_name]}({round(weight[src_node_name+dst_node_name], 2)})', penwidth=edge_pw, style="filled", fontsize=edge_fs, fontcolor="purple", color="purple", arrowsize=edge_arrowsize, minlen=edge_minlen)
+    g_.render(f'{cfg.OUTPUT_DIR}/call_graph', view = True)
     g_
 
 

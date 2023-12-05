@@ -781,15 +781,20 @@ else:
         if percentage_df[key].empty == False:
             percentage_df[key].to_csv(f'{cfg.OUTPUT_DIR}/routing-{key}.csv')
             # opt_func.plot_callgraph_request_flow(percentage_df, key, unique_service, callgraph, network_arc_var_name)
-    opt_func.plot_all_request_flow(percentage_df, unique_service, callgraph, network_arc_var_name)
-            # opt_func.plot_request_flow(percentage_df[key])
-    # opt_func.prettyprint_timestamp()
-    # return percentage_df, "OPTIMIZER, MODEL SOLVED"
-    # load_for_compute_edge_A[('productpage_v1#0#st
+    
+    cg_keys = callgraph.keys()
+    opt_func.plot_callgraph_request_flow(percentage_df, cg_keys, network_arc_var_name)
+    opt_func.plot_all_request_flow(percentage_df, callgraph, network_arc_var_name)
+    
+    # Print optimized gurobi variables    
     for v in gurobi_model.getVars():
         print(f'{v}, {v.x}')
 ''' END of run_optimizer function'''
 
+
+# In[52]:
+for key in callgraph:
+    display(percentage_df[key])
 
 # In[52]:
 
