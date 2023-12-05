@@ -846,29 +846,22 @@ opt_func.plot_merged_request_flow(another_group_by_df, network_arc_var_name)
 # In[52]:
 
 
-total_list = list()
-for index, row in concat_df.iterrows():
-    total = group_by_sum.loc[[index]]["flow"].tolist()[0]
-    total_list.append(total)
-concat_df["total"] = total_list
-weight_list = list()
-for index, row in concat_df.iterrows():
-    try:
-        weight_list.append(row['flow']/row['total'])
-    except Exception as e:
-        weight_list.append(0)
-concat_df["weight"] = weight_list
-display(concat_df)
+# total_list = list()
+# for index, row in concat_df.iterrows():
+#     total = group_by_sum.loc[[index]]["flow"].tolist()[0]
+#     total_list.append(total)
+# concat_df["total"] = total_list
+# weight_list = list()
+# for index, row in concat_df.iterrows():
+#     try:
+#         weight_list.append(row['flow']/row['total'])
+#     except Exception as e:
+#         weight_list.append(0)
+# concat_df["weight"] = weight_list
+# display(concat_df)
 
 
 # In[52]:
-
-opt_func.plot_merged_request_flow(concat_df, network_arc_var_name)
-
-
-
-# In[52]:
-
 
 # if __name__ == "__main__": ## COMMENT_OUT_FOR_JUPYTER
 #     num_requests = [100, 500]
