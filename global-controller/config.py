@@ -35,7 +35,8 @@ OUTPUT_WRITE=True
 cur_time = datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S")
 OUTPUT_DIR="./optimizer_output/"+cur_time
 DISPLAY=True
-PLOT=False
+PLOT=True
+PLOT_ALL=False
 GRAPHVIZ=True
 
 INGRESS_GW_NAME="ingress_gw"
@@ -53,7 +54,7 @@ INTER_CLUSTER_EGRESS_COST=1
 # DOLLAR_PER_MS: value of latency
 # DOLLAR_PER_MS = 0.00001
 # DOLLAR_PER_MS=0.001
-DOLLAR_PER_MS = 1
+DOLLAR_PER_MS = 0.001
 
 #################
 ## Time stitch ##
