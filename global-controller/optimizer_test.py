@@ -52,67 +52,14 @@ if not os.path.exists(cfg.OUTPUT_DIR):
     
 # In[31]:
 
-# cluster
+
+
 # workload = int(sys.argv[1])
-
-def merge_callgraph(callgraph):
-    merged_callgraph = dict()
-    for key in callgraph:
-        for parent_svc in callgraph[key]:
-            if parent_svc not in merged_callgraph:
-                merged_callgraph[parent_svc] = list()
-            for child_svc in callgraph[key][parent_svc]:
-                if child_svc in merged_callgraph[parent_svc]:
-                    continue
-                merged_callgraph[parent_svc].append(child_svc)
-    return merged_callgraph
-
-def get_max_load(num_requests):
-    max_load = dict()
-    for cid in range(len(NUM_REQUESTS)):
-        for request_type in NUM_REQUESTS[cid]:
-            if request_type not in max_load:
-                max_load[request_type] = 0
-            max_load[request_type] += NUM_REQUESTS[cid][request_type]
-    return max_load
-
-def norm(in_out_weight):
-    def normalize_weight_wrt_ingress_gw(norm_inout_weight_, in_out_weight_, cur_node, last_weight):
-        if in_out_weight_[cur_node] == {}:
-            return
-        for child_svc in in_out_weight_[cur_node]:
-            norm_inout_weight_[cur_node][child_svc] = last_weight*in_out_weight_[cur_node][child_svc]
-            normalize_weight_wrt_ingress_gw(norm_inout_weight_, in_out_weight_, child_svc, norm_inout_weight_[cur_node][child_svc])
-            
-    norm_inout_weight = dict()
-    for parent_svc in in_out_weight:
-        norm_inout_weight[parent_svc] = dict()
-        for child_svc in in_out_weight[parent_svc]:
-            norm_inout_weight[parent_svc][child_svc] = 0
-    normalize_weight_wrt_ingress_gw(norm_inout_weight, in_out_weight, "ingress_gw", 1)
-    return norm_inout_weight
-    
-def merge(request_in_out_weight, norm_inout_weight):
-    merged_in_out_weight = dict()
-    for key in norm_inout_weight:
-        for parent_svc in norm_inout_weight[key]:
-            if parent_svc not in merged_in_out_weight:
-                merged_in_out_weight[parent_svc] = dict()
-            for child_svc in norm_inout_weight[key][parent_svc]:
-                if child_svc in merged_in_out_weight[parent_svc]:
-                    continue
-                temp = request_in_out_weight[key][parent_svc][child_svc]*(MAX_LOAD[key]/sum(MAX_LOAD.values()))
-                # print(f'merged_in_out_weight[{parent_svc}][{child_svc}] += {request_in_out_weight[key][parent_svc][child_svc]}*({MAX_LOAD[key]}/{sum(MAX_LOAD.values())})')
-                for other_cg_key in norm_inout_weight:
-                    if parent_svc in norm_inout_weight[other_cg_key] and child_svc in norm_inout_weight[other_cg_key][parent_svc] and other_cg_key != key:
-                        temp += request_in_out_weight[other_cg_key][parent_svc][child_svc]*(MAX_LOAD[other_cg_key]/sum(MAX_LOAD.values()))
-                        # print(f'merged_in_out_weight[{parent_svc}][{child_svc}] += {request_in_out_weight[other_cg_key][parent_svc][child_svc]}*({MAX_LOAD[other_cg_key]}/{sum(MAX_LOAD.values())})')
-                merged_in_out_weight[parent_svc][child_svc] = temp
-    return merged_in_out_weight
-
 workload = 1
+# traffic_segmentation = int(sys.argv[2])
+traffic_segmentation = True
+
 objective_function = "avg_latency" # "avg_latency", "end_to_end_latency", "multi_objective", "egress_cost"
-traffic_segmentation = False
 
 NUM_REQUESTS = list()
 unique_service = dict()
@@ -126,7 +73,7 @@ NUM_REQUESTS = list()
 if workload == 0:
     NUM_REQUESTS.append({"A": 10, "B": 30})
     NUM_REQUESTS.append({"A": 20, "B": 60})
-    MAX_LOAD = get_max_load(NUM_REQUESTS)
+    MAX_LOAD = opt_func.get_max_load(NUM_REQUESTS)
     unique_service[0] = {'ingress_gw', 'productpage-v1', 'reviews-v3', 'details-v1'}
     unique_service[1] = {'ingress_gw', 'productpage-v1', 'details-v1'}
     callgraph["A"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['reviews-v3'], 'reviews-v3':[]}
@@ -134,31 +81,13 @@ if workload == 0:
     request_in_out_weight["A"] = {'ingress_gw': {'productpage-v1': 1}, 'productpage-v1': {'reviews-v3': 1}, 'reviews-v3':{}}
     request_in_out_weight["B"] = {'ingress_gw': {'productpage-v1': 1}, 'productpage-v1': {'details-v1': 1}, 'details-v1':{}}
     for key in request_in_out_weight:
-        norm_inout_weight[key] = norm(request_in_out_weight[key])
-    merged_in_out_weight = merge(request_in_out_weight, norm_inout_weight)
-    norm_merged_in_out_weight = norm(merged_in_out_weight)
-    
-    if traffic_segmentation == False:
-        # request_in_out_weight["M"] = {'ingress_gw': {'productpage-v1': 1}, 'productpage-v1': {'reviews-v3': 0.25, 'details-v1': 0.75}, 'reviews-v3':{}, 'details-v1':{}}
-        merged_cg_key = "M"
-        merged_callgraph = merge_callgraph(callgraph)
-        callgraph = dict()
-        callgraph[merged_cg_key] = merged_callgraph
-        request_in_out_weight = dict()
-        request_in_out_weight[merged_cg_key] = merged_in_out_weight
-        norm_inout_weight = dict()
-        norm_inout_weight[merged_cg_key] = norm_merged_in_out_weight
-        merged_NUM_REQUESTS = list()
-        for num_req in NUM_REQUESTS:
-            merged_NUM_REQUESTS.append({merged_cg_key: sum(num_req.values())})
-        NUM_REQUESTS = list()
-        NUM_REQUESTS = merged_NUM_REQUESTS
-        MAX_LOAD = get_max_load(NUM_REQUESTS)
-        
+        norm_inout_weight[key] = opt_func.norm(request_in_out_weight[key])
+    merged_in_out_weight = opt_func.merge(request_in_out_weight, norm_inout_weight, MAX_LOAD)
+    norm_merged_in_out_weight = opt_func.norm(merged_in_out_weight)
 elif workload == 1:
-    NUM_REQUESTS.append({"A": 10, "B": 30})
-    NUM_REQUESTS.append({"A": 40, "B": 20})
-    MAX_LOAD = get_max_load(NUM_REQUESTS)
+    NUM_REQUESTS.append({"A": 1000, "B": 3000})
+    NUM_REQUESTS.append({"A": 4000, "B": 2000})
+    MAX_LOAD = opt_func.get_max_load(NUM_REQUESTS)
     unique_service[0] = {'ingress_gw', 'productpage-v1', 'reviews-v3', 'details-v1'}
     unique_service[1] = {'ingress_gw', 'productpage-v1', 'details-v1'}
     callgraph["A"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['reviews-v3'], 'reviews-v3':[]}
@@ -166,33 +95,33 @@ elif workload == 1:
     request_in_out_weight["A"] = {'ingress_gw': {'productpage-v1': 1}, 'productpage-v1': {'reviews-v3': 1}, 'reviews-v3':{}}
     request_in_out_weight["B"] = {'ingress_gw': {'productpage-v1': 1}, 'productpage-v1': {'details-v1': 1}, 'details-v1':{}}
     for key in request_in_out_weight:
-        norm_inout_weight[key] = norm(request_in_out_weight[key])
-    merged_in_out_weight = merge(request_in_out_weight, norm_inout_weight)
-    norm_merged_in_out_weight = norm(merged_in_out_weight)
-    
-    if traffic_segmentation == False:
-        original_NUM_REQUESTS = NUM_REQUESTS.copy()
-        original_MAX_LOAD = MAX_LOAD.copy()
-        original_callgraph = callgraph.copy()
-        original_request_in_out_weight = request_in_out_weight.copy()
-        
-        merged_cg_key = "M"
-        merged_callgraph = merge_callgraph(callgraph)
-        callgraph = dict()
-        callgraph[merged_cg_key] = merged_callgraph
-        request_in_out_weight = dict()
-        request_in_out_weight[merged_cg_key] = merged_in_out_weight
-        norm_inout_weight = dict()
-        norm_inout_weight[merged_cg_key] = norm_merged_in_out_weight
-        merged_NUM_REQUESTS = list()
-        for num_req in NUM_REQUESTS:
-            merged_NUM_REQUESTS.append({merged_cg_key: sum(num_req.values())})
-        NUM_REQUESTS = list()
-        NUM_REQUESTS = merged_NUM_REQUESTS
-        MAX_LOAD = get_max_load(NUM_REQUESTS)
+        norm_inout_weight[key] = opt_func.norm(request_in_out_weight[key])
+    merged_in_out_weight = opt_func.merge(request_in_out_weight, norm_inout_weight, MAX_LOAD)
+    norm_merged_in_out_weight = opt_func.norm(merged_in_out_weight)
 else:
     print(f'workload({workload}) is not supported')
     assert False
+    
+if traffic_segmentation == False:
+    original_NUM_REQUESTS = NUM_REQUESTS.copy()
+    original_MAX_LOAD = MAX_LOAD.copy()
+    original_callgraph = callgraph.copy()
+    original_request_in_out_weight = request_in_out_weight.copy()
+    
+    merged_cg_key = "M"
+    merged_callgraph = opt_func.merge_callgraph(callgraph)
+    callgraph = dict()
+    callgraph[merged_cg_key] = merged_callgraph
+    request_in_out_weight = dict()
+    request_in_out_weight[merged_cg_key] = merged_in_out_weight
+    norm_inout_weight = dict()
+    norm_inout_weight[merged_cg_key] = norm_merged_in_out_weight
+    merged_NUM_REQUESTS = list()
+    for num_req in NUM_REQUESTS:
+        merged_NUM_REQUESTS.append({merged_cg_key: sum(num_req.values())})
+    NUM_REQUESTS = list()
+    NUM_REQUESTS = merged_NUM_REQUESTS
+    MAX_LOAD = opt_func.get_max_load(NUM_REQUESTS)
     
 
 def print_setup():
@@ -230,8 +159,9 @@ print(f'callsize_dict: {callsize_dict}')
 
 compute_df = opt_func.create_compute_df(unique_service, callgraph, callsize_dict, NUM_REQUESTS, MAX_LOAD)
 display(compute_df)
-# original_compute_df = opt_func.create_compute_df(unique_service, original_callgraph, callsize_dict, original_NUM_REQUESTS, original_MAX_LOAD)
-# display(original_compute_df)
+if traffic_segmentation == False:
+    original_compute_df = opt_func.create_compute_df(unique_service, original_callgraph, callsize_dict, original_NUM_REQUESTS, original_MAX_LOAD)
+    # display(original_compute_df)
 
 
 # In[42]:
@@ -834,13 +764,13 @@ else:
 
     ## Print out the result
     optimize_end_time = time.time()
-    optimizer_runtime = round((optimize_end_time - optimizer_start_time) - substract_time, 5)
-    solve_runtime = round(solve_end_time - solve_start_time, 5)
+    # optimizer_runtime = round((optimize_end_time - optimizer_start_time) - substract_time, 5)
+    # solve_runtime = round(solve_end_time - solve_start_time, 5)
     app.logger.error(f"{cfg.log_prefix} ** Objective function: {objective_function}")
     app.logger.error(f"{cfg.log_prefix} ** Num constraints: {num_constr}")
     app.logger.error(f"{cfg.log_prefix} ** Num variables: {num_var}")
-    app.logger.error(f"{cfg.log_prefix} ** Optimization runtime: {optimizer_runtime} ms")
-    app.logger.error(f"{cfg.log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
+    # app.logger.error(f"{cfg.log_prefix} ** Optimization runtime: {optimizer_runtime} ms")
+    # app.logger.error(f"{cfg.log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
     app.logger.error(f"{cfg.log_prefix} ** model.objVal: {gurobi_model.objVal}")
     # app.logger.error(f"{cfg.log_prefix} ** gurobi_model.objVal / total num requests: {gurobi_model.objVal/MAX_LOAD}")
     request_flow = dict()
@@ -981,15 +911,6 @@ else:
     
     # In[52]:
     
-    display(compute_df)
-    for index, row in compute_df.iterrows():
-        row['latency_function_M']
-    
-    
-    
-    # In[52]:
-    
-    
     
     # opt_func.print_all_gurobi_var(gurobi_model)
     lat_ret = dict()
@@ -1004,21 +925,21 @@ else:
         assert compute_latency[key].keys().all() == compute_load[key].keys().all()
         assert network_latency[key].keys().all() == network_load[key].keys().all()
         for k, v in compute_latency[key].items():
-            print(f'compute_latency[{key}][{k}]: {round(compute_latency[key][k].getAttr("X"), 1)}')
-            print(f'compute_load[{key}][{k}]: {round(compute_load[key][k].getAttr("X"), 1)}')
-            print(f'{compute_latency[key][k].getAttr("X")*compute_load[key][k].getAttr("X")}')
+            # print(f'compute_latency[{key}][{k}]: {round(compute_latency[key][k].getAttr("X"), 1)}')
+            # print(f'compute_load[{key}][{k}]: {round(compute_load[key][k].getAttr("X"), 1)}')
+            # print(f'{compute_latency[key][k].getAttr("X")*compute_load[key][k].getAttr("X")}')
             lat_ret[key]["compute"] += compute_latency[key][k].getAttr("X")*compute_load[key][k].getAttr("X")
             
         for k, v in network_latency[key].items():
-            print(f'network_latency[{key}][{k}]: {round(network_latency[key][k].getAttr("X"), 1)}')
-            print(f'network_load[{key}][{k}]: {round(network_load[key][k].getAttr("X"), 1)}')
-            print(f'{network_latency[key][k].getAttr("X")*network_load[key][k].getAttr("X")}')
+            # print(f'network_latency[{key}][{k}]: {round(network_latency[key][k].getAttr("X"), 1)}')
+            # print(f'network_load[{key}][{k}]: {round(network_load[key][k].getAttr("X"), 1)}')
+            # print(f'{network_latency[key][k].getAttr("X")*network_load[key][k].getAttr("X")}')
             lat_ret[key]["network"] += network_latency[key][k].getAttr("X")*network_load[key][k].getAttr("X")
             
         for k, v in network_egress_cost[key].items():
-            print(f'network_egress_cost[{key}][{k}]: {round(network_egress_cost[key][k].getAttr("X"), 1)}')
-            print(f'network_load[{key}][{k}]: {round(network_load[key][k].getAttr("X"), 1)}')
-            print(f'{round(network_egress_cost[key][k].getAttr("X")*network_load[key][k].getAttr("X"), 1)}')
+            # print(f'network_egress_cost[{key}][{k}]: {round(network_egress_cost[key][k].getAttr("X"), 1)}')
+            # print(f'network_load[{key}][{k}]: {round(network_load[key][k].getAttr("X"), 1)}')
+            # print(f'{round(network_egress_cost[key][k].getAttr("X")*network_load[key][k].getAttr("X"), 1)}')
             cost_ret[key] += network_egress_cost[key][k].getAttr("X")*network_load[key][k].getAttr("X")
     total_lat = dict()
     sum_total_lat = dict()
@@ -1051,22 +972,66 @@ else:
     print()
     
     print(f"model.objVal: {round(gurobi_model.objVal, 1)}")
+    print('*'*70)
     
     
     # In[52]:
-    for key in percentage_df:
-        display(percentage_df[key])
-    print(original_NUM_REQUESTS)
-    for key in original_callgraph:
-        print(key)
-        print(original_callgraph[key])
-        print(original_request_in_out_weight[key])
-        print()
+    
+    
+    if traffic_segmentation == False:
+        act_tot_network_latency = dict()
+        for key in actual_request_flow_df:
+            # display(actual_request_flow_df[key])
+            act_tot_network_latency[key] = 0
+            for index, row in actual_request_flow_df[key].iterrows():
+                act_tot_network_latency[key] += opt_func.get_network_latency(row['src_cid'], row['dst_cid']) * row['flow']
         
-    def 
+        group_by_df = dict()
+        for key in actual_request_flow_df:
+            # display(actual_request_flow_df[key])
+            temp_df = actual_request_flow_df[key].drop(columns=['src', 'src_cid', 'total', 'weight'])
+            group_by_df[key] = temp_df.groupby(["dst", "dst_cid"]).sum()
+            group_by_df[key] = group_by_df[key].reset_index()
+            # display(group_by_df[key])
+            
+        act_tot_compute_avg_lat = dict()
+        for key in group_by_df:
+            act_tot_compute_avg_lat[key] = 0
+            for index, row in group_by_df[key].iterrows():
+                data = dict()
+                data["observed_x_"+key] = [row["flow"]]
+                for key2 in group_by_df:
+                    if key2 != key:
+                        for index2, row2 in group_by_df[key2].iterrows():
+                            if row2["dst"] == row["dst"] and row2["dst_cid"] == row["dst_cid"]:
+                                data["observed_x_"+key2] = [row2["flow"]]
+                                break
+                temp_df = pd.DataFrame(data=data)
+                # print(f'{row["dst"]}, {row["dst_cid"]}')
+                # display(temp_df)
+                idx = opt_func.get_compute_arc_var_name(row["dst"], row["dst_cid"])
+                lat_f = original_compute_df.loc[[idx]]["latency_function_"+key].tolist()[0]
+                # print(lat_f)
+                pred = lat_f.predict(temp_df)
+                # print(f'pred: {pred}')
+                act_tot_compute_avg_lat[key] += (pred[0] * group_by_df[key].loc[index, "flow"])
+                print(f'{key}, {row["dst"]}, cid, {row["dst_cid"]}: {round(pred[0] * group_by_df[key].loc[index, "flow"], 1)} = {round(pred[0], 1)} x {round(group_by_df[key].loc[index, "flow"], 1)}')
+        act_tot_avg_lat = dict()
+        for key in act_tot_compute_avg_lat:
+            act_tot_avg_lat[key] = act_tot_compute_avg_lat[key] + act_tot_network_latency[key]
+        for key in act_tot_avg_lat:
+            print(f'act_tot_compute_avg_lat[{key}]: {round(act_tot_compute_avg_lat[key], 1)}')
+            print(f'act_tot_network_latency[{key}]: {round(act_tot_network_latency[key], 1)}')
+            print(f'act_tot_avg_lat[{key}]: {round(act_tot_avg_lat[key], 1)}')
+            print(f'avg_act_tot_avg_lat[{key}]: {round(act_tot_avg_lat[key]/original_MAX_LOAD[key], 1)}')
+            print()
+        print(f'sum_act_tot_compute_avg_lat: {round(sum(act_tot_compute_avg_lat.values()), 1)}')
+        print(f'sum_act_tot_network_latency: {round(sum(act_tot_network_latency.values()), 1)}')
+        print(f'act_total_sum: {round(sum(act_tot_avg_lat.values()), 1)}')
+        print(f'avg_act_total_sum: {round(sum(act_tot_avg_lat.values())/sum(original_MAX_LOAD.values()), 1)}')
+        
     
 ''' END of run_optimizer function'''
-
 
 
 # In[52]:

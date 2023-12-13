@@ -223,16 +223,12 @@ def plot_latency_function_3d(compute_df, y_axis_target_cg_key):
         data = dict()
         for key in callgraph:
             data["observed_x_"+key] = row["observed_x_"+key]
-        temp_df = pd.DataFrame(
-            data=data
-        )
-        # X_ = temp_df[["observed_x_A", "observed_x_B"]]
-        X_ = temp_df
+        temp_df = pd.DataFrame(data=data)
         row_idx = int(idx/num_subplot_col)
         col_idx = idx%num_subplot_col
         ax = fig.add_subplot(100 + (row_idx+1)*10 + (col_idx+1), projection='3d')
         ax.scatter(row["observed_x_A"], row["observed_x_B"], row["observed_y_"+y_axis_target_cg_key], c='r', marker='o', label="observation", alpha=0.1)
-        ylim = max(ylim, max(row["observed_y_"+y_axis_target_cg_key]), max(row["latency_function"].predict(X_)))
+        ylim = max(ylim, max(row["observed_y_"+y_axis_target_cg_key]), max(row["latency_function"].predict(temp_df)))
         # axs[row_idx][col_idx].legend()
         # axs[row_idx][col_idx].set_title(index[0])
         # if row_idx == num_subplot_row-1:
@@ -1131,3 +1127,59 @@ def create_path(svc_order, comb, unpack_list, callgraph, key):
         network_arc_var_name = get_network_arc_var_name(src_svc, src_cid, dst_svc, dst_cid)
         path.append(network_arc_var_name)
     return path
+
+
+def merge_callgraph(callgraph):
+    merged_callgraph = dict()
+    for key in callgraph:
+        for parent_svc in callgraph[key]:
+            if parent_svc not in merged_callgraph:
+                merged_callgraph[parent_svc] = list()
+            for child_svc in callgraph[key][parent_svc]:
+                if child_svc in merged_callgraph[parent_svc]:
+                    continue
+                merged_callgraph[parent_svc].append(child_svc)
+    return merged_callgraph
+
+def get_max_load(num_requests):
+    max_load = dict()
+    for cid in range(len(num_requests)):
+        for request_type in num_requests[cid]:
+            if request_type not in max_load:
+                max_load[request_type] = 0
+            max_load[request_type] += num_requests[cid][request_type]
+    return max_load
+
+def norm(in_out_weight):
+    def normalize_weight_wrt_ingress_gw(norm_inout_weight_, in_out_weight_, cur_node, last_weight):
+        if in_out_weight_[cur_node] == {}:
+            return
+        for child_svc in in_out_weight_[cur_node]:
+            norm_inout_weight_[cur_node][child_svc] = last_weight*in_out_weight_[cur_node][child_svc]
+            normalize_weight_wrt_ingress_gw(norm_inout_weight_, in_out_weight_, child_svc, norm_inout_weight_[cur_node][child_svc])
+            
+    norm_inout_weight = dict()
+    for parent_svc in in_out_weight:
+        norm_inout_weight[parent_svc] = dict()
+        for child_svc in in_out_weight[parent_svc]:
+            norm_inout_weight[parent_svc][child_svc] = 0
+    normalize_weight_wrt_ingress_gw(norm_inout_weight, in_out_weight, "ingress_gw", 1)
+    return norm_inout_weight
+    
+def merge(request_in_out_weight, norm_inout_weight, max_load):
+    merged_in_out_weight = dict()
+    for key in norm_inout_weight:
+        for parent_svc in norm_inout_weight[key]:
+            if parent_svc not in merged_in_out_weight:
+                merged_in_out_weight[parent_svc] = dict()
+            for child_svc in norm_inout_weight[key][parent_svc]:
+                if child_svc in merged_in_out_weight[parent_svc]:
+                    continue
+                temp = request_in_out_weight[key][parent_svc][child_svc]*(max_load[key]/sum(max_load.values()))
+                # print(f'merged_in_out_weight[{parent_svc}][{child_svc}] += {request_in_out_weight[key][parent_svc][child_svc]}*({max_load[key]}/{sum(max_load.values())})')
+                for other_cg_key in norm_inout_weight:
+                    if parent_svc in norm_inout_weight[other_cg_key] and child_svc in norm_inout_weight[other_cg_key][parent_svc] and other_cg_key != key:
+                        temp += request_in_out_weight[other_cg_key][parent_svc][child_svc]*(max_load[other_cg_key]/sum(max_load.values()))
+                        # print(f'merged_in_out_weight[{parent_svc}][{child_svc}] += {request_in_out_weight[other_cg_key][parent_svc][child_svc]}*({max_load[other_cg_key]}/{sum(max_load.values())})')
+                merged_in_out_weight[parent_svc][child_svc] = temp
+    return merged_in_out_weight
