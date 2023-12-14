@@ -54,12 +54,13 @@ if not os.path.exists(cfg.OUTPUT_DIR):
 
 
 
-# workload = int(sys.argv[1])
-workload = 1
-# traffic_segmentation = int(sys.argv[2])
-traffic_segmentation = True
+workload = int(sys.argv[1])
+traffic_segmentation = int(sys.argv[2])
+objective_function = sys.argv[3] # "avg_latency", "end_to_end_latency", "multi_objective", "egress_cost"
 
-objective_function = "avg_latency" # "avg_latency", "end_to_end_latency", "multi_objective", "egress_cost"
+# workload = 1
+# traffic_segmentation = True
+# objective_function = "avg_latency" # "avg_latency", "end_to_end_latency", "multi_objective", "egress_cost"
 
 NUM_REQUESTS = list()
 unique_service = dict()
@@ -80,13 +81,9 @@ if workload == 0:
     callgraph["B"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['details-v1'], 'details-v1':[]}
     request_in_out_weight["A"] = {'ingress_gw': {'productpage-v1': 1}, 'productpage-v1': {'reviews-v3': 1}, 'reviews-v3':{}}
     request_in_out_weight["B"] = {'ingress_gw': {'productpage-v1': 1}, 'productpage-v1': {'details-v1': 1}, 'details-v1':{}}
-    for key in request_in_out_weight:
-        norm_inout_weight[key] = opt_func.norm(request_in_out_weight[key])
-    merged_in_out_weight = opt_func.merge(request_in_out_weight, norm_inout_weight, MAX_LOAD)
-    norm_merged_in_out_weight = opt_func.norm(merged_in_out_weight)
 elif workload == 1:
-    NUM_REQUESTS.append({"A": 1000, "B": 3000})
-    NUM_REQUESTS.append({"A": 4000, "B": 2000})
+    NUM_REQUESTS.append({"A": 10, "B": 30})
+    NUM_REQUESTS.append({"A": 40, "B": 20})
     MAX_LOAD = opt_func.get_max_load(NUM_REQUESTS)
     unique_service[0] = {'ingress_gw', 'productpage-v1', 'reviews-v3', 'details-v1'}
     unique_service[1] = {'ingress_gw', 'productpage-v1', 'details-v1'}
@@ -94,13 +91,24 @@ elif workload == 1:
     callgraph["B"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['details-v1'], 'details-v1':[]}
     request_in_out_weight["A"] = {'ingress_gw': {'productpage-v1': 1}, 'productpage-v1': {'reviews-v3': 1}, 'reviews-v3':{}}
     request_in_out_weight["B"] = {'ingress_gw': {'productpage-v1': 1}, 'productpage-v1': {'details-v1': 1}, 'details-v1':{}}
-    for key in request_in_out_weight:
-        norm_inout_weight[key] = opt_func.norm(request_in_out_weight[key])
-    merged_in_out_weight = opt_func.merge(request_in_out_weight, norm_inout_weight, MAX_LOAD)
-    norm_merged_in_out_weight = opt_func.norm(merged_in_out_weight)
+elif workload == 2:
+    NUM_REQUESTS.append({"A": 10, "B": 20})
+    NUM_REQUESTS.append({"A": 100, "B": 200})
+    MAX_LOAD = opt_func.get_max_load(NUM_REQUESTS)
+    unique_service[0] = {'ingress_gw', 'productpage-v1', 'reviews-v3', 'details-v1'}
+    unique_service[1] = {'ingress_gw', 'productpage-v1', 'reviews-v3', 'details-v1'}
+    callgraph["A"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['reviews-v3'], 'reviews-v3':[]}
+    callgraph["B"] = {'ingress_gw': ['productpage-v1'], 'productpage-v1': ['details-v1'], 'details-v1':[]}
+    request_in_out_weight["A"] = {'ingress_gw': {'productpage-v1': 1}, 'productpage-v1': {'reviews-v3': 2}, 'reviews-v3':{}}
+    request_in_out_weight["B"] = {'ingress_gw': {'productpage-v1': 1}, 'productpage-v1': {'details-v1': 1}, 'details-v1':{}}
 else:
     print(f'workload({workload}) is not supported')
     assert False
+    
+for key in request_in_out_weight:
+    norm_inout_weight[key] = opt_func.norm(request_in_out_weight[key])
+merged_in_out_weight = opt_func.merge(request_in_out_weight, norm_inout_weight, MAX_LOAD)
+norm_merged_in_out_weight = opt_func.norm(merged_in_out_weight)
     
 if traffic_segmentation == False:
     original_NUM_REQUESTS = NUM_REQUESTS.copy()
@@ -1020,15 +1028,17 @@ else:
         for key in act_tot_compute_avg_lat:
             act_tot_avg_lat[key] = act_tot_compute_avg_lat[key] + act_tot_network_latency[key]
         for key in act_tot_avg_lat:
-            print(f'act_tot_compute_avg_lat[{key}]: {round(act_tot_compute_avg_lat[key], 1)}')
-            print(f'act_tot_network_latency[{key}]: {round(act_tot_network_latency[key], 1)}')
-            print(f'act_tot_avg_lat[{key}]: {round(act_tot_avg_lat[key], 1)}')
-            print(f'avg_act_tot_avg_lat[{key}]: {round(act_tot_avg_lat[key]/original_MAX_LOAD[key], 1)}')
+            print(f'{key}: compute: {round(act_tot_compute_avg_lat[key], 1)}')
+            print(f'{key}: network: {round(act_tot_network_latency[key], 1)}')
+            print(f'{key}: sum: {round(act_tot_avg_lat[key], 1)}')
+            print(f'{key}: avg latency: {round(act_tot_avg_lat[key]/original_MAX_LOAD[key], 1)}')
+            print(f'{key}: egress cost: ')
             print()
-        print(f'sum_act_tot_compute_avg_lat: {round(sum(act_tot_compute_avg_lat.values()), 1)}')
-        print(f'sum_act_tot_network_latency: {round(sum(act_tot_network_latency.values()), 1)}')
-        print(f'act_total_sum: {round(sum(act_tot_avg_lat.values()), 1)}')
-        print(f'avg_act_total_sum: {round(sum(act_tot_avg_lat.values())/sum(original_MAX_LOAD.values()), 1)}')
+        print(f'sum_total_lat: compute: {round(sum(act_tot_compute_avg_lat.values()), 1)}')
+        print(f'sum_total_lat: network: {round(sum(act_tot_network_latency.values()), 1)}')
+        print(f'all_total_avg_lat: {round(sum(act_tot_avg_lat.values()), 1)}')
+        print(f'all_avg_lat: {round(sum(act_tot_avg_lat.values())/sum(original_MAX_LOAD.values()), 1)}')
+        print(f'all_total_e_cost: ')
         
     
 ''' END of run_optimizer function'''
