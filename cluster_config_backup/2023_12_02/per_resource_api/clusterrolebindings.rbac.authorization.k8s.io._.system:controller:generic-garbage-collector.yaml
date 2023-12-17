@@ -1,0 +1,19 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+  creationTimestamp: "2023-11-16T20:16:07Z"
+  labels:
+    kubernetes.io/bootstrapping: rbac-defaults
+  name: system:controller:generic-garbage-collector
+  resourceVersion: "160"
+  uid: a8771b36-c508-4f50-9cda-19b9a0f9b823
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:controller:generic-garbage-collector
+subjects:
+- kind: ServiceAccount
+  name: generic-garbage-collector
+  namespace: kube-system

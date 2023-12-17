@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Endpoints
+metadata:
+  creationTimestamp: "2023-11-16T21:02:34Z"
+  labels:
+    app: reviews
+    service: reviews
+  name: reviews
+  namespace: default
+  resourceVersion: "2566182"
+  uid: ce4f16a0-9e06-4c32-ab3c-8cfe4d4ffc3e
+subsets:
+- addresses:
+  - ip: 10.244.1.134
+    nodeName: node1.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+    targetRef:
+      kind: Pod
+      name: reviews-v3-7bcb9444c5-72pq6
+      namespace: default
+      uid: 9fcd35b9-3611-4d6c-8fa4-8b09857fcec7
+  - ip: 10.244.2.55
+    nodeName: node4.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+    targetRef:
+      kind: Pod
+      name: reviews-v3-7bcb9444c5-rqgxh
+      namespace: default
+      uid: 9e2ef543-2478-4770-add5-856944b8ac83
+  ports:
+  - name: http
+    port: 9080
+    protocol: TCP

@@ -1,0 +1,22 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"networking.istio.io/v1alpha3","kind":"Gateway","metadata":{"annotations":{},"name":"slate-gateway","namespace":"default"},"spec":{"selector":{"istio":"ingressgateway"},"servers":[{"hosts":["istio-ingressgateway.istio-system.svc.cluster.local"],"port":{"name":"http","number":80,"protocol":"HTTP"}}]}}
+  creationTimestamp: "2023-11-17T19:03:04Z"
+  generation: 1
+  name: slate-gateway
+  namespace: default
+  resourceVersion: "158031"
+  uid: 738d210a-02fd-455f-85cb-155972257d71
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - hosts:
+    - istio-ingressgateway.istio-system.svc.cluster.local
+    port:
+      name: http
+      number: 80
+      protocol: HTTP

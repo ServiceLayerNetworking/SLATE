@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: "2023-11-16T20:16:09Z"
+  name: kubeadm:get-nodes
+  resourceVersion: "230"
+  uid: a146e645-126f-4adc-ab4d-3640bc3b0acd
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get

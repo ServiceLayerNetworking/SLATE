@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  annotations:
+    deployment.kubernetes.io/desired-replicas: "2"
+    deployment.kubernetes.io/max-replicas: "3"
+    deployment.kubernetes.io/revision: "16"
+  creationTimestamp: "2023-12-01T20:52:08Z"
+  generation: 3
+  labels:
+    app: productpage
+    pod-template-hash: 7bd957446b
+    version: v1
+  name: productpage-v1-7bd957446b
+  namespace: default
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Deployment
+    name: productpage-v1
+    uid: c18c93bd-42ac-4820-8519-2f73bd1b84f5
+  resourceVersion: "2566403"
+  uid: 24c6e294-f924-4893-80fb-1bcd76ff6dc6
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: productpage
+      pod-template-hash: 7bd957446b
+      version: v1
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2023-12-01T14:48:52-06:00"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9080"
+        prometheus.io/scrape: "true"
+      creationTimestamp: null
+      labels:
+        app: productpage
+        pod-template-hash: 7bd957446b
+        version: v1
+    spec:
+      containers:
+      - image: docker.io/istio/examples-bookinfo-productpage-v1:1.18.0
+        imagePullPolicy: IfNotPresent
+        name: productpage
+        ports:
+        - containerPort: 9080
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: bookinfo-productpage
+      serviceAccountName: bookinfo-productpage
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: productpage
+        maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+      volumes:
+      - emptyDir: {}
+        name: tmp
+status:
+  availableReplicas: 1
+  fullyLabeledReplicas: 1
+  observedGeneration: 3
+  readyReplicas: 1
+  replicas: 1

@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  annotations:
+    deployment.kubernetes.io/desired-replicas: "2"
+    deployment.kubernetes.io/max-replicas: "3"
+    deployment.kubernetes.io/revision: "10"
+  creationTimestamp: "2023-11-17T20:34:41Z"
+  generation: 4
+  labels:
+    app: ratings
+    pod-template-hash: 846b5994ff
+    version: v1
+  name: ratings-v1-846b5994ff
+  namespace: default
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Deployment
+    name: ratings-v1
+    uid: 2dce12dd-c6ca-4368-b0f5-b5fe24f5ae89
+  resourceVersion: "1934682"
+  uid: 802bec7e-9ca6-4ab8-88b9-8646109513f8
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: ratings
+      pod-template-hash: 846b5994ff
+      version: v1
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2023-11-17T20:34:40Z"
+      creationTimestamp: null
+      labels:
+        app: ratings
+        pod-template-hash: 846b5994ff
+        version: v1
+    spec:
+      containers:
+      - image: docker.io/istio/examples-bookinfo-ratings-v1:1.18.0
+        imagePullPolicy: IfNotPresent
+        name: ratings
+        ports:
+        - containerPort: 9080
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: bookinfo-ratings
+      serviceAccountName: bookinfo-ratings
+      terminationGracePeriodSeconds: 30
+status:
+  observedGeneration: 4
+  replicas: 0

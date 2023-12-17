@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Endpoints
+metadata:
+  creationTimestamp: "2023-11-17T18:54:44Z"
+  labels:
+    app: slate-controller
+    service: slate-controller
+  name: slate-controller
+  namespace: default
+  resourceVersion: "2565410"
+  uid: 5b462d3a-2870-4804-96ee-7c8683a083f9
+subsets:
+- addresses:
+  - ip: 10.244.1.131
+    nodeName: node1.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+    targetRef:
+      kind: Pod
+      name: slate-controller-845f44cd47-5kzs4
+      namespace: default
+      uid: fda7fbea-c41a-4438-a3e9-1ea6244003ea
+  - ip: 10.244.2.51
+    nodeName: node4.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+    targetRef:
+      kind: Pod
+      name: slate-controller-845f44cd47-9r597
+      namespace: default
+      uid: 2ae76faa-9e93-4e9c-b9c9-8f1e8d871307
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP

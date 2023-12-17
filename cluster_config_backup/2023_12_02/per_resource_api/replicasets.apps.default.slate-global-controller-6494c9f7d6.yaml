@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  annotations:
+    deployment.kubernetes.io/desired-replicas: "1"
+    deployment.kubernetes.io/max-replicas: "2"
+    deployment.kubernetes.io/revision: "4"
+  creationTimestamp: "2023-11-17T18:51:08Z"
+  generation: 2
+  labels:
+    app: slate-global-controller
+    pod-template-hash: 6494c9f7d6
+    version: v1
+  name: slate-global-controller-6494c9f7d6
+  namespace: default
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Deployment
+    name: slate-global-controller
+    uid: bd7cb0b7-468c-4968-8f82-a9ef9bb4101a
+  resourceVersion: "156137"
+  uid: d68e00e2-7c4c-484a-89bb-a15bb41a70f7
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: slate-global-controller
+      pod-template-hash: 6494c9f7d6
+      version: v1
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2023-11-17T18:51:08Z"
+      creationTimestamp: null
+      labels:
+        app: slate-global-controller
+        pod-template-hash: 6494c9f7d6
+        version: v1
+    spec:
+      containers:
+      - image: ghcr.io/adiprerepa/slate-global-controller:latest
+        imagePullPolicy: Always
+        name: slate-global-controller
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: slate-global-controller-sa
+      serviceAccountName: slate-global-controller-sa
+      terminationGracePeriodSeconds: 30
+status:
+  observedGeneration: 2
+  replicas: 0

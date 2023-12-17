@@ -1,0 +1,40 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  creationTimestamp: "2023-11-16T21:22:18Z"
+  generation: 1
+  labels:
+    app: istio-eastwestgateway
+    install.operator.istio.io/owning-resource: installed-state-eastwest
+    install.operator.istio.io/owning-resource-namespace: istio-system
+    istio: eastwestgateway
+    istio.io/rev: default
+    operator.istio.io/component: IngressGateways
+    operator.istio.io/managed: Reconcile
+    operator.istio.io/version: 1.20.0
+    release: istio
+    topology.istio.io/network: network1
+  name: istio-eastwestgateway
+  namespace: istio-system
+  resourceVersion: "2564142"
+  uid: 01382de2-cdee-43dc-8a01-9cb803859a04
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: istio-eastwestgateway
+      istio: eastwestgateway
+      topology.istio.io/network: network1
+status:
+  conditions:
+  - lastTransitionTime: "2023-12-01T20:43:08Z"
+    message: ""
+    observedGeneration: 1
+    reason: InsufficientPods
+    status: "False"
+    type: DisruptionAllowed
+  currentHealthy: 1
+  desiredHealthy: 1
+  disruptionsAllowed: 0
+  expectedPods: 1
+  observedGeneration: 1

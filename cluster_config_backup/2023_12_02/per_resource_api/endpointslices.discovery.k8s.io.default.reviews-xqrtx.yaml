@@ -1,0 +1,56 @@
+addressType: IPv4
+apiVersion: discovery.k8s.io/v1
+endpoints:
+- addresses:
+  - 10.244.1.134
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: node1.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+  targetRef:
+    kind: Pod
+    name: reviews-v3-7bcb9444c5-72pq6
+    namespace: default
+    uid: 9fcd35b9-3611-4d6c-8fa4-8b09857fcec7
+  zone: us-west-1a
+- addresses:
+  - 10.244.2.55
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: node4.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+  targetRef:
+    kind: Pod
+    name: reviews-v3-7bcb9444c5-rqgxh
+    namespace: default
+    uid: 9e2ef543-2478-4770-add5-856944b8ac83
+  zone: us-east-1a
+kind: EndpointSlice
+metadata:
+  annotations:
+    endpoints.kubernetes.io/last-change-trigger-time: "2023-12-01T20:52:28Z"
+  creationTimestamp: "2023-11-16T21:02:34Z"
+  generateName: reviews-
+  generation: 179
+  labels:
+    app: reviews
+    endpointslice.kubernetes.io/managed-by: endpointslice-controller.k8s.io
+    kubernetes.io/service-name: reviews
+    service: reviews
+  name: reviews-xqrtx
+  namespace: default
+  ownerReferences:
+  - apiVersion: v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Service
+    name: reviews
+    uid: 533aae46-eda8-447d-989f-01d9a89bc7c3
+  resourceVersion: "2566217"
+  uid: c186e7ed-24a8-4144-9e81-79fd359038d7
+ports:
+- name: http
+  port: 9080
+  protocol: TCP

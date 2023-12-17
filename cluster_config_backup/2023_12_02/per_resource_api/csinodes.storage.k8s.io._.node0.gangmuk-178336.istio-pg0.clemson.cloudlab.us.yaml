@@ -1,0 +1,16 @@
+apiVersion: storage.k8s.io/v1
+kind: CSINode
+metadata:
+  annotations:
+    storage.alpha.kubernetes.io/migrated-plugins: kubernetes.io/aws-ebs,kubernetes.io/azure-disk,kubernetes.io/azure-file,kubernetes.io/cinder,kubernetes.io/gce-pd,kubernetes.io/vsphere-volume
+  creationTimestamp: "2023-11-16T20:16:04Z"
+  name: node0.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+  ownerReferences:
+  - apiVersion: v1
+    kind: Node
+    name: node0.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+    uid: 551aebc2-bff0-4b90-a906-398203845761
+  resourceVersion: "6"
+  uid: 3330069a-669c-499a-acf2-4a1f33fbf8da
+spec:
+  drivers: null

@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  annotations:
+    deployment.kubernetes.io/desired-replicas: "2"
+    deployment.kubernetes.io/max-replicas: "3"
+    deployment.kubernetes.io/revision: "12"
+  creationTimestamp: "2023-11-28T07:31:15Z"
+  generation: 4
+  labels:
+    app: reviews
+    pod-template-hash: 866bd74457
+    version: v3
+  name: reviews-v3-866bd74457
+  namespace: default
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Deployment
+    name: reviews-v3
+    uid: fc3efd42-e3b9-4963-b627-42ec9557656f
+  resourceVersion: "1938633"
+  uid: a0ff3f8c-049a-468a-b998-560e81e1329f
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: reviews
+      pod-template-hash: 866bd74457
+      version: v3
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2023-11-17T20:34:40Z"
+      creationTimestamp: null
+      labels:
+        app: reviews
+        pod-template-hash: 866bd74457
+        version: v3
+    spec:
+      containers:
+      - env:
+        - name: LOG_DIR
+          value: /tmp/logs
+        image: docker.io/istio/examples-bookinfo-reviews-v3:1.18.0
+        imagePullPolicy: IfNotPresent
+        name: reviews
+        ports:
+        - containerPort: 9080
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /opt/ibm/wlp/output
+          name: wlp-output
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: bookinfo-reviews
+      serviceAccountName: bookinfo-reviews
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: reviews
+        maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+      volumes:
+      - emptyDir: {}
+        name: wlp-output
+      - emptyDir: {}
+        name: tmp
+status:
+  observedGeneration: 4
+  replicas: 0

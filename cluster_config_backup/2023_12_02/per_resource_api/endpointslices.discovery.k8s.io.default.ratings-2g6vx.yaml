@@ -1,0 +1,56 @@
+addressType: IPv4
+apiVersion: discovery.k8s.io/v1
+endpoints:
+- addresses:
+  - 10.244.1.133
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: node1.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+  targetRef:
+    kind: Pod
+    name: ratings-v1-6776df769d-gj8s7
+    namespace: default
+    uid: bae8b1c7-fdd1-484c-b6c7-f0996eb01f67
+  zone: us-west-1a
+- addresses:
+  - 10.244.2.54
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: node4.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+  targetRef:
+    kind: Pod
+    name: ratings-v1-6776df769d-42hdw
+    namespace: default
+    uid: 8944fedc-01bd-4e95-82a2-8460d5380e3f
+  zone: us-east-1a
+kind: EndpointSlice
+metadata:
+  annotations:
+    endpoints.kubernetes.io/last-change-trigger-time: "2023-12-01T20:52:26Z"
+  creationTimestamp: "2023-11-16T21:02:34Z"
+  generateName: ratings-
+  generation: 94
+  labels:
+    app: ratings
+    endpointslice.kubernetes.io/managed-by: endpointslice-controller.k8s.io
+    kubernetes.io/service-name: ratings
+    service: ratings
+  name: ratings-2g6vx
+  namespace: default
+  ownerReferences:
+  - apiVersion: v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Service
+    name: ratings
+    uid: a42fe4e5-90ae-45a0-bfd7-e57798ca8257
+  resourceVersion: "2566210"
+  uid: 00468ae2-73c7-4672-8e59-b4be6068159b
+ports:
+- name: http
+  port: 9080
+  protocol: TCP

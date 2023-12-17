@@ -1,0 +1,28 @@
+apiVersion: v1
+count: 92010
+eventTime: null
+firstTimestamp: "2023-11-16T21:13:19Z"
+involvedObject:
+  apiVersion: autoscaling/v2
+  kind: HorizontalPodAutoscaler
+  name: istiod
+  namespace: istio-system
+  resourceVersion: "5000"
+  uid: 38525199-66e5-4f94-8a4d-9af83b0ed460
+kind: Event
+lastTimestamp: "2023-12-02T20:53:27Z"
+message: 'failed to get cpu utilization: unable to get metrics for resource cpu: unable
+  to fetch metrics from resource metrics API: the server could not find the requested
+  resource (get pods.metrics.k8s.io)'
+metadata:
+  creationTimestamp: "2023-11-16T21:13:19Z"
+  name: istiod.179836e11c119eca
+  namespace: istio-system
+  resourceVersion: "2743936"
+  uid: 73cfa71c-1534-439d-bcd4-990d1afedea4
+reason: FailedGetResourceMetric
+reportingComponent: horizontal-pod-autoscaler
+reportingInstance: ""
+source:
+  component: horizontal-pod-autoscaler
+type: Warning

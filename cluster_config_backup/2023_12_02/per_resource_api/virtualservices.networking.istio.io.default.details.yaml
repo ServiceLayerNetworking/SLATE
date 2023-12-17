@@ -1,0 +1,32 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"networking.istio.io/v1beta1","kind":"VirtualService","metadata":{"annotations":{},"name":"details","namespace":"default"},"spec":{"hosts":["details"],"http":[{"match":[{"sourceLabels":{"topology.istio.io/network":"network1"}}],"name":"west-local","route":[{"destination":{"host":"details","subset":"west"}}]},{"match":[{"sourceLabels":{"topology.istio.io/network":"network2"}}],"name":"east-local","route":[{"destination":{"host":"details","subset":"east"}}]}]}}
+  creationTimestamp: "2023-11-17T18:53:38Z"
+  generation: 1
+  name: details
+  namespace: default
+  resourceVersion: "156323"
+  uid: a42a274b-542a-438f-9e2b-3b119d862117
+spec:
+  hosts:
+  - details
+  http:
+  - match:
+    - sourceLabels:
+        topology.istio.io/network: network1
+    name: west-local
+    route:
+    - destination:
+        host: details
+        subset: west
+  - match:
+    - sourceLabels:
+        topology.istio.io/network: network2
+    name: east-local
+    route:
+    - destination:
+        host: details
+        subset: east

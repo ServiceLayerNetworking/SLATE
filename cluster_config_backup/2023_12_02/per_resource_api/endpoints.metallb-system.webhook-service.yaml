@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Endpoints
+metadata:
+  annotations:
+    endpoints.kubernetes.io/last-change-trigger-time: "2023-11-17T20:43:48Z"
+  creationTimestamp: "2023-11-17T20:43:28Z"
+  name: webhook-service
+  namespace: metallb-system
+  resourceVersion: "171140"
+  uid: 99a213e1-a056-47a5-a8bb-9750821beb1f
+subsets:
+- addresses:
+  - ip: 10.244.1.103
+    nodeName: node1.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+    targetRef:
+      kind: Pod
+      name: controller-786f9df989-4hdjk
+      namespace: metallb-system
+      uid: c4dc1bee-0a23-494a-bec4-3c3689b6db6a
+  ports:
+  - port: 9443
+    protocol: TCP

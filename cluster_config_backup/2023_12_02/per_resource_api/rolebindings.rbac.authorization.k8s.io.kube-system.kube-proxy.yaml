@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  creationTimestamp: "2023-11-16T20:16:10Z"
+  name: kube-proxy
+  namespace: kube-system
+  resourceVersion: "263"
+  uid: becd9614-31b6-40f3-9a32-287e58dc79ff
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kube-proxy
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:bootstrappers:kubeadm:default-node-token

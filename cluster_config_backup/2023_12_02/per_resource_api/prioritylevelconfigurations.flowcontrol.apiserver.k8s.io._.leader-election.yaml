@@ -1,0 +1,22 @@
+apiVersion: flowcontrol.apiserver.k8s.io/v1beta3
+kind: PriorityLevelConfiguration
+metadata:
+  annotations:
+    apf.kubernetes.io/autoupdate-spec: "true"
+  creationTimestamp: "2023-11-16T20:16:04Z"
+  generation: 1
+  name: leader-election
+  resourceVersion: "24"
+  uid: 45813595-66a4-4ff2-b34f-9abf4b77b2bc
+spec:
+  limited:
+    lendablePercent: 0
+    limitResponse:
+      queuing:
+        handSize: 4
+        queueLengthLimit: 50
+        queues: 16
+      type: Queue
+    nominalConcurrencyShares: 10
+  type: Limited
+status: {}

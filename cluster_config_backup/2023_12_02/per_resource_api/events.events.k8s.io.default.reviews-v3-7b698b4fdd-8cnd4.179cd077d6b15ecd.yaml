@@ -1,0 +1,28 @@
+apiVersion: events.k8s.io/v1
+deprecatedCount: 291
+deprecatedFirstTimestamp: "2023-12-01T20:52:52Z"
+deprecatedLastTimestamp: "2023-12-02T20:50:05Z"
+deprecatedSource:
+  component: default-scheduler
+eventTime: null
+kind: Event
+metadata:
+  creationTimestamp: "2023-12-01T20:52:52Z"
+  name: reviews-v3-7b698b4fdd-8cnd4.179cd077d6b15ecd
+  namespace: default
+  resourceVersion: "2743518"
+  uid: de9ee707-a859-4722-bb0a-ab604bcb783c
+note: '0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane:
+  }, 2 node(s) didn''t match pod topology spread constraints. preemption: 0/3 nodes
+  are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims
+  found for incoming pod..'
+reason: FailedScheduling
+regarding:
+  apiVersion: v1
+  kind: Pod
+  name: reviews-v3-7b698b4fdd-8cnd4
+  namespace: default
+  resourceVersion: "2566302"
+  uid: 5fbfa666-a7b3-409b-934a-e737812a8070
+reportingController: default-scheduler
+type: Warning

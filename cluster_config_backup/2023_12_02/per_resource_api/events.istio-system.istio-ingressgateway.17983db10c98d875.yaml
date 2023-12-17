@@ -1,0 +1,28 @@
+apiVersion: v1
+count: 91510
+eventTime: null
+firstTimestamp: "2023-11-16T23:18:09Z"
+involvedObject:
+  apiVersion: autoscaling/v2
+  kind: HorizontalPodAutoscaler
+  name: istio-ingressgateway
+  namespace: istio-system
+  resourceVersion: "15585"
+  uid: 6b34a398-9d49-42f0-9861-f20af5f2022f
+kind: Event
+lastTimestamp: "2023-12-02T20:53:12Z"
+message: 'failed to get cpu utilization: unable to get metrics for resource cpu: unable
+  to fetch metrics from resource metrics API: the server could not find the requested
+  resource (get pods.metrics.k8s.io)'
+metadata:
+  creationTimestamp: "2023-11-16T23:18:09Z"
+  name: istio-ingressgateway.17983db10c98d875
+  namespace: istio-system
+  resourceVersion: "2743906"
+  uid: 51d7b020-35b5-41e5-8ff8-6cdb17270e7e
+reason: FailedGetResourceMetric
+reportingComponent: horizontal-pod-autoscaler
+reportingInstance: ""
+source:
+  component: horizontal-pod-autoscaler
+type: Warning

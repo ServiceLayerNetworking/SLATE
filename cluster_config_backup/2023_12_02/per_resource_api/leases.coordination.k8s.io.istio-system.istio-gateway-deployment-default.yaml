@@ -1,0 +1,14 @@
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  creationTimestamp: "2023-11-16T23:14:48Z"
+  name: istio-gateway-deployment-default
+  namespace: istio-system
+  resourceVersion: "2744076"
+  uid: a96d2ffe-8f18-4ed2-a6ae-28daaa596a6b
+spec:
+  acquireTime: "2023-12-01T20:43:21.511810Z"
+  holderIdentity: istiod-586b5556b7-pcgkp
+  leaseDurationSeconds: 30
+  leaseTransitions: 1
+  renewTime: "2023-12-02T20:54:37.449950Z"

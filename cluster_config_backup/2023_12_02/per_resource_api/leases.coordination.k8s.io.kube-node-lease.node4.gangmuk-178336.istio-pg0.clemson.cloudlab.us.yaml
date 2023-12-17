@@ -1,0 +1,17 @@
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  creationTimestamp: "2023-11-26T05:35:13Z"
+  name: node4.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+  namespace: kube-node-lease
+  ownerReferences:
+  - apiVersion: v1
+    kind: Node
+    name: node4.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+    uid: 44f3cd9a-4060-4dd0-a07e-0b787389c666
+  resourceVersion: "2744072"
+  uid: 992e02d9-655e-4416-bba9-9c8288709807
+spec:
+  holderIdentity: node4.gangmuk-178336.istio-pg0.clemson.cloudlab.us
+  leaseDurationSeconds: 40
+  renewTime: "2023-12-02T20:54:33.956926Z"
