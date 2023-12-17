@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: slate-controller-sa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: slate-controller-cr
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: slate-controller-crb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: slate-controller-cr
+subjects:
+  - kind: ServiceAccount
+    name: slate-controller-sa
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: slate-controller
+  labels:
+    app: slate-controller
+    service: slate-controller
+spec:
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8080
+  selector:
+    app: slate-controller
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slate-controller
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: slate-controller
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: slate-controller
+        version: v1
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: slate-controller
+      serviceAccountName: slate-controller-sa
+      containers:
+        - image: ghcr.io/adiprerepa/slate-controller:latest # todo change
+          imagePullPolicy: Always
+          name: slate-controller
+          ports:
+            - containerPort: 8080
+

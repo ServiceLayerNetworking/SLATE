@@ -1,0 +1,20 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: igw
+spec:
+  host: istio-ingressgateway.istio-system.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        distribute:
+        - from: */*/*
+          to:
+            "region1/zone1/*": 70
+            "region1/zone2/*": 20
+            "region3/zone4/*": 10
+    outlierDetection:
+      consecutive5xxErrors: 100
+      interval: 1s
+      baseEjectionTime: 1m
