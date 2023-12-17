@@ -13,11 +13,13 @@ variable set in the Deployment.
 - `x-slate-podname`: The name of the pod that the request is being sent from.
 
 Request Body Structure:
+[gangmuk] cluster_id is added since we are not going to use cluster-controller
+[gangmuk] Method name and URL should be also sent
 ```
 numRequests
-traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
-traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
-traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
+**cluster_id method_name URL** traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
+**cluster_id method_name URL** traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
+**cluster_id method_name URL** traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
 ```
 First line is always number of requests from the current iteration, and the following lines are the requests statistics themselves.
 
