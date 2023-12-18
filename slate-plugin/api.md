@@ -21,7 +21,9 @@ method path traceId spanId parentSpanId startTime endTime bodySize firstLoad las
 ```
 First line is always number of requests from the current iteration, and the following lines are the requests statistics themselves.
 
-Response Body Structure:
+*THE RESPONSE NEEDS TO BE THE PLAINTEXT STRUCTURE*
+
+Response Body Structure (JSON):
 ```json
 {
     "changed": "0",
@@ -44,6 +46,13 @@ Response Body Structure:
       }
     ]
 }
+```
+
+Plaintext structure
+```
+changed 0/1
+:method GET :path /foo | cluster1:90 cluster2:10
+:method POST :path /bar | cluster1:70 cluster2:30
 ```
 
 - `changed` is whether or not this is a new distribution for this given service. If it is, the WASM plugin should reset its internal state and use those distributions.
