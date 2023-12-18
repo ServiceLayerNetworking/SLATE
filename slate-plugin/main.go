@@ -67,6 +67,8 @@ type RpsThreshold struct {
 }
 
 type TracedRequestStats struct {
+	method       string
+	path         string
 	traceId      string
 	spanId       string
 	parentSpanId string
@@ -91,11 +93,6 @@ func (*vmContext) OnVMStart(vmConfigurationSize int) types.OnVMStartStatus {
 			proxywasm.LogCriticalf("unable to set shared data: %v", err)
 		}
 	}
-	// Assign values to the elements
-	// for i := 0; i < len(nor); i++ {
-	// 	nor[i] = 0
-	// }
-	// cur_idx = 0
 	// set default hash mod
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(DEFAULT_HASH_MOD))
@@ -128,11 +125,10 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	if pod == "" {
 		pod = "SLATE_UNKNOWN_POD"
 	}
-	//
 	meta_cid := os.Getenv("ISTIO_META_CLUSTER_ID")
 	if meta_cid == "" {
 		proxywasm.LogCriticalf("ERROR: ISTIO_META_CLUSTER_ID is EMPTY: %s", meta_cid)
-		// meta_cid = "META_CLUSTER_ID_UNKNOWN"
+		meta_cid = "META_CLUSTER_ID_UNKNOWN"
 	}
 	cid := os.Getenv("CLUSTER_ID")
 	if cid == "" {
@@ -230,7 +226,7 @@ func (p *pluginContext) OnTick() {
 	// unbelievably shitty but what can you do if you don't have gRPC :)
 	requestStatsStr := ""
 	for _, stat := range requestStats {
-		requestStatsStr += fmt.Sprintf("%s %s %s %d %d %d %d %d %d %d\n", stat.traceId, stat.spanId, stat.parentSpanId,
+		requestStatsStr += fmt.Sprintf("%s %s %s %s %s %d %d %d %d %d %d %d\n", stat.method, stat.path, stat.traceId, stat.spanId, stat.parentSpanId,
 			stat.startTime, stat.endTime, stat.bodySize, stat.firstLoad, stat.lastLoad, stat.avgLoad, stat.rps)
 	}
 
@@ -311,8 +307,6 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	}
 
 	// increment request count
-	// (gangmuk): it is load
-
 	islocalroute, err := proxywasm.GetHttpRequestHeader("x-slate-islocalroute")
 	if islocalroute == "1" {
 		proxywasm.LogCriticalf("islocalroute, 1, IncrementSharedData(KEY_REQUEST_COUNT, 1)")
@@ -321,15 +315,25 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		proxywasm.LogCriticalf("islocalroute, 0")
 	}
 	IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, 1) // There is one load variable shared by all requests in this wasm, but each request will save the snapshot of the load when the request arrives in this wasm. So different requests will have different loads but there is one load in this wasm at a time t.
-
 	IncrementSharedData(KEY_NUM_REQ_PER_UNIT, 1)
+
+	reqMethod, err := proxywasm.GetHttpRequestHeader(":method")
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
+		return types.ActionContinue
+	}
+	reqPath, err := proxywasm.GetHttpRequestHeader(":path")
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
+		return types.ActionContinue
+	}
 
 	if tracedRequest(traceId) {
 		// we need to record start and end time
 		// proxywasm.LogCriticalf("tracing request: %s", traceId)
 		spanId, _ := proxywasm.GetHttpRequestHeader("x-b3-spanid")
 		parentSpanId, _ := proxywasm.GetHttpRequestHeader("x-b3-parentspanid")
-		if err := AddTracedRequest(traceId, spanId, parentSpanId, time.Now().UnixMilli()); err != nil {
+		if err := AddTracedRequest(reqMethod, reqPath, traceId, spanId, parentSpanId, time.Now().UnixMilli()); err != nil {
 			proxywasm.LogCriticalf("unable to add traced request: %v", err)
 			return types.ActionContinue
 		}
@@ -357,10 +361,6 @@ func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.
 	return types.ActionContinue
 }
 
-/*
-todo adiprerepa add call size
-*/
-
 // OnHttpStreamDone is called when the stream is about to close.
 // We use this to record the end time of the traced request.
 // Since all responses are treated equally, regardless of whether
@@ -374,7 +374,6 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		return
 	}
 
-	// TODO(gangmuk): Is it correct?
 	// endtime should be recorded when the LAST response is received not the first response. It seems like it records the endtime on the first response.
 	inbound, err := GetUint64SharedData(inboundCountKey(traceId))
 	if err != nil {
@@ -392,7 +391,7 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		return
 	}
 
-	//// Printing reroute tage
+	// Printing reroute tage
 	islocalroute, err := proxywasm.GetHttpRequestHeader("x-slate-islocalroute")
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get x-slate-islocalroute header: %v", err)
@@ -435,7 +434,6 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		proxywasm.LogCriticalf("unable to set shared data avgLoadKey for traceId %v load: %v", traceId, err)
 		return
 	}
-	//////////////////////////////////////////////////////////////////////////////////////
 
 	currentTime := time.Now().UnixMilli()
 	endTimeBytes := make([]byte, 8)
@@ -556,7 +554,7 @@ func ParseThresholds(rawThresh string) (thresholds []RpsThreshold) {
 
 // AddTracedRequest adds a traceId to the set of traceIds we are tracking (this is collected every Tick and sent
 // to the controller), and set attributes in shared data about the traceId.
-func AddTracedRequest(traceId, spanId, parentSpanId string, startTime int64) error {
+func AddTracedRequest(method, path, traceId, spanId, parentSpanId string, startTime int64) error {
 	// add traceId to the set of requests we are tracing.
 	tracedRequestsRaw, cas, err := proxywasm.GetSharedData(KEY_TRACED_REQUESTS)
 	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
@@ -573,7 +571,17 @@ func AddTracedRequest(traceId, spanId, parentSpanId string, startTime int64) err
 		proxywasm.LogCriticalf("unable to set shared data for traced requests: %v", err)
 		return err
 	}
-	// set spanId, parentSpanId, and startTime for this traceId
+	// set method, path, spanId, parentSpanId, and startTime for this traceId
+	if err := proxywasm.SetSharedData(methodKey(traceId), []byte(method), 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data for traceId %v method: %v %v", traceId, method, err)
+		return err
+	}
+
+	if err := proxywasm.SetSharedData(pathKey(traceId), []byte(path), 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data for traceId %v path: %v %v", traceId, path, err)
+		return err
+	}
+
 	//proxywasm.LogCriticalf("spanId: %v parentSpanId: %v startTime: %v", spanId, parentSpanId, startTime)
 	if err := proxywasm.SetSharedData(spanIdKey(traceId), []byte(spanId), 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v spanId: %v %v", traceId, spanId, err)
@@ -593,15 +601,13 @@ func AddTracedRequest(traceId, spanId, parentSpanId string, startTime int64) err
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v startTime: %v %v", traceId, startTime, err)
 		return err
 	}
-	//////////////////////////////////////////////////////////////////////////////////
-	// (gangmuk): Per-request load logging
+
 	// Adding load to shareddata when we receive the request
 	data, cas, err := proxywasm.GetSharedData(KEY_INFLIGHT_REQ_COUNT)               // Get the current load
 	if err := proxywasm.SetSharedData(firstLoadKey(traceId), data, 0); err != nil { // Set the trace with the current load
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v load: %v", traceId, err)
 		return err
 	}
-	//////////////////////////////////////////////////////////////////////////////////
 	return nil
 }
 
@@ -638,6 +644,20 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 		} else {
 			parentSpanId = string(parentSpanIdBytes)
 		}
+
+		methodBytes, _, err := proxywasm.GetSharedData(methodKey(traceId))
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v method: %v", traceId, err)
+			return nil, err
+		}
+		method := string(methodBytes)
+		pathBytes, _, err := proxywasm.GetSharedData(pathKey(traceId))
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v path: %v", traceId, err)
+			return nil, err
+		}
+		path := string(pathBytes)
+
 		startTimeBytes, _, err := proxywasm.GetSharedData(startTimeKey(traceId))
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v startTime: %v", traceId, err)
@@ -687,6 +707,8 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 		rps_ := int64(binary.LittleEndian.Uint64(rpsBytes)) // to int
 
 		tracedRequestStats = append(tracedRequestStats, TracedRequestStats{
+			method:       method,
+			path:         path,
 			traceId:      traceId,
 			spanId:       spanId,
 			parentSpanId: parentSpanId,
@@ -736,6 +758,14 @@ func avgLoadKey(traceId string) string {
 
 func lastLoadKey(traceId string) string {
 	return traceId + "-lastLoad"
+}
+
+func methodKey(traceId string) string {
+	return traceId + "-method"
+}
+
+func pathKey(traceId string) string {
+	return traceId + "-path"
 }
 
 func emptyBytes(b []byte) bool {

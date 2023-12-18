@@ -15,9 +15,9 @@ variable set in the Deployment.
 Request Body Structure:
 ```
 numRequests
-traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
-traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
-traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
+method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
+method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
+method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
 ```
 First line is always number of requests from the current iteration, and the following lines are the requests statistics themselves.
 
