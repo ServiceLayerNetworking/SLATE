@@ -2,7 +2,6 @@
 # coding: utf-8
 
 import time
-import global_controller as global_con
 from global_controller import app
 from config import *
 # import config as cf
@@ -200,22 +199,25 @@ def parse_trace_file_ver2(log_path):
     
     return traces_
 
-FRONTEND_svc = "productpage-v1"
-span_id_of_FRONTEND_svc = ""
-REVIEW_V1_svc = "reviews-v1"
-REVIEW_V2_svc = "reviews-v2"
-REVIEW_V3_svc = "reviews-v3"
-RATING_svc = "ratings-v1"
-DETAIL_svc = "details-v1"
-###############################
-FILTER_REVIEW_V1 = True # False
-FILTER_REVIEW_V2 = True # False
-FILTER_REVIEW_V3 = False# False
-###############################
-# ratings-v1 and reviews-v1 should not exist in the same trace
-MIN_TRACE_LEN = 3
-MAX_TRACE_LEN = 4
-def remove_incomplete_trace(traces_):
+
+# NOTE: This function is bookinfo specific
+def remove_incomplete_trace_in_bookinfo(traces_):
+    ###############################
+    # FRONTEND_svc = "productpage-v1"
+    # span_id_of_FRONTEND_svc = ""
+    # REVIEW_V1_svc = "reviews-v1"
+    # REVIEW_V2_svc = "reviews-v2"
+    # REVIEW_V3_svc = "reviews-v3"
+    # RATING_svc = "ratings-v1"
+    # DETAIL_svc = "details-v1"
+    ###############################
+    # FILTER_REVIEW_V1 = True # False
+    # FILTER_REVIEW_V2 = True # False
+    # FILTER_REVIEW_V3 = False# False
+    ###############################
+    # ratings-v1 and reviews-v1 should not exist in the same trace
+    # MIN_TRACE_LEN = 3
+    # MAX_TRACE_LEN = 4
     ret_traces_ = dict()
     what = [0]*9
     weird_span_id = 0
@@ -274,16 +276,6 @@ def remove_incomplete_trace(traces_):
     return ret_traces_
 
 
-# def append_arbitrary_cluster_id_to_spans(traces_):
-#     i = 0 # NOTE: idx i will be used to give arbitrary cluster id to each span
-#     for cid, trace in traces_.items():
-#         for tid, single_trace in traces_[cid].items():
-#             cid = i%NUM_CLUSTER
-#             i += 1
-#             for svc, span in single_trace.items():
-#                 span.cluster_id = cid
-#     return traces_
-
 def change_to_relative_time(traces_):
     for cid, trace in traces_.items():
         for tid, single_trace in traces_[cid].items():
@@ -301,7 +293,6 @@ def change_to_relative_time(traces_):
                 assert span.st >= 0
                 assert span.et >= 0
                 assert span.et >= span.st
-    return traces_
 
 
 def print_single_trace(single_t):
@@ -362,32 +353,19 @@ def single_trace_to_callgraph(single_trace_):
             if span.parent_span_id == parent_span.my_span_id:
                 callgraph[parent_span.svc_name].append(span.svc_name)
                 parent_span.child_spans.append(span)
-        # if len(callgraph[parent_span.svc_name]) == 0:
-            # del callgraph[parent_span.svc_name]
     svc_list.sort()
     key_ = ""
     for svc in svc_list:
         key_ += svc+","
-    # for svc, span in single_trace_.items():
-    #     print(f"{span}")
-    # print(f"single_trace_to_callgraph, callgraph, {callgraph}")
     return callgraph, key_
 
 
 def traces_to_graphs(traces_):
-    graph_dict = dict()
     for cid, trace in traces_.items():
-        if cid not in graph_dict:
-            graph_dict[cid] = dict()
         for tid, single_trace in traces_[cid].items():
             callgraph, cg_key = single_trace_to_callgraph(single_trace)
-            graph_dict[cid][cg_key] = callgraph
-            # break
-            # print(f"tid: {tid}, callgraph: {callgraph}, cg_key: {cg_key}")
-        app.logger.debug(f"{log_prefix} Cluster {cid} Graph dict: {graph_dict[cid]}")
         app.logger.debug(f"{log_prefix} Call graph: {callgraph}")
-        assert len(graph_dict[cid]) == 1
-    return callgraph, graph_dict
+    return callgraph
     
 
 def exclusive_time(single_trace_):
@@ -533,41 +511,13 @@ def traces_to_df(traces_):
     return df
 
 def stitch_time(traces):
-    app.logger.info(f"{log_prefix} time stitching starts")
-    ts = time.time()
-    ###################################################
-    input_trace_len = dict()
-    for cid in traces:
-        input_trace_len[cid] = len(traces[cid])
-    traces = remove_incomplete_trace(traces)
-    # traces = append_arbitrary_cluster_id_to_spans(traces)
-    traces = change_to_relative_time(traces)
-    if global_con.PRODUCTPAGE_ONLY:
-        traces = product_page_only(traces)
+    call_graph = traces_to_graphs(traces)
+    change_to_relative_time(traces)
     calc_exclusive_time(traces)
-    call_graph, graph_dict = traces_to_graphs(traces)
-    depth_dict = dict()
-    for parent_svc, children in call_graph.items():
-        if parent_svc == FRONTEND_svc:
-            frontend_depth = 1
-            depth_dict[parent_svc] = 1
-            set_depth_of_span(call_graph, parent_svc, children, depth_dict, frontend_depth)
-    print(f"call_graph: {call_graph}")
-    print(f"depth_dict: {depth_dict}")
-    inject_arbitrary_callsize(traces, depth_dict)
     analyze_critical_path_time(traces)
-
     df = traces_to_df(traces)
-    
     print_all_trace(traces)
-    for cid in traces:
-        app.logger.info(f"{log_prefix} Cluster {cid} Num Input traces: {input_trace_len[cid]}")
-        app.logger.info(f"{log_prefix} Cluster {cid} Num Final valid traces: {len(traces[cid])}")
-    app.logger.info(f"{log_prefix} time stitching done: {time.time() - ts}s")
-    return traces, call_graph, depth_dict, df
-    # return traces, call_graph, depth_dict
-    ###################################################
+    return traces, call_graph, df
 
 # if __name__ == "__main__":
 #     traces = parse_trace_file
-#     traces, call_graph, depth_dict = stitch_time(traces)
