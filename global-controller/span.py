@@ -13,7 +13,9 @@ def df_to_trace(df_):
     return trace_dict
 
 class Span:
-    def __init__(self, svc_name, cluster_id, trace_id, my_span_id, parent_span_id, st, et, first_load, last_load, avg_load, rps, cs, ct=0):
+    def __init__(self, method, url, svc_name, cluster_id, trace_id, my_span_id, parent_span_id, st, et, first_load, last_load, avg_load, rps, cs, ct=0):
+        self.method = method
+        self.url = url
         self.svc_name = svc_name
         self.my_span_id = my_span_id
         self.parent_span_id = parent_span_id
@@ -26,10 +28,6 @@ class Span:
         self.st = st
         self.et = et
         try:
-            # print(et)
-            # print(st)
-            # print(type(et))
-            # print(type(st))
             self.rt = et - st
         except Exception as error:
             print(f"et: {et}")
@@ -52,7 +50,4 @@ class Span:
         return unfold_dict
     
     def __str__(self):
-        return f"SPAN,{self.trace_id},{self.svc_name},{self.cluster_id},{self.my_span_id},{self.parent_span_id},{self.load},{self.last_load},{self.avg_load},{self.rps},{self.st},{self.et},{self.rt},{self.call_size}"
-    
-    # def __str__(self):
-    #     return f"SPAN tid,{self.trace_id[:8]}, {self.svc_name}, cid,{self.cluster_id}, span,{self.my_span_id}, parent_span,{self.parent_span_id}, load,{self.load}"
+        return f"SPAN,{self.trace_id},{self.method},{self.url},{self.svc_name},{self.cluster_id},{self.my_span_id},{self.parent_span_id},{self.load},{self.last_load},{self.avg_load},{self.rps},{self.st},{self.et},{self.rt},{self.call_size}"

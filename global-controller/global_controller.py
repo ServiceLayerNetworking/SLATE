@@ -63,34 +63,11 @@ for cid in range(NUM_CLUSTER):
         load_bucket[cid][i] = 0
 prof_done = {0:False, 1:False} # {cid: prof_done_flag, ...}
 
-# TODO: It is currently Hardcoded
-
-'''
-Span class in global controlelr is deprecated.
-Use Span class in time_stitching.py for compatibility.
-'''
-# class Span:
-#     def __init__(self, svc_name, cluster_id, trace_id, my_span_id, parent_span_id, start, end, load, call_size):
-#         self.svc_name = svc_name #
-#         self.my_span_id = my_span_id #
-#         self.trace_id = trace_id
-#         self.start = start #
-#         self.end = end #
-#         self.parent_span_id = parent_span_id #
-#         self.load = load #
-#         self.call_size = call_size ####
-#         self.cluster_id = cluster_id
-#         self.xt = 0
-#         self.rt = self.end - self.start
-
-#     def __str__(self):
-#         return f"{self.svc_name} ({self.my_span_id}) took {self.end - self.start} ms, parent {self.parent_span_id}"
-
 """
-parse_stats_into_spans will parse the stats string into a list of spans.
+This function will parse the stats string into a list of spans.
 stats is in the format of:
 <Num requests>
-<Trace Id> <Span Id> <Parent Span Id> <Start Time> <End Time> <Call Size>
+<Method> <URL> <Trace Id> <Span Id> <Parent Span Id> <Start Time> <End Time> <Call Size>
 
 Root svc will have no parent span id
 If the span doesn't make sense, just ignore it.
@@ -105,21 +82,24 @@ def parse_stats_into_spans(stats, cluster, service):
     for i in range(1, len(lines)):
         line = lines[i]
         ss = line.split(" ")
-        # app.logger.info(f"{log_prefix} ss: {ss}")
-        if len(ss) != 10: ## NOTE: THIS SHOUD BE UPDATED WHEN member fields in span class is updated.
+        ## NOTE: THIS SHOUD BE UPDATED WHEN member fields in span class is updated.
+        if len(ss) != 12:
+            app.logger.info(f"{log_prefix} parse_stats_into_spans, len(ss) != 12, {len(ss)}")
+            assert False
             continue
-        trace_id = ss[0]
-        my_span_id = ss[1]
-        # can be empty
-        parent_span_id = ss[2]
-        start = int(ss[3])
-        end = int(ss[4])
-        call_size = int(ss[5])
-        first_load = int(ss[6]) # (gangmuk): new
-        last_load = int(ss[7]) # (gangmuk): new
-        avg_load = int(ss[8]) # (gangmuk): new
-        rps = int(ss[9]) # (gangmuk): new
-        spans.append(sp.Span(service, cluster_to_cid[cluster], trace_id, my_span_id, parent_span_id, start, end, first_load, last_load, avg_load, rps, call_size))
+        method = ss[0]
+        url_path = ss[1]
+        trace_id = ss[2]
+        my_span_id = ss[3]
+        parent_span_id = ss[4]
+        start = int(ss[5])
+        end = int(ss[6])
+        call_size = int(ss[7])
+        first_load = int(ss[8])
+        last_load = int(ss[9])
+        avg_load = int(ss[10])
+        rps = int(ss[11])
+        spans.append(sp.Span(method, url, service, cluster_to_cid[cluster], trace_id, my_span_id, parent_span_id, start, end, first_load, last_load, avg_load, rps, call_size))
     # if len(spans) > 0:
     #     app.logger.info(f"{log_prefix} ==================================")
     #     for span in spans:
