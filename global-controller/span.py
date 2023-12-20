@@ -10,6 +10,22 @@ def file_to_trace(TRACE_PATH):
         traces[row["cluster_id"]][row["trace_id"]].append(span)
     return traces
 
+def parse_num_cluster(trace_file):
+    df = pd.read_csv(trace_file)
+    return len(df["cluster_id"].unique())
+
+
+def are_they_same_endpoint(span1, span2):
+    if span1.svc_name == span2.svc_name and span1.method == span2.method and span1.method == span2.method:
+        return True
+    return False
+
+
+def are_they_same_service_spans(span1, span2):
+    if span1.svc_name == span2.svc_name:
+        return True
+    return False
+
 
 class Span:
     def __init__(self, method, url, svc_name, cluster_id, trace_id, my_span_id, parent_span_id, st, et, first_load, last_load, avg_load, rps, cs, ct=0):

@@ -3,11 +3,11 @@
 
 import time
 from global_controller import app
-from config import *
-# import config as cf
+import config as cfg
 import span as sp
 import pandas as pd
 from IPython.display import display
+from collections import deque
 # pd.set_option('display.max_rows', None)
 pd.set_option('display.max_colwidth', None)
 pd.set_option('display.max_columns', None)
@@ -66,7 +66,6 @@ NUM_CLUSTER = 2
 def parse_trace_file(log_path):
     f = open(log_path, "r")
     lines = f.readlines()
-    # cid -> trace id -> svc_name -> span
     traces_ = dict()
     idx = 0
     while idx < len(lines):
@@ -91,7 +90,7 @@ def parse_trace_file(log_path):
                                 if tid not in traces_[cid]:
                                     traces_[cid][tid] = dict()
                                 if service_name not in traces_[cid][tid]:
-                                    traces_[cid][tid][service_name] = span
+                                    traces_[cid][tid].append(span)
                                 else:
                                     print(service_name + " already exists in trace["+tid+"]")
                                     assert False
@@ -107,6 +106,7 @@ def parse_trace_file(log_path):
         idx+=1
     return traces_
 
+
 def create_span_ver2(row):
     trace_id = row["trace_id"]
     cluster_id = row["cluster_id"]
@@ -115,8 +115,6 @@ def create_span_ver2(row):
     parent_span_id = row["parent_span_id"][:8] # NOTE
     st = row["st"]
     et = row["et"]
-    
-    
     load = row["load"]
     last_load = row["last_load"]
     avg_load = row["avg_load"]
@@ -124,15 +122,13 @@ def create_span_ver2(row):
         rps = row["rps"]
     except:
         rps = 0
-    
     ########################
     # load = row["avg_load"] 
     ########################
-    
-    
     callsize = row["call_size"]
     span = sp.Span(svc, cluster_id, trace_id, span_id, parent_span_id, st, et, load, last_load, avg_load, rps, callsize)
     return span
+
 
 def trace_trimmer(trace_file):
     df = pd.read_csv(trace_file)
@@ -160,64 +156,42 @@ def trace_trimmer(trace_file):
     # display(df)
     return df
 
+
 def parse_trace_file_ver2(log_path):
-    # colname =  ["trace_id","svc_name","cluster_id","my_span_id","parent_span_id","load","st","et","rt","call_size"]
-    # temp_df = pd.read_csv(log_path, names=colname)
-    # temp_df.fillna("", inplace=True)
-    # temp_df['load'] = temp_df['load'].clip(lower=1)
     df = trace_trimmer(log_path)
-    # display(df)
-    # temp_df = df[df["load"] != df["last_load"]]
-    # display(temp_df)
     traces_ = dict() # cluster_id -> trace id -> svc_name -> span
-    
-    ############################################
-    ## case1: use all traces data to all clusters.
-    for cid in range(NUM_CLUSTER):
-        for index, row in df.iterrows():
-            span = create_span_ver2(row)
-            span.cluster_id = cid
-            if span.cluster_id not in traces_:
-                traces_[span.cluster_id] = dict()
-            if span.trace_id not in traces_[span.cluster_id]:
-                traces_[span.cluster_id][span.trace_id] = dict()
-            if span.svc_name not in traces_[span.cluster_id][span.trace_id]:
-                traces_[span.cluster_id][span.trace_id][span.svc_name] = span
-            else:
-                print(span.svc_name + " already exists in trace["+span.trace_id+"]")
-    ## case2: use actual cluster id.
-    # for index, row in df.iterrows():
-    #     span = create_span_ver2(row)
-    #     if span.cluster_id not in traces_:
-    #         traces_[span.cluster_id] = dict()
-    #     if span.trace_id not in traces_[span.cluster_id]:
-    #         traces_[span.cluster_id][span.trace_id] = dict()
-    #     if span.svc_name not in traces_[span.cluster_id][span.trace_id]:
-    #         traces_[span.cluster_id][span.trace_id][span.svc_name] = span
-    #     else:
-    #         print(span.svc_name + " already exists in trace["+span.trace_id+"]")
-    
+    for index, row in df.iterrows():
+        span = create_span_ver2(row)
+        if span.cluster_id not in traces_:
+            traces_[span.cluster_id] = dict()
+        if span.trace_id not in traces_[span.cluster_id]:
+            traces_[span.cluster_id][span.trace_id] = dict()
+        if span.svc_name not in traces_[span.cluster_id][span.trace_id]:
+            traces_[span.cluster_id][span.trace_id].append(span)
+        else:
+            print(span.svc_name + " already exists in trace["+span.trace_id+"]")
     return traces_
 
 
+## Deprecated
 # NOTE: This function is bookinfo specific
 def remove_incomplete_trace_in_bookinfo(traces_):
-    ###############################
-    # FRONTEND_svc = "productpage-v1"
-    # span_id_of_FRONTEND_svc = ""
-    # REVIEW_V1_svc = "reviews-v1"
-    # REVIEW_V2_svc = "reviews-v2"
-    # REVIEW_V3_svc = "reviews-v3"
-    # RATING_svc = "ratings-v1"
-    # DETAIL_svc = "details-v1"
-    ###############################
-    # FILTER_REVIEW_V1 = True # False
-    # FILTER_REVIEW_V2 = True # False
-    # FILTER_REVIEW_V3 = False# False
-    ###############################
+    ##############################
+    FRONTEND_svc = "productpage-v1"
+    span_id_of_FRONTEND_svc = ""
+    REVIEW_V1_svc = "reviews-v1"
+    REVIEW_V2_svc = "reviews-v2"
+    REVIEW_V3_svc = "reviews-v3"
+    RATING_svc = "ratings-v1"
+    DETAIL_svc = "details-v1"
+    ##############################
+    FILTER_REVIEW_V1 = True # False
+    FILTER_REVIEW_V2 = True # False
+    FILTER_REVIEW_V3 = False# False
+    ##############################
     # ratings-v1 and reviews-v1 should not exist in the same trace
-    # MIN_TRACE_LEN = 3
-    # MAX_TRACE_LEN = 4
+    MIN_TRACE_LEN = 3
+    MAX_TRACE_LEN = 4
     ret_traces_ = dict()
     what = [0]*9
     weird_span_id = 0
@@ -276,18 +250,25 @@ def remove_incomplete_trace_in_bookinfo(traces_):
     return ret_traces_
 
 
+def get_root_span(single_trace):
+    for span in single_trace:
+        for child_span in single_trace[span]:
+            if sp.are_they_same_endpoint(span, child_span):
+                break
+        return span
+    print(f'ERROR: cannot find root node in callgraph[{key}]')
+    assert False
+
 def change_to_relative_time(traces_):
-    for cid, trace in traces_.items():
+    for cid in traces_:
         for tid, single_trace in traces_[cid].items():
             try:
-                base_t = single_trace[FRONTEND_svc].st
+                root_span = get_root_span(single_trace)
+                base_t = root_span.st
             except Exception as error:
-                # print(tid + " does not have " + FRONTEND_svc + ". Skip this trace")
-                # for _, span in single_trace.items():
-                #     print(span)
                 print(error)
-                exit()
-            for svc, span in single_trace.items():
+                assert False
+            for span in single_trace:
                 span.st -= base_t
                 span.et -= base_t
                 assert span.st >= 0
@@ -338,40 +319,116 @@ def is_parallel_execution(span_a, span_b):
         return 0
 
 
+## Old callgraph data structure is deprecated
+# '''
+# callgraph:
+#     - key: parent service name
+#     - value: list of child service names
+# '''
+# def single_trace_to_callgraph(single_trace_):
+#     callgraph = dict()
+#     svc_list = list()
+#     for _, parent_span in single_trace_.items():
+#         svc_list.append(parent_span.svc_name)
+#         callgraph[parent_span.svc_name] = list()
+#         for _, span in single_trace_.items():
+#             if span.parent_span_id == parent_span.my_span_id:
+#                 callgraph[parent_span.svc_name].append(span.svc_name)
+#                 parent_span.child_spans.append(span)
+#     svc_list.sort()
+#     key_ = ""
+#     for svc in svc_list:
+#         key_ += svc+","
+#     return callgraph, key_
+
+# def traces_to_graphs(traces_):
+#     for cid, trace in traces_.items():
+#         for tid, single_trace in traces_[cid].items():
+#             callgraph, cg_key = single_trace_to_callgraph(single_trace)
+#         app.logger.debug(f"{log_prefix} Call graph: {callgraph}")
+#     return callgraph
+
+## New callgraph data structure
 '''
-callgraph:
-    - key: parent service name
-    - value: list of child service names
+one call graph maps to one trace
+callgraph = {A_span: [B_span, C_span], B_span:[D_span], C_span:[], D_span:[]}
 '''
-def single_trace_to_callgraph(single_trace_):
+def single_trace_to_callgraph(single_trace):
     callgraph = dict()
-    svc_list = list()
-    for _, parent_span in single_trace_.items():
-        svc_list.append(parent_span.svc_name)
-        callgraph[parent_span.svc_name] = list()
-        for _, span in single_trace_.items():
-            if span.parent_span_id == parent_span.my_span_id:
-                callgraph[parent_span.svc_name].append(span.svc_name)
-                parent_span.child_spans.append(span)
-    svc_list.sort()
-    key_ = ""
-    for svc in svc_list:
-        key_ += svc+","
-    return callgraph, key_
-
-
-def traces_to_graphs(traces_):
-    for cid, trace in traces_.items():
-        for tid, single_trace in traces_[cid].items():
-            callgraph, cg_key = single_trace_to_callgraph(single_trace)
-        app.logger.debug(f"{log_prefix} Call graph: {callgraph}")
+    for parent_span in single_trace:
+        callgraph[parent_span] = list()
+        for child_span in single_trace:
+            if child_span.parent_span_id == parent_span.my_span_id:
+                callgraph[parent_span].append(child_span)
+        callgraph[parent_span].sort(key=lambda x: (x.svc_name, x.method, x.url))
     return callgraph
+
+def traces_to_callgraph(traces_):
+    callgraph_table = dict()
+    list_of_callgraph = dict()
+    for cid in traces_:
+        if cid not in callgraph_table:
+            callgraph_table[cid] = dict()
+        if cid not in list_of_callgraph:
+            list_of_callgraph[cid] = dict()
+        for tid, single_trace in traces_[cid].items():
+            callgraph = single_trace_to_callgraph
+            cg_key = get_key_of_callgraph(callgraph)
+            if cg_key not in callgraph_table[cid]:
+                callgraph_table[cid][cg_key] = callgraph
+            if cg_key not in list_of_callgraph[cid]:
+                list_of_callgraph[cid][cg_key] = list()
+            list_of_callgraph[cid][cg_key].append(callgraph)
+    return list_of_callgraph, callgraph_table
+
+def file_write_callgraph_table(callgraph_table):
+    with open(f'{cfg.OUTPUT_DIR}/callgraph_table.csv', 'w') as file:
+        file.write("parent_svc, parent_method, parent_url, child_svc, child_method, child_url\n")
+        for cid in callgraph_table:
+            for cg_key in callgraph_table[cid]:
+                for cg in callgraph_table[cid][cg_key]:
+                    for parent_span in cg:
+                        for child_span in cg[parent_span]:
+                            temp = f"{parent_span.svc_name}, {parent_span.method}, {parent_span.url}, {child_span.svc_name}, {child_span.method}, {child_span.url}\n"
+                            file.write(temp)
+
+def bfs_callgraph(start_span, cg_key, cg):
+    visited = set()
+    queue = deque([start_span])
+    while queue:
+        cur_span = queue.popleft()
+        if cur_span not in visited:
+            print(f"{cur_span.svc_name}, {cur_span.method}, {cur_span.url}")
+            visited.add(cur_span)
+            cg_key.append(cur_span.svc_name)
+            cg_key.append(cur_span.method)
+            cg_key.append(cur_span.url)
+            for child_span in cg[cur_span]:
+                if child_span not in visited:
+                    queue.extend(child_span)
+
+
+def find_root_span(cg):
+    for parent_span in cg:
+        for child_span in cg[parent_span]:
+            if sp.are_they_same_endpoint(parent_span, child_span):
+                break
+        return parent_span
+    print(f'ERROR: cannot find root node in callgraph[{key}]')
+    assert False
+
+
+def get_key_of_callgraph(cg):
+    root_span = find_root_span(cg)
+    cg_key = list()
+    bfs_callgraph(root_span, cg_key, cg)
+    return cg_key
     
 
 def exclusive_time(single_trace_):
-    for svc, parent_span in single_trace_.items():
+    for parent_span in single_trace_:
         child_span_list = list()
-        for svc, span in single_trace_.items():
+        for span in single_trace_:
             if span.parent_span_id == parent_span.my_span_id:
                 child_span_list.append(span)
         if len(child_span_list) == 0:
@@ -402,13 +459,12 @@ def exclusive_time(single_trace_):
         # else:
         #     parent_span.xt = 0
         ###########################################
-    return single_trace_
 
 
 def calc_exclusive_time(traces_):
-    for cid, trace in traces_.items():
+    for cid in traces_:
         for tid, single_trace in traces_[cid].items():
-            single_trace_ex_time = exclusive_time(single_trace)
+            exclusive_time(single_trace)
 
 
 def print_all_trace(traces_):
@@ -416,7 +472,7 @@ def print_all_trace(traces_):
         for tid, single_trace in traces_[cid].items():
             app.logger.debug(f"{log_prefix} ======================= ")
             app.logger.debug(f"{log_prefix} Trace: " + tid)
-            for svc, span in single_trace.items():
+            for span in single_trace:
                 app.logger.debug(f"{log_prefix} {span}")
             app.logger.debug(f"{log_prefix} ======================= ")
 
@@ -424,33 +480,19 @@ def print_all_trace(traces_):
 def inject_arbitrary_callsize(traces_, depth_dict):
     for cid in traces_:
         for tid, single_trace in traces_[cid].items():
-            for svc, span in single_trace.items():
+            for span in single_trace:
                 span.depth = depth_dict[svc]
                 span.call_size = depth_dict[svc]*10
 
 
-def product_page_only(traces_):
-    pp_only_traces = dict()
-    for cid, trace in traces_.items():
-        if cid not in pp_only_traces:
-            pp_only_traces[cid] = dict()
-        for tid, single_trace in traces_[cid].items():
-            for svc, span in single_trace.items():
-                temp_trace = dict()
-                if svc == FRONTEND_svc:
-                    temp_trace[svc] = span
-                if len(temp_trace) > 0:
-                    pp_only_traces[cid][tid] = temp_trace
-    return pp_only_traces
-
-
-def print_graph_dict(gd):
-    for cid in gd:
-        for k, cg in gd[cid].items():
-            print(f"{log_prefix} graph key: {k}")
-            for parent_svc, children in cg.items():
-                for child_svc in children:
-                    print(f"{log_prefix} {parent_svc} -> {child_svc}")
+def print_callgraph_table(callgraph_table):
+    for cid in callgraph_table:
+        for cg_key in callgraph_table[cid]:
+            print(f"{log_prefix} cg_key: {cg_key}")
+            for cg in callgraph_table[cid][cg_key]:
+                for parent_span in cg:
+                    for child_span in cg[parent_span]:
+                        print(f"{log_prefix} {parent_span.svc_name} -> {child_span.svc_name}")
 
 
 def set_depth_of_span(cg, parent_svc, children, depth_d, prev_dep):
@@ -489,7 +531,7 @@ def analyze_critical_path_time(traces_):
     print(f"{log_prefix} Critical Path Analysis")
     for cid in traces_:
         for tid, single_trace in traces_[cid].items():
-            for svc, span in single_trace.items():
+            for span in single_trace:
                 critical_path_analysis(span)
 
 
@@ -498,7 +540,7 @@ def traces_to_df(traces_):
     colname = list()
     for cid in traces_:
         for tid, single_trace in traces_[cid].items():
-            for svc, span in single_trace.items():
+            for span in single_trace:
                 unfold_span = span.unfold()
                 if len(colname) == 0:
                     colname = unfold_span.keys()
@@ -510,14 +552,20 @@ def traces_to_df(traces_):
     df.reset_index(drop=True)
     return df
 
+
+def get_placement(traces):
+    placement = dict()
+    for cid in traces:
+        for tid, single_trace in traces[cid].items():
+            for span in single_trace:
+                placement[cid] = span.svc_name
+    return placement
+
+
 def stitch_time(traces):
-    call_graph = traces_to_graphs(traces)
     change_to_relative_time(traces)
     calc_exclusive_time(traces)
     analyze_critical_path_time(traces)
     df = traces_to_df(traces)
     print_all_trace(traces)
-    return traces, call_graph, df
-
-# if __name__ == "__main__":
-#     traces = parse_trace_file
+    return traces, df

@@ -95,5 +95,9 @@ for single_trace in complete_traces:
         num_requests[cg_key] = 0
     else:
         num_requests[cg_key] += 1
+```
+
+### Trace file
+```csv
 
 ```
