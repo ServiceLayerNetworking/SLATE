@@ -15,10 +15,12 @@ service topology
 method and url of services
   - { A: {method: "GET", url: "/product/123"}, B: {method: "GET", url: "/reviews"}, C: {method: "POST", url: "/details/456"}, D: {method: "GET", url: "/ratings"} }
 
-#### Change traces data structure in the global controller
+### Change traces data structure in the global controller
 Current traces data structure:
     traces[cluster_id][trace_id][service_name] = span
+
 ==>
+
 New traces data structure:
     traces[cluster_id][trace_id] = [span_A, span_B, span_C, span_D]
     why do we need this data structure?
@@ -28,17 +30,17 @@ New traces data structure:
     What about latency? cg should be classified instantly to count the number requests for each call graph.
 
 
-#### Span data structure
+### Span data structure
 existing span data structure += method and url of the service
 
-#### endpoint data structure
+### endpoint data structure
 ```python
 endpoint = {"service": "productpage", \
             "method": "GET", \
             "url": "/productpage/login"}
 ```
 
-#### Call graph data structure
+### Call graph data structure
 A->B, A->C, B->D
 ```python
 callgraph = {A_span: [B_span, C_span], B_span:[D_span], C_span:[], D_span:[]}
@@ -46,7 +48,7 @@ callgraph = {A_span: [B_span, C_span], B_span:[D_span], C_span:[], D_span:[]}
 
 If two call graphs have the same list of the endpoints
 
-#### Trace to Call graph
+### Trace to Call graph
 ```python
 def trace_to_callgraph(single_trace):
     key = ""
@@ -74,13 +76,13 @@ def get_key_of_callgraph(cg):
 
 ```
 
-#### Call graph table
+### Call graph table
 ```python
 callgraph_table: {callgraph_A_key: callgrah_A, callgraph_B_key: callgrap_B}
 num_requests = {callgraph_A_key: 10, callgraph_B_key: 200}
 ```
 
-#### Trace/Request classification
+### Trace/Request classification
 ```python
 cg_list = list()
 for single_trace in complete_traces:

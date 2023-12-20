@@ -36,7 +36,7 @@ cluster_id is given as a number. e.g., 0, 1, 2, ...
 # cluster_to_cid = {"us-west": 0, "us-east": 1}
 # cid_to_cluster = {0: "us-west", 1: "us-east"}
 stats_mutex = Lock()
-stats_arr = []
+# stats_arr = []
 # TODO: It is currently dealing with ingress gateway only.
 # cluster_pcts[cluster_id][dest cluster] = pct
 cluster_pcts = {} 
@@ -134,40 +134,41 @@ def is_load_bucket_filled(cid):
     return True
 
 
-# def move_to_complete_trace():
-#     for cid in all_traces:
-#         for tid, single_trace in all_traces[cid].items():
-#             if len(single_trace) == 4: # NOTE: hardcoded.
-#                 ########################################################
-#                 ## Weird behavior: In some traces, all spans have the same span id which is productpage's span id.
-#                 ## For now, to filter out them following code exists.
-#                 ## If the traces were good, it is redundant code.
-#                 span_exists = []
-#                 ignore_cur = False
-#                 for svc, span in single_trace.items():
-#                     if span.my_span_id in span_exists:
-#                         ignore_cur = True
-#                         break
-#                     span_exists.append(span.my_span_id)
-#                 if ignore_cur:
-#                     app.logger.debug(f"{log_prefix} span exist, ignore_cur, cid,{span.cluster_id}, tid,{span.trace_id}, span_id,{span.my_span_id}")
-#                     continue
-#                 ########################################################
-#                 if span.cluster_id not in complete_traces:
-#                     complete_traces[span.cluster_id] = {}
-#                 if span.trace_id not in complete_traces[span.cluster_id]:
-#                     complete_traces[span.cluster_id][span.trace_id] = {}
-#                 complete_traces[span.cluster_id][span.trace_id] = all_traces[span.cluster_id][span.trace_id].copy()
-#                 del all_traces[span.cluster_id][span.trace_id]
-#                 try:
-#                     bucket_key = int(span.load/bucket_size)
-#                     if bucket_key not in load_bucket[span.cluster_id]:
-#                         app.logger.info(f"{log_prefix} New load bucket key:{bucket_key}, load:{span.load}")
-#                         load_bucket[span.cluster_id][bucket_key] = 0
-#                     load_bucket[span.cluster_id][bucket_key] += 1
-#                 except Exception as e:
-#                     app.logger.error(f"{log_prefix} {e}")
-
+# This function can be async
+def check_and_move_to_complete_trace(single_trace):
+    if is_this_trace_complete(single_trace) == False:
+        return False
+    else:
+        ########################################################
+        ## Weird behavior: In some traces, all spans have the same span id which is productpage's span id.
+        ## For now, to filter out them following code exists.
+        ## If the traces were good, it is redundant code.
+        span_exists = []
+        ignore_cur = False
+        for span in single_trace:
+            if span.my_span_id in span_exists:
+                ignore_cur = True
+                break
+            span_exists.append(span.my_span_id)
+        if ignore_cur:
+            app.logger.debug(f"{log_prefix} span exist, ignore_cur, cid,{span.cluster_id}, tid,{span.trace_id}, span_id,{span.my_span_id}")
+            continue
+        ########################################################
+        if span.cluster_id not in complete_traces:
+            complete_traces[span.cluster_id] = {}
+        if span.trace_id not in complete_traces[span.cluster_id]:
+            complete_traces[span.cluster_id][span.trace_id] = {}
+        complete_traces[span.cluster_id][span.trace_id] = all_traces[span.cluster_id][span.trace_id].copy()
+        del all_traces[span.cluster_id][span.trace_id]
+        try:
+            bucket_key = int(span.load/bucket_size)
+            if bucket_key not in load_bucket[span.cluster_id]:
+                app.logger.info(f"{log_prefix} New load bucket cid:{span.cluster_id}, bucket key:{bucket_key}, load:{span.load}")
+                load_bucket[span.cluster_id][bucket_key] = 0
+            load_bucket[span.cluster_id][bucket_key] += 1
+        except Exception as e:
+            app.logger.error(f"{log_prefix} {e}")
+        return True
 
 
 
@@ -219,10 +220,10 @@ def print_trace():
 
 def garbage_collection():
     app.logger.info(f"{log_prefix} Start Garbage collection")
-    app.logger.info(f"{log_prefix} Clearing complete_traces, all_traces, stats_arr...")
-    # complete_traces.clear()
+    app.logger.info(f"{log_prefix} Clearing complete_traces, all_traces...")
     all_traces.clear()
-    stats_arr.clear()
+    # complete_traces.clear()
+    # stats_arr.clear()
     app.logger.info(f"{log_prefix} Done with Garbage collection")
 
 
@@ -284,9 +285,7 @@ def optimizer_entrypoint():
                 #     percentage_df = opt.run_optimizer(raw_traces=None, trace_file=None, NUM_REQUESTS=num_requests, models=MODEL_DICT)
                 if USE_PRERECORDED_TRACE: ## NOTE: This is main mode. envoycon demo
                     ## NOTE: This can be done only once.
-                    TRACE_PATH="/app/sampled_both_trace.txt"
-                    df = pd.read_csv(TRACE_PATH)
-                    pre_recorded_trace = sp.df_to_trace(df)
+                    pre_recorded_trace = sp.file_to_trace("/app/sampled_both_trace.txt")
                     percentage_df, desc = opt.run_optimizer(pre_recorded_trace, trace_file=None, NUM_REQUESTS=num_requests, model_parameter=None)
                 elif USE_TRACE_FILE:
                     TRACE_FILE_PATH="/app/wrk_prof_log2_west.txt"
@@ -330,18 +329,36 @@ def are_they_same_endpoint(span1, span2):
     return False
 
 
+def are_they_same_service_spans(span1, span2):
+    if span1.svc_name == span2.svc_name:
+        return True
+    return False
+
+
 def span_existed(traces_, span_):
     if (span_.cluster_id in traces_) and (span_.trace_id in traces_[span_.cluster_id]):
             for span in traces_[span_.cluster_id][span_.trace_id]:
-                if are_they_same_endpoint(span_, span):
+                if are_they_same_service_spans(span_, span):
                     app.logger.info(f"{log_prefix} span already exists in all_trace {span.trace_id[:8]}, {span.my_span_id}, {span.svc_name}")
                     return True
     return False
 
 
 def add_span_to_traces(traces_, span_):
-    traces_[span.cluster_id][span.trace_id].append(span)
-    
+    if span_.cluster_id not in traces_:
+        traces_[span_.cluster_id] = {}
+    if span_.trace_id not in traces_[span_.cluster_id]:
+        traces_[span_.cluster_id][span_.trace_id] = {}
+    traces_[span_.cluster_id][span_.trace_id].append(span_)
+    return traces_[span_.cluster_id][span_.trace_id]
+
+
+def is_this_trace_complete(single_trace):
+    # TODO: Must be changed for other applications.
+    if len(single_trace) == 4: 
+        return True
+    return False
+
         
 @app.route("/clusterLoad", methods=["POST"])
 def proxy_load():
@@ -357,71 +374,27 @@ def proxy_load():
         app.logger.info(f"{log_prefix} num_inflight_req,{num_inflight_req}")
         assert False
     svc_to_rps[cluster_id][svc_name] = num_inflight_req
+    
     # if prof_done[cluster_id] == False:
-    if True:
-        spans = parse_stats_into_spans(stats, cluster_id, svc_name)
-        # if len(spans) > 0 and spans[0].load > 0:
-        if prof_start[cluster_id] == True or (len(spans) > 0 and spans[0].load):
-            if prof_start[cluster_id] == False:
-                prof_start[cluster_id] = True
-                app.logger.info(f"{log_prefix} The FIRST proxy load for cluster {cluster_id}, {spans[0].cluster_id}.")
-                app.logger.info(f"{log_prefix} OPTIMIZER, Start profiling for cluster {cluster_id}, {spans[0].cluster_id}.")
-            else:
-                app.logger.debug(f"{log_prefix} Profiling for Cluster {cluster_id} already started.")
-        else:
-            app.logger.debug(f"{log_prefix} cluster {cluster_id}, {cluster_id} still have NOT received any proxy load. Hold off starting profiling.")
-        with stats_mutex:
-            for span in spans:
-                if span.cluster_id not in all_traces:
-                    all_traces[span.cluster_id] = {}
-                if span.trace_id not in all_traces[span.cluster_id]:
-                    all_traces[span.cluster_id][span.trace_id] = {}
-                ## Skip spans that were already collected.
-                ## It should not happen
-                if span_existed(all_traces, span):
-                    continue
-                add_span_to_traces(all_traces, span)
-                ## NOTE: It should be moved to a separate async function later.
-                if len(all_traces[span.cluster_id][span.trace_id]) == 4: # NOTE: hardcoded.
-                    span_exists = []
-                    ignore_cur = False
-                    for span in all_traces[span.cluster_id][span.trace_id]:
-                        if span.my_span_id in span_exists:
-                            ignore_cur = True
-                            break
-                        span_exists.append(span.my_span_id)
-                    if ignore_cur:
-                        app.logger.debug(f"{log_prefix} span exist, ignore_cur, {span.svc_name} cid,{cluster_id}, tid,{span.trace_id}, span_id,{span.my_span_id}")
-                        continue
-                    if span.cluster_id not in complete_traces:
-                        complete_traces[span.cluster_id] = {}
-                    if span.trace_id not in complete_traces[span.cluster_id]:
-                        complete_traces[span.cluster_id][span.trace_id] = list()
-                    complete_traces[span.cluster_id][span.trace_id] = all_traces[span.cluster_id][span.trace_id].copy()
-                    try:
-                        bucket_key = int(span.load/bucket_size)
-                        if bucket_key not in load_bucket[span.cluster_id]:
-                            app.logger.info(f"{log_prefix} New load bucket cid:{span.cluster_id}, bucket key:{bucket_key}, load:{span.load}")
-                            load_bucket[span.cluster_id][bucket_key] = 0
-                        load_bucket[span.cluster_id][bucket_key] += 1
-                    except Exception as e:
-                        app.logger.error(f"{log_prefix} {e}")
-        stats_arr.append(f"{cluster} {pod} {svc_name} {stats}\n")
-        # app.logger.info(f"{log_prefix} Profiling was done. No more trace will be collected anymore.")
-        for cid in range(NUM_CLUSTER):
-            if cid not in cluster_pcts:
-                cluster_pcts[cid] = {}
-        # Since this is still profiling phase, it does not have enough traces.
-        # Set local routing rule
-        
+    spans = parse_stats_into_spans(stats, cluster_id, svc_name)
+    if len(spans) > 0 and spans[0].load > 0:
+        if prof_start[cluster_id] == False:
+            prof_start[cluster_id] = True
+            app.logger.info(f"{log_prefix} OPTIMIZER,  The FIRST proxy load for cluster  {spans[0].cluster_id} Start profiling for cluster.")
+    with stats_mutex:
+        for span in spans:
+            if span_existed(all_traces, span) == False:
+                added_trace = add_span_to_traces(all_traces, span) # NOTE: added_trace could be incomplete trace.
+                check_and_move_to_complete_trace(added_trace)
+    # stats_arr.append(f"{cluster} {pod} {svc_name} {stats}\n")
+    for cid in range(NUM_CLUSTER):
+        if cid not in cluster_pcts:
+            cluster_pcts[cid] = {}
     if prof_done[cluster_id] == False:
         cluster_pcts = local_routing_rule()
-    else:
-        # Profiling is DONE.
-        app.logger.debug(f"{log_prefix} Profiling was already done.")
         
     assert cluster_id in cluster_pcts
-    # app.logger.info(f"{log_prefix} PUSHING DOWN CLUSTER PERCENTAGE RULES TO VS: {cluster_pcts}")
+    # app.logger.info(f"{log_prefix} Pushing down routing rules to data planes: {cluster_pcts}")
     return cluster_pcts[cluster_id]
     
 
