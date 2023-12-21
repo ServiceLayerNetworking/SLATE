@@ -77,10 +77,44 @@ def get_key_of_callgraph(cg):
 ```
 
 ### Call graph table
-```python
-callgraph_table: {callgraph_A_key: callgrah_A, callgraph_B_key: callgrap_B}
-num_requests = {callgraph_A_key: 10, callgraph_B_key: 200}
+
+endpoint: "svc_name,method,url"
 ```
+endpoint_0 -> endpoint_1
+endpoint_1 -> endpoint_2, endpoint_3
+endpoint_3 -> endpoint_4
+```
+
+bfs the callgraph and append svc_name,method,url of each span
+callgraph_key: "endpoint_0,endpoint_1,endpoint_2,endpoint_3,endpoint_4"
+
+```python
+callgraph_table = {callgraph_A_key: callgrah_A, callgraph_B_key: callgrap_B}
+```
+
+### endpoint_level_load
+if the ingress_gateway endpoint is unique for every callgraph, then cg_key can be replaced with the ingress endpoint.
+```python
+per_cluster_endpoint_level_load = { cid_0: {"ingress_gw": {"endpoint_0": 66, ...}, "productpage": {"endpoint_4": 45, ...}}, cid_1: {"ingress_gw": {"endpoint_0": 33, ...}, "productpage": {"endpoint_4": 22, ...}} }
+```
+ASSUMPTION: A endpoint at the ingress gw can be used as a unique to classify the call graphs.
+per cluster per endpoint ingress gw load will look like
+```python
+per_cluster_endpoint_level_load[cid][ingress_gw_svc_name][wanted_endpoint]
+```
+
+How should the load be normalize? by what?
+- For service level load, normalize the loads in each service **by load ingress gateway**
+- For endpoint level load, normalize the loads in each endpoint **by unique endpoint at the ingress gateway**
+  - It is assuming that two different call graphs always have different ingress gateway endpoint.
+  - It is not true in real world case. It becomes the problem of how requests should be classfied.
+    - cache_setting, premium user, ...
+
+```python
+service_level_request_weight_in_out = {"productpage": 1, "details": 0.7, "reviews": 0.6, "ratings": 0.5}
+endpoint_level_request_weight_in_out = {cg_key_A: {"endpoint_0": 1, "endpoint_1": 0.5, ... }, cg_key_B: {"endpoint_0": 1, "endpoint_1": 0.8, ... }}
+```
+Why endpoint_level_request_weight_in_out is not just 1:1 ratio. This is because the notion of call graph in our system could be coarse.
 
 ### Trace/Request classification
 ```python
@@ -95,9 +129,4 @@ for single_trace in complete_traces:
         num_requests[cg_key] = 0
     else:
         num_requests[cg_key] += 1
-```
-
-### Trace file
-```csv
-
 ```
