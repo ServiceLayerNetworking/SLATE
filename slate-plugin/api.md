@@ -19,6 +19,17 @@ method path traceId spanId parentSpanId startTime endTime bodySize firstLoad las
 method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
 method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
 ```
+
+**gangmuk**
+```
+service_level_rps
+endpoint_0, endpoint_1, endpoint_2
+rps_endpoint_0, rps_endpoint_1, rps_endpoint_2
+method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
+method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
+method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
+```
+
 First line is always number of requests from the current iteration, and the following lines are the requests statistics themselves.
 
 *THE RESPONSE NEEDS TO BE THE PLAINTEXT STRUCTURE*
