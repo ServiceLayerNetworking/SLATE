@@ -30,7 +30,10 @@ complete_traces = {}
 all_traces = {}
 prerecorded_trace = {}
 svc_to_rps = {}
-callgraph_aware_load = {}
+
+per_cluster_endpoint_level_load = {}
+per_cluster_service_level_load = {}
+
 '''
 cluster_to_cid and cid_to_cluster should be deprecated
 cluster_id is given as a number. e.g., 0, 1, 2, ...
@@ -82,9 +85,8 @@ def parse_stats_into_spans(stats, cluster_id, service):
         if len(ss) != 12:
             app.logger.info(f"{cfg.log_prefix} parse_stats_into_spans, len(ss) != 12, {len(ss)}")
             assert False
-            continue
         method = ss[0]
-        url_path = ss[1]
+        url = ss[1]
         trace_id = ss[2]
         my_span_id = ss[3]
         parent_span_id = ss[4]
@@ -279,8 +281,24 @@ def optimizer_entrypoint():
                 ## NOTE: It should be executed only once
                 placement = tst.get_placement(complete_traces)
                 list_of_callgraph, callgraph_table = tst.traces_to_callgraph(complete_traces)
+                root_endpoint = tst.get_root_endpoint(callgraph_table)
                 pre_recorded_trace = sp.file_to_trace("/app/sampled_both_trace.txt")
-                percentage_df, desc = opt.run_optimizer(pre_recorded_trace, callgraph_aware_load, placement, callgraph_table)
+                
+                                
+                # for cid in last_window_traces:
+                #     if cid not in callgraph_load:
+                #         callgraph_load[cid] = dict()
+                #     for tid in last_window_traces[cid]:
+                #         single_trace = last_window_traces[cid][tid]
+                #         cg = tst.single_trace_to_callgraph(single_trace)
+                #         cg_key = tst.get_callgraph_key(cg)
+                #         if cg_key not in callgraph_load[cid]:
+                #             callgraph_load[cid][cg_key] = 0
+                #         for span in single_trace:
+                #             callgraph_load[cid][cg_key] += span.load
+                
+                
+                percentage_df, desc = opt.run_optimizer(pre_recorded_trace, per_endpoint_load, per_cluster_per_endpoint_load, placement, callgraph_table, root_endpoint)
                 if percentage_df == None: # If optimizer failed, use local routing or stick to the previous routing rule.
                     cluster_pcts = local_routing_rule()
                     app.logger.info(f"{cfg.log_prefix} OPTIMIZER, FAIL, {desc}")
@@ -340,31 +358,40 @@ def proxy_load():
     stats = body["body"]
     if cluster_id not in svc_to_rps:
         svc_to_rps[cluster_id] = {}
-    num_inflight_req = int(stats.split("\n")[0])
-    if num_inflight_req > 1000000000:
-        app.logger.info(f"{cfg.log_prefix} num_inflight_req,{num_inflight_req}")
+    ontick_rps = int(stats.split("\n")[0])
+    if ontick_rps > 1000000000:
+        app.logger.info(f"{cfg.log_prefix} ontick_rps,{ontick_rps}")
         assert False
-    svc_to_rps[cluster_id][svc_name] = num_inflight_req
-    
-    
-    # if prof_done[cluster_id] == False:
+    svc_to_rps[cluster_id][svc_name] = ontick_rps
     spans = parse_stats_into_spans(stats, cluster_id, svc_name)
     
-    user_request = f'{spans[0].svc_name},{spans[0].method},{spans[0].url}'
-    if cluster_id not in callgraph_aware_load:
-        callgraph_aware_load[cluster_id] = dict()
-    callgraph_aware_load[cluster_id][user_request] = num_inflight_req
-    print(f'callgraph_aware_load[{cluster_id}][{user_request}]: {callgraph_aware_load[cluster_id][user_request]}')
+    '''
+    Five load metrics
+    - per_cluster_service_level_load = {cid_0: {"productpage": 123, "details": 89, ...}, cid_1: {...} }
+    
+    - per_cluster_endpoint_level_load = { cid_0: {"ingress_gw": {"endpoint_0": 66, ...}, "productpage": {"endpoint_4": 45, ...}}, \                                     cid_1: {"ingress_gw": {"endpoint_0": 33, ...}, "productpage": {"endpoint_4": 22, ...}} }
+    
+    '''
+    
+    per_cluster_service_level_load[cluster_id][svc_name] = service_level_rps
+    temp = 0
+    for endpoint, endpoint_point_rps in zip(endpoint_list, endpoint_point_rps_list): # NOTE: endpoint_list should be given by wasm
+        if cluster_id not in per_cluster_endpoint_level_load:
+            per_cluster_endpoint_level_load[cluster_id] = dict()
+        if svc_name not in per_cluster_endpoint_level_load[cluster_id]:
+            per_cluster_endpoint_level_load[cluster_id][svc_name] = dict()
+        per_cluster_endpoint_level_load[cluster_id][svc_name][endpoint] = endpoint_point_rps
+        temp += endpoint_point_rps
+    assert endpoint_point_rps == service_level_rps
     
     if len(spans) > 0 and spans[0].load > 0:
         if prof_start[cluster_id] == False:
             prof_start[cluster_id] = True
-            app.logger.info(f"{cfg.log_prefix} OPTIMIZER,  The FIRST proxy load for cluster  {spans[0].cluster_id} Start profiling for cluster.")
+            app.logger.info(f"{cfg.log_prefix} OPTIMIZER, The FIRST proxy load for cluster {cluster_id} Start profiling for cluster.")
     with stats_mutex:
         for span in spans:
             if span_existed(all_traces, span) == False:
                 added_trace = add_span_to_traces(all_traces, span) # NOTE: added_trace could be incomplete trace.
-    # stats_arr.append(f"{cluster} {pod} {svc_name} {stats}\n")
     for cid in range(cfg.NUM_CLUSTER):
         if cid not in cluster_pcts:
             cluster_pcts[cid] = {}
@@ -382,7 +409,7 @@ if __name__ == "__main__":
     # scheduler.add_job(func=prof_phase, trigger="interval", seconds=1)
     scheduler.add_job(func=garbage_collection, trigger="interval", seconds=600)
     # scheduler.add_job(func=print_trace, trigger="interval", seconds=10) ## uncomment it if you want trace log print
-    scheduler.add_job(func=check_and_move_to_complete_trace, trigger="interval", seconds=10) ## uncomment it if you want trace log print
+    scheduler.add_job(func=check_and_move_to_complete_trace, trigger="interval", seconds=1) ## uncomment it if you want trace log print
     # scheduler.add_job(func=retrain_service_models, trigger="interval", seconds=10)
     scheduler.start()
     atexit.register(lambda: scheduler.shutdown())

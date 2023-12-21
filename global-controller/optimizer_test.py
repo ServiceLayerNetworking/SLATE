@@ -38,43 +38,33 @@ For interactive run with jupyternotebook, comment out following lines "COMMENT_O
 And adjust the indentation accordingly.
 '''
 
-# pre_recorded_trace is simply a list of span objects
-def run_optimizer(pre_recorded_trace, NUM_REQUESTS): # COMMENT_OUT_FOR_JUPYTER
-    # In[31]:
-
+# pre_recorded_trace is simply a list of spans?
+def run_optimizer(pre_recorded_trace, per_endpoint_load, per_cluster_per_endpoint_load, placement, callgraph, root_endpoint):
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
         print(f"{cfg.log_prefix} mkdir {cfg.OUTPUT_DIR}")
-    # else:
-    #     print(f"{cfg.log_prefix} {cfg.OUTPUT_DIR} already exists")
-    #     print("If you are using jupyter notebook, you should restart the kernel to load the new config.py")
-    #     assert False
         
-        
-    # In[31]:
-
-
     traffic_segmentation = 1
     objective_function = "avg_latency" # avg_latency, end_to_end_latency, multi_objective, egress_cost
     
-    #################################
-    # placement = dict()
-    # callgraph = dict()
-    request_in_out_weight = dict()
-    #################################
+    request_in_out_weight = dict() # This is used in flow_conservation-nonleaf_endnode constraint
+    for cid in per_endpoint_load:
+        for endpoint in per_endpoint_load[cid]:
+            if endpoint not in request_in_out_weight:
+                request_in_out_weight[endpoint] = dict()
+            request_in_out_weight[endpoint] = per_endpoint_load[endpoint]/per_endpoint_load[root_endpoint]
     
-    norm_inout_weight = dict()
+    norm_inout_weight = dict() # NOTE: not being used anywhere. it is redundant
     for key in request_in_out_weight:
         norm_inout_weight[key] = opt_func.norm(request_in_out_weight[key])
     merged_in_out_weight = opt_func.merge(request_in_out_weight, norm_inout_weight, MAX_LOAD)
     norm_merged_in_out_weight = opt_func.norm(merged_in_out_weight)
-        
+    
     if traffic_segmentation == False:
         original_NUM_REQUESTS = NUM_REQUESTS.copy()
         original_MAX_LOAD = MAX_LOAD.copy()
         original_callgraph = callgraph.copy()
         original_request_in_out_weight = request_in_out_weight.copy()
-        
         merged_cg_key = "M"
         merged_callgraph = opt_func.merge_callgraph(callgraph)
         callgraph = dict()
@@ -90,17 +80,7 @@ def run_optimizer(pre_recorded_trace, NUM_REQUESTS): # COMMENT_OUT_FOR_JUPYTER
         NUM_REQUESTS = merged_NUM_REQUESTS
         MAX_LOAD = opt_func.get_max_load(NUM_REQUESTS)
         
-
-    def print_setup():
-        print(f'NUM_REQUESTS: {NUM_REQUESTS}')
-        print(f'MAX_LOAD: {MAX_LOAD}')
-        print(f'placement: {placement}')
-        print(f'callgraph: {callgraph}')
-        print(f'request_in_out_weight: {request_in_out_weight}')
-        print(f'norm_inout_weight: {norm_inout_weight}')
-        print(f'merged_in_out_weight: {merged_in_out_weight}')
-        print(f'norm_merged_in_out_weight: {norm_merged_in_out_weight}')
-    print_setup()
+    opt_func.print_setup()
 
     if len(placement) != len(NUM_REQUESTS):
         print(f'len(placement)({len(placement)}) != len(NUM_REQUESTS)({len(NUM_REQUESTS)})')
@@ -598,9 +578,9 @@ def run_optimizer(pre_recorded_trace, NUM_REQUESTS): # COMMENT_OUT_FOR_JUPYTER
                                 print(f'child_svc: {child_svc} not in request_in_out_weight[{key}][{parent_svc}]')
                                 print(f'request_in_out_weight: {request_in_out_weight}')
                                 assert False
-                            lh = gp.quicksum(aggregated_load[key].select('*', end_node))*request_in_out_weight[key][parent_svc][child_svc]
                             # else:
                             #     lh = gp.quicksum(aggregated_load[key].select('*', end_node))*merged_in_out_weight[parent_svc][child_svc]
+                            lh = gp.quicksum(aggregated_load[key].select('*', end_node))*request_in_out_weight[key][parent_svc][child_svc]
                             rh = outgoing_sum
                             node_flow = gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+key)
                             # if cfg.DISPLAY:

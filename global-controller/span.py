@@ -32,6 +32,7 @@ class Span:
         self.method = method
         self.url = url
         self.svc_name = svc_name
+        self.endpoint = f"{self.svc_name},{self.method},{self.url}"
         self.my_span_id = my_span_id
         self.parent_span_id = parent_span_id
         self.trace_id = trace_id
@@ -59,6 +60,7 @@ class Span:
         self.critical_child_spans = list()
         self.call_size = cs
         self.depth = 0 # ingress gw's depth: 0, frontend's depth: 1
+        
     
     def unfold(self):
         unfold_dict = {k:v for k, v in self.__dict__.items() if not (k.startswith('__') and k.endswith('__'))}
