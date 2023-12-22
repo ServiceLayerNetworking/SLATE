@@ -1183,3 +1183,13 @@ def merge(request_in_out_weight, norm_inout_weight, max_load):
                         # print(f'merged_in_out_weight[{parent_svc}][{child_svc}] += {request_in_out_weight[other_cg_key][parent_svc][child_svc]}*({max_load[other_cg_key]}/{sum(max_load.values())})')
                 merged_in_out_weight[parent_svc][child_svc] = temp
     return merged_in_out_weight
+
+def print_setup():
+    print(f'NUM_REQUESTS: {NUM_REQUESTS}')
+    print(f'MAX_LOAD: {MAX_LOAD}')
+    print(f'placement: {placement}')
+    print(f'callgraph: {callgraph}')
+    print(f'request_in_out_weight: {request_in_out_weight}')
+    print(f'norm_inout_weight: {norm_inout_weight}')
+    print(f'merged_in_out_weight: {merged_in_out_weight}')
+    print(f'norm_merged_in_out_weight: {norm_merged_in_out_weight}')

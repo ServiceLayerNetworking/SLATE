@@ -17,9 +17,9 @@ Request Body Structure:
 [gangmuk] Method name and URL should be also sent
 ```
 numRequests
-**cluster_id method_name URL** traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
-**cluster_id method_name URL** traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
-**cluster_id method_name URL** traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
+cluster_id method_name URL traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad service_level_rps endpoint_level_rps
+cluster_id method_name URL traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad service_level_rps endpoint_level_rps
+cluster_id method_name URL traceId spanId, parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad service_level_rps endpoint_level_rps
 ```
 First line is always number of requests from the current iteration, and the following lines are the requests statistics themselves.
 
@@ -50,6 +50,49 @@ Response Body Structure:
 
 - `changed` is whether or not this is a new distribution for this given service. If it is, the WASM plugin should reset its internal state and use those distributions.
 - `distributions[0].matchHeaders` contains the headers that the WASM plugin should match outgoing requests against. If matched, the WASM plugin should attach the headers in `distributions[0].distribution` to the outgoing request given the weights.
+
+---
+
+### main.go
+The reason that each request has firstload and so on is to record real time load when that specific request is arrived at the wasm.
+
+Currently, there is no correct implementation of RPS from each request perspective.
+```
+reqCount
+..., stat.firstLoad, stat.lastLoad, stat.avgLoad, stat.rps
+```
+
+Number of inflight requests represents the number of requests still being executed in the system.
+
+`reqCount`: `KEY_REQUEST_COUNT` (represent replica-wise rps)
+`stat.firstLoad`: `firstLoadKey(traceId)`
+`stat.lastLoad`: `lastLoadKey(traceId)`
+`stat.avgLoad`: `(firstLoadKey(traceId) + lastLoadKey(traceId)) / 2`
+`stat.rps`: `KEY_REQUEST_COUNT`
+
+A request arrival will invoke `OnHttpRequestHeaders`.
+When the request is done, it will invoke `OnHttpStreamDone`
+
+Note that it is not RPS.
+`KEY_INFLIGHT_REQ_COUNT`++: on `OnHttpRequestHeaders`
+`KEY_INFLIGHT_REQ_COUNT`--: on `OnHttpStreamDone`
+
+You can just use firstLoad as a load representation for now
+`firstLoadKey(traceId)`: It will be set to current `KEY_INFLIGHT_REQ_COUNT` when `OnHttpRequestHeaders` function is called
+`lastLoadKey(traceId)`: It will be set to `KEY_INFLIGHT_REQ_COUNT` when `OnHttpStreamDone` function is called
+`avgLoadKey(traceId)`: `( GetUint64SharedData(firstLoadKey((traceId))) + GetUint64SharedData(lastLoadKey((traceId))) )/ 2` when `OnHttpStreamDone` function is called
+
+`KEY_REQUEST_COUNT`++: on `OnHttpRequestHeaders` when the request has `islocalroute == "1"` header
+`KEY_REQUEST_COUNT`--: None
+`KEY_REQUEST_COUNT` = 0: on `OnTick`
+
+`KEY_NUM_REQ_PER_UNIT` is currently deprecated.
+`KEY_NUM_REQ_PER_UNIT`++: on `OnHttpRequestHeaders`
+`KEY_NUM_REQ_PER_UNIT`--: None
+`KEY_NUM_REQ_PER_UNIT` = 0: None
+
+### per method,url load
+Now we need to record load of each request **per method and url** at each wasm
 
 ---
 

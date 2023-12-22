@@ -6,24 +6,8 @@ log_prefix="[SLATE]"
 ## Global controller ##
 #######################
 PRINT_TRACE=False
-NUM_CLUSTER = 2
-ACTUAL_LOAD=True
-SLATE_ON=1
-REAL_DATA=True
-USE_PRERECORDED_TRACE=1
-USE_TRACE_FILE=0
-USE_MODEL_DIRECTLY=0
-# if USE_MODEL_DIRECTLY:
-#     MODEL_DICT = {"productpage-v1": {"slope:":154,  "intercetp":130}, \
-#                       "ratings-v1": {"slope" :0.0,  "intercetp":1.3}, \
-#                       "details-v1": {"slope" :0.0,  "intercetp":6.2}, \
-#                       "reviews-v3": {"slope" :0.3,  "intercetp":5.0}, \
-#                       "ingress_gw": {"slope" :0.0,  "intercetp":0.0} }
-# else:  
-#     TRACE_FILE_PATH=None
-#     # PROF_DURATION = 40 # in seconds, hey
-#     PROF_DURATION = 350 # in seconds, wrk2 (30*20)*7 =350
-MIN_NUM_TRACE = 30
+NUM_CLUSTER = 2 # NOTE: hardcoded
+MODE="PROFILE" # PROFILE, SLATE, LOCAL_ROUTING
 
 
 ###############
