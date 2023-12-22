@@ -31,6 +31,8 @@ const (
 	// nor_len     = 1000 / TICK_PERIOD
 	DEFAULT_HASH_MOD                = 1
 	SLATE_REMOTE_CLUSTER_HEADER_KEY = "x-slate-remotecluster"
+
+	KEY_MATCH_DISTRIBUTION = "slate_match_distribution"
 )
 
 /*
@@ -42,7 +44,7 @@ todo(adiprerepa)
 
 var (
 	ALL_KEYS = []string{KEY_INFLIGHT_REQ_COUNT, KEY_NUM_REQ_PER_UNIT, KEY_REQUEST_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
-		KEY_TRACED_REQUESTS}
+		KEY_TRACED_REQUESTS, KEY_MATCH_DISTRIBUTION}
 	// nor     [nor_len]uint64
 	cur_idx      int
 	latency_list []int64
@@ -485,14 +487,24 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 		proxywasm.LogCriticalf("Couldn't get http call response body: %v", err)
 		return
 	}
-	if status >= 400 {
-		proxywasm.LogCriticalf("received ERROR http call response body: %s", string(respBody))
-	}
-	//proxywasm.LogCriticalf("setting rps thresholds: %s", string(respBody))
-	// set thresholds
-	if err := proxywasm.SetSharedData(KEY_RPS_THRESHOLDS, respBody, 0); err != nil {
-		proxywasm.LogCriticalf("Couldn't set shared data for rps thresholds: %v", err)
+	bodyLines := strings.Split(string(respBody), "\n")
+	if bodyLines[0] != "1" {
+		// nothing changed
 		return
+	}
+	// every line is in the following format, need to parse it into a struct
+	// :method GET,:path /foo |cluster1:90,cluster2:10
+	for _, line := range bodyLines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		if len(parts) != 2 {
+			proxywasm.LogCriticalf("invalid line in response body: %s", line)
+			continue
+		}
+		headerMatches := strings.Split(parts[0], ",")
+
 	}
 }
 

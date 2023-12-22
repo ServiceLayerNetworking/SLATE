@@ -23,6 +23,9 @@ First line is always number of requests from the current iteration, and the foll
 
 *THE RESPONSE NEEDS TO BE THE PLAINTEXT STRUCTURE*
 
+Response headers:
+- `x-slate-ruleschanged`: Whether or not the rules have changed since the last request. 0 if not changed, 1 if changed.
+
 Response Body Structure (JSON):
 ```json
 {
@@ -50,9 +53,8 @@ Response Body Structure (JSON):
 
 Plaintext structure
 ```
-changed 0/1
-:method GET :path /foo | cluster1:90 cluster2:10
-:method POST :path /bar | cluster1:70 cluster2:30
+:method GET,:path /foo|cluster1:90 cluster2:10
+:method POST,:path /bar|cluster1:70 cluster2:30
 ```
 
 - `changed` is whether or not this is a new distribution for this given service. If it is, the WASM plugin should reset its internal state and use those distributions.
