@@ -1,0 +1,70 @@
+# DestinationRule for frontend, subsetting by label.
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: frontend-destination
+  namespace: default
+spec:
+  host: frontend
+  subsets:
+  - name: west
+    labels:
+      region: us-west-1
+  - name: east
+    labels:
+      region: us-east-1
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: hotelreservation-gateway
+spec:
+  selector:
+    istio: ingressgateway # use istio default controller
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*"
+---
+# Subset routing: if x-slate-destination is east, route to us-east, if west, route to west, if not set, random.
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: hotelreservation
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - hotelreservation-gateway
+  http:
+  - match:
+    - headers:
+        x-slate-destination:
+          exact: east
+    route:
+    - destination:
+        host: frontend
+        subset: east
+        port:
+          number: 5000
+  - match:
+    - headers:
+        x-slate-destination:
+          exact: west
+    route:
+    - destination:
+        host: frontend
+        subset: west
+        port:
+          number: 5000
+  - match:
+    - uri:
+        prefix: "/"
+    route:
+    - destination:
+        host: frontend
+        port:
+          number: 5000
