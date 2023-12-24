@@ -77,10 +77,10 @@ type TracedRequestStats struct {
 	startTime    int64
 	endTime      int64
 	bodySize     int64
-	firstLoad    int64
-	lastLoad     int64
-	avgLoad      int64
-	rps          int64
+	systemLoad   int64
+	// lastLoad     int64
+	// avgLoad      int64
+	rps int64
 }
 
 // Override types.DefaultVMContext.
@@ -189,11 +189,11 @@ func (p *pluginContext) OnTick() {
 		}
 	}
 
-	data, cas, err = proxywasm.GetSharedData(KEY_NUM_REQ_PER_UNIT)
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get shared data for KEY_NUM_REQ_PER_UNIT: %v", err)
-		return
-	}
+	// data, cas, err = proxywasm.GetSharedData(KEY_NUM_REQ_PER_UNIT)
+	// if err != nil {
+	// 	proxywasm.LogCriticalf("Couldn't get shared data for KEY_NUM_REQ_PER_UNIT: %v", err)
+	// 	return
+	// }
 
 	// nor[cur_idx] = binary.LittleEndian.Uint64(data)
 	// proxywasm.LogCriticalf("cur_idx: %d, nor[cur_idx]: %d", cur_idx, nor[cur_idx])
@@ -228,8 +228,9 @@ func (p *pluginContext) OnTick() {
 	// unbelievably shitty but what can you do if you don't have gRPC :)
 	requestStatsStr := ""
 	for _, stat := range requestStats {
-		requestStatsStr += fmt.Sprintf("%s %s %s %s %s %d %d %d %d %d %d %d\n", stat.method, stat.path, stat.traceId, stat.spanId, stat.parentSpanId,
-			stat.startTime, stat.endTime, stat.bodySize, stat.firstLoad, stat.lastLoad, stat.avgLoad, stat.rps)
+		requestStatsStr += fmt.Sprintf("%s %s %s %s %s %d %d %d %d %d\n", stat.method, stat.path, stat.traceId, stat.spanId, stat.parentSpanId,
+			stat.startTime, stat.endTime, stat.bodySize, stat.systemLoad, stat.rps)
+		// stat.startTime, stat.endTime, stat.bodySize, stat.systemLoad, stat.lastLoad, stat.avgLoad, stat.rps)
 	}
 
 	// reset stats
@@ -238,13 +239,13 @@ func (p *pluginContext) OnTick() {
 	}
 
 	// print ontick results
-	data, cas, err = proxywasm.GetSharedData(KEY_INFLIGHT_REQ_COUNT)
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
-		return
-	}
-	num_cur_inflight_req := int64(binary.LittleEndian.Uint64(data))
-	proxywasm.LogCriticalf("OnTick, num inflight request: %d", num_cur_inflight_req)
+	// data, cas, err = proxywasm.GetSharedData(KEY_INFLIGHT_REQ_COUNT)
+	// if err != nil {
+	// 	proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
+	// 	return
+	// }
+	// num_cur_inflight_req := int64(binary.LittleEndian.Uint64(data))
+	// proxywasm.LogCriticalf("OnTick, num inflight request: %d", num_cur_inflight_req)
 
 	controllerHeaders := [][2]string{
 		{":method", "POST"},
@@ -408,34 +409,37 @@ func (ctx *httpContext) OnHttpStreamDone() {
 
 	IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, -1)
 	// (gangmuk): Instead of setting the KEY_INFLIGHT_REQ_COUNT(load) to zero in OnTick function, decrement it when each request is completed.
-	l_0, err := GetUint64SharedData(firstLoadKey((traceId)))
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get shared data for firstLoadKey traceId %v load: %v", traceId, err)
-		return
-	}
-	l_1, err := GetUint64SharedData(KEY_INFLIGHT_REQ_COUNT)
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get shared data for firstLoadKey traceId %v load: %v", traceId, err)
-		return
-	}
-	load_0 := int64(l_0) // first load, #inflight requests when a req is received
-	load_1 := int64(l_1) // last load, #inflight requests when a req is completed
-	avg_load := (load_0 + load_1) / 2
+	// l_0, err := GetUint64SharedData(systemLoadKey((traceId)))
+	// if err != nil {
+	// 	proxywasm.LogCriticalf("Couldn't get shared data for systemLoadKey traceId %v load: %v", traceId, err)
+	// 	return
+	// }
+	// l_1, err := GetUint64SharedData(KEY_INFLIGHT_REQ_COUNT)
+	// if err != nil {
+	// 	proxywasm.LogCriticalf("Couldn't get shared data for systemLoadKey traceId %v load: %v", traceId, err)
+	// 	return
+	// }
+
+	// load_0 := int64(l_0) // first load, #inflight requests when a req is received
+	// load_1 := int64(l_1) // last load, #inflight requests when a req is completed
+	// avg_load := (load_0 + load_1) / 2
+
 	// useful log
 	// proxywasm.LogCriticalf("OnHttpStreamDone, This is THE LAST response! load_0,%d, load_1,%d, avg_load,%d", load_0, load_1, avg_load)
 
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(l_1))
-	if err := proxywasm.SetSharedData(lastLoadKey(traceId), buf, 0); err != nil { // Set the trace with the current load
-		proxywasm.LogCriticalf("unable to set shared data lastLoadKey for traceId %v load: %v", traceId, err)
-		return
-	}
-	buf = make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(avg_load))
-	if err := proxywasm.SetSharedData(avgLoadKey(traceId), buf, 0); err != nil { // Set the trace with the current load
-		proxywasm.LogCriticalf("unable to set shared data avgLoadKey for traceId %v load: %v", traceId, err)
-		return
-	}
+	// buf := make([]byte, 8)
+	// binary.LittleEndian.PutUint64(buf, uint64(l_1))
+	// if err := proxywasm.SetSharedData(lastLoadKey(traceId), buf, 0); err != nil {
+	// 	proxywasm.LogCriticalf("unable to set shared data lastLoadKey for traceId %v load: %v", traceId, err)
+	// 	return
+	// }
+
+	// buf = make([]byte, 8)
+	// binary.LittleEndian.PutUint64(buf, uint64(avg_load))
+	// if err := proxywasm.SetSharedData(avgLoadKey(traceId), buf, 0); err != nil { // Set the trace with the current load
+	// 	proxywasm.LogCriticalf("unable to set shared data avgLoadKey for traceId %v load: %v", traceId, err)
+	// 	return
+	// }
 
 	currentTime := time.Now().UnixMilli()
 	endTimeBytes := make([]byte, 8)
@@ -615,8 +619,8 @@ func AddTracedRequest(method, path, traceId, spanId, parentSpanId string, startT
 	}
 
 	// Adding load to shareddata when we receive the request
-	data, cas, err := proxywasm.GetSharedData(KEY_INFLIGHT_REQ_COUNT)               // Get the current load
-	if err := proxywasm.SetSharedData(firstLoadKey(traceId), data, 0); err != nil { // Set the trace with the current load
+	data, cas, err := proxywasm.GetSharedData(KEY_INFLIGHT_REQ_COUNT)                // Get the current load
+	if err := proxywasm.SetSharedData(systemLoadKey(traceId), data, 0); err != nil { // Set the trace with the current load
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v load: %v", traceId, err)
 		return err
 	}
@@ -692,24 +696,24 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 		endTime := int64(binary.LittleEndian.Uint64(endTimeBytes))
 
 		// (gangmuk)
-		firstLoadBytes, _, err := proxywasm.GetSharedData(firstLoadKey(traceId)) // Get stored load of this traceid
+		systemLoadBytes, _, err := proxywasm.GetSharedData(systemLoadKey(traceId)) // Get stored load of this traceid
 		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v  from firstLoadKey: %v", traceId, err)
+			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v  from systemLoadKey: %v", traceId, err)
 			return nil, err
 		}
-		lastLoadBytes, _, err := proxywasm.GetSharedData(lastLoadKey(traceId)) // Get stored load of this traceid
-		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v  from lastLoadKey: %v", traceId, err)
-			return nil, err
-		}
-		avgLoadBytes, _, err := proxywasm.GetSharedData(avgLoadKey(traceId)) // Get stored load of this traceid
-		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v from avgLoadKey: %v", traceId, err)
-			return nil, err
-		}
-		first_load := int64(binary.LittleEndian.Uint64(firstLoadBytes)) // should it be int or int64?
-		last_load := int64(binary.LittleEndian.Uint64(lastLoadBytes))   // to int
-		avg_load := int64(binary.LittleEndian.Uint64(avgLoadBytes))     // to int
+		// lastLoadBytes, _, err := proxywasm.GetSharedData(lastLoadKey(traceId)) // Get stored load of this traceid
+		// if err != nil {
+		// 	proxywasm.LogCriticalf("Couldn't get shared data for traceId %v  from lastLoadKey: %v", traceId, err)
+		// 	return nil, err
+		// }
+		// avgLoadBytes, _, err := proxywasm.GetSharedData(avgLoadKey(traceId)) // Get stored load of this traceid
+		// if err != nil {
+		// 	proxywasm.LogCriticalf("Couldn't get shared data for traceId %v from avgLoadKey: %v", traceId, err)
+		// 	return nil, err
+		// }
+		cur_system_load := int64(binary.LittleEndian.Uint64(systemLoadBytes)) // should it be int or int64?
+		// last_load := int64(binary.LittleEndian.Uint64(lastLoadBytes))   // to int
+		// avg_load := int64(binary.LittleEndian.Uint64(avgLoadBytes))     // to int
 
 		rpsBytes, _, err := proxywasm.GetSharedData(KEY_REQUEST_COUNT) // Get stored load of this traceid
 		if err != nil {
@@ -727,10 +731,10 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 			startTime:    startTime,
 			endTime:      endTime,
 			bodySize:     bodySize,
-			firstLoad:    first_load, // newly added per-request level load field
-			lastLoad:     last_load,  // newly added per-request level load field
-			avgLoad:      avg_load,   // newly added per-request level load field
-			rps:          rps_,       // rps
+			systemLoad:   cur_system_load, // instant load in the system when the request arrives
+			// lastLoad:     last_load,
+			// avgLoad:      avg_load,
+			rps: rps_, // rps
 		})
 	}
 	return tracedRequestStats, nil
@@ -760,17 +764,17 @@ func bodySizeKey(traceId string) string {
 	return traceId + "-bodySize"
 }
 
-func firstLoadKey(traceId string) string {
-	return traceId + "-firstLoad"
+func systemLoadKey(traceId string) string {
+	return traceId + "-systemLoad"
 }
 
-func avgLoadKey(traceId string) string {
-	return traceId + "-avgLoad"
-}
+// func avgLoadKey(traceId string) string {
+// 	return traceId + "-avgLoad"
+// }
 
-func lastLoadKey(traceId string) string {
-	return traceId + "-lastLoad"
-}
+// func lastLoadKey(traceId string) string {
+// 	return traceId + "-lastLoad"
+// }
 
 func methodKey(traceId string) string {
 	return traceId + "-method"
