@@ -7,7 +7,7 @@ This document describes the interaction between the WASM plugin and the global c
 `POST /proxyLoad`
 
 Request Headers:
-- `x-slate-clusterid`: The cluster/node ID that the request is being sent from. This is given to the WASM plugin from an environment
+- `x-slate-region`: The cluster/node ID that the request is being sent from. This is given to the WASM plugin from an environment
 variable set in the Deployment.
 - `x-slate-servicename`: The name of the service that the request is being sent from.
 - `x-slate-podname`: The name of the pod that the request is being sent from.

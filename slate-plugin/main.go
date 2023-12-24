@@ -17,20 +17,19 @@ import (
 )
 
 const (
-	KEY_INFLIGHT_REQ_COUNT = "slate_inflight_request_count"
-	KEY_NUM_REQ_PER_UNIT   = "slate_num_request_per_unit_time"
-	KEY_REQUEST_COUNT      = "slate_rps"
-	KEY_LAST_RESET         = "slate_last_reset"
-	KEY_RPS_THRESHOLDS     = "slate_rps_threshold"
-	KEY_HASH_MOD           = "slate_hash_mod"
-	KEY_TRACED_REQUESTS    = "slate_traced_requests"
+	KEY_INFLIGHT_ENDPOINT_LIST = "slate_inflight_endpoint_list"
+	KEY_INFLIGHT_REQ_COUNT     = "slate_inflight_request_count"
+	KEY_REQUEST_COUNT          = "slate_rps"
+	KEY_LAST_RESET             = "slate_last_reset"
+	KEY_RPS_THRESHOLDS         = "slate_rps_threshold"
+	KEY_HASH_MOD               = "slate_hash_mod"
+	KEY_TRACED_REQUESTS        = "slate_traced_requests"
 	// this is in millis
 	AGGREGATE_REQUEST_LATENCY = "slate_last_second_latency_avg"
 	// (gangmuk): changed to 2 seconds to capture more inflights.
 	TICK_PERIOD = 2000
 	// nor_len     = 1000 / TICK_PERIOD
-	DEFAULT_HASH_MOD                = 1
-	SLATE_REMOTE_CLUSTER_HEADER_KEY = "x-slate-remotecluster"
+	DEFAULT_HASH_MOD = 1
 
 	KEY_MATCH_DISTRIBUTION = "slate_match_distribution"
 )
@@ -43,7 +42,7 @@ todo(adiprerepa)
 */
 
 var (
-	ALL_KEYS = []string{KEY_INFLIGHT_REQ_COUNT, KEY_NUM_REQ_PER_UNIT, KEY_REQUEST_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
+	ALL_KEYS = []string{KEY_INFLIGHT_REQ_COUNT, KEY_REQUEST_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
 		KEY_TRACED_REQUESTS, KEY_MATCH_DISTRIBUTION}
 	// nor     [nor_len]uint64
 	cur_idx      int
@@ -109,8 +108,7 @@ type pluginContext struct {
 
 	podName       string
 	serviceName   string
-	clusterId     string
-	metaClusterId string
+	region        string
 	rpsThresholds []RpsThreshold
 }
 
@@ -127,19 +125,13 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	if pod == "" {
 		pod = "SLATE_UNKNOWN_POD"
 	}
-	meta_cid := os.Getenv("ISTIO_META_CLUSTER_ID")
-	if meta_cid == "" {
-		proxywasm.LogCriticalf("ERROR: ISTIO_META_CLUSTER_ID is EMPTY: %s", meta_cid)
-		meta_cid = "META_CLUSTER_ID_UNKNOWN"
+	region := os.Getenv("ISTIO_META_REGION")
+	if region == "" {
+		region = "SLATE_UNKNOWN_REGION"
 	}
-	cid := os.Getenv("CLUSTER_ID")
-	if cid == "" {
-		cid = "CLUSTER_ID_UNKNOWN"
-	}
-	p.clusterId = cid
-	p.metaClusterId = meta_cid
 	p.podName = pod
 	p.serviceName = service
+	p.region = region
 	return types.OnPluginStartStatusOK
 }
 
@@ -189,16 +181,6 @@ func (p *pluginContext) OnTick() {
 		}
 	}
 
-	data, cas, err = proxywasm.GetSharedData(KEY_NUM_REQ_PER_UNIT)
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get shared data for KEY_NUM_REQ_PER_UNIT: %v", err)
-		return
-	}
-
-	// nor[cur_idx] = binary.LittleEndian.Uint64(data)
-	// proxywasm.LogCriticalf("cur_idx: %d, nor[cur_idx]: %d", cur_idx, nor[cur_idx])
-	// cur_idx = (cur_idx + 1) % len(nor)
-
 	// reset request count back to 0
 	data, cas, err = proxywasm.GetSharedData(KEY_REQUEST_COUNT)
 	if err != nil {
@@ -220,6 +202,20 @@ func (p *pluginContext) OnTick() {
 		return
 	}
 
+	inflightStats := ""
+	inflightStatsMap, err := GetInflightRequestStats()
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
+		return
+	}
+	for k, _ := range inflightStatsMap {
+		inflightStats += k + " "
+	}
+	inflightStats += "\n"
+	for _, stat := range inflightStatsMap {
+		inflightStats += strconv.Itoa(int(stat)) + " "
+	}
+
 	requestStats, err := GetTracedRequestStats()
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get traced request stats: %v", err)
@@ -236,6 +232,9 @@ func (p *pluginContext) OnTick() {
 	if err := proxywasm.SetSharedData(KEY_TRACED_REQUESTS, make([]byte, 8), 0); err != nil {
 		proxywasm.LogCriticalf("Couldn't reset traced requests: %v", err)
 	}
+	if err := proxywasm.SetSharedData(KEY_INFLIGHT_ENDPOINT_LIST, make([]byte, 8), 0); err != nil {
+		proxywasm.LogCriticalf("Couldn't reset inflight endpoint list: %v", err)
+	}
 
 	// print ontick results
 	data, cas, err = proxywasm.GetSharedData(KEY_INFLIGHT_REQ_COUNT)
@@ -249,23 +248,15 @@ func (p *pluginContext) OnTick() {
 	controllerHeaders := [][2]string{
 		{":method", "POST"},
 		{":path", "/proxyLoad"},
-		{":authority", "slate-controller.default.svc.cluster.local"},
+		{":authority", "trace-slate-controller.default.svc.cluster.local"},
 		{"x-slate-podname", p.podName},
 		{"x-slate-servicename", p.serviceName},
+		{"x-slate-region", p.region},
 	}
 
-	proxywasm.LogCriticalf("Sending load to %s", p.metaClusterId)
-	if p.metaClusterId == "kind-us-west" || p.metaClusterId == "cluster1" || p.metaClusterId == "us-west" {
-		proxywasm.DispatchHttpCall("outbound|8080|west|slate-controller.default.svc.cluster.local", controllerHeaders,
-			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
-		// []byte(fmt.Sprintf("%d\n%s", num_cur_inflight_req, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
-	} else if p.metaClusterId == "kind-us-east" || p.metaClusterId == "cluster2" || p.metaClusterId == "us-east" {
-		proxywasm.DispatchHttpCall("outbound|8080|east|slate-controller.default.svc.cluster.local", controllerHeaders,
-			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
-	} else {
-		proxywasm.DispatchHttpCall("outbound|8080||slate-controller.default.svc.cluster.local", controllerHeaders,
-			[]byte(fmt.Sprintf("%d\n%s", reqCount, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
-	}
+	proxywasm.DispatchHttpCall("outbound|8080||trace-slate-controller.default.svc.cluster.local", controllerHeaders,
+		[]byte(fmt.Sprintf("%d\n%s\n%s", reqCount, inflightStats, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
+
 }
 
 // Override types.DefaultPluginContext.
@@ -308,16 +299,10 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		return types.ActionContinue
 	}
 
-	// increment request count
-	islocalroute, err := proxywasm.GetHttpRequestHeader("x-slate-islocalroute")
-	if islocalroute == "1" {
-		proxywasm.LogCriticalf("islocalroute, 1, IncrementSharedData(KEY_REQUEST_COUNT, 1)")
-		IncrementSharedData(KEY_REQUEST_COUNT, 1)
-	} else {
-		proxywasm.LogCriticalf("islocalroute, 0")
-	}
-	IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, 1) // There is one load variable shared by all requests in this wasm, but each request will save the snapshot of the load when the request arrives in this wasm. So different requests will have different loads but there is one load in this wasm at a time t.
-	IncrementSharedData(KEY_NUM_REQ_PER_UNIT, 1)
+	// incrememt request count for this tick period
+	IncrementSharedData(KEY_REQUEST_COUNT, 1)
+	// incrememt total number of inflight requests
+	IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, 1)
 
 	reqMethod, err := proxywasm.GetHttpRequestHeader(":method")
 	if err != nil {
@@ -339,6 +324,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 			proxywasm.LogCriticalf("unable to add traced request: %v", err)
 			return types.ActionContinue
 		}
+		IncrementInflightCount(reqMethod, reqPath, 1)
 	}
 
 	// todo(adiprerepa) enforce controller policy by adding headers to route to remote cluster
@@ -382,31 +368,27 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		proxywasm.LogCriticalf("Couldn't get shared data for inboundCountKey traceId %v load: %v", traceId, err)
 		return
 	}
-	// useful log
-	// proxywasm.LogCriticalf("OnHttpStreamDone, trace_id,%v, inbound,%d", traceId, inbound)
+
 	if inbound != 1 {
 		// decrement and get out
 		IncrementSharedData(inboundCountKey(traceId), -1)
-		// useful log
-		// inbound_after_decr, _ := GetUint64SharedData(inboundCountKey(traceId))
-		// proxywasm.LogCriticalf("OnHttpStreamDone, decrement inbound, trace_id,%v, inbound,%d", traceId, inbound_after_decr)
 		return
 	}
 
-	// Printing reroute tage
-	islocalroute, err := proxywasm.GetHttpRequestHeader("x-slate-islocalroute")
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get x-slate-islocalroute header: %v", err)
-	} else {
-		route, err := proxywasm.GetHttpRequestHeader("x-slate-route")
-		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get x-slate-islocalroute header: %v", err)
-		} else {
-			proxywasm.LogCriticalf("x-slate-islocalroute,%s,x-slate-route,%s,", islocalroute, route)
-		}
-	}
-
 	IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, -1)
+
+	reqMethod, err := proxywasm.GetHttpRequestHeader(":method")
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
+		return
+	}
+	reqPath, err := proxywasm.GetHttpRequestHeader(":path")
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
+		return
+	}
+	IncrementInflightCount(reqMethod, reqPath, -1)
+
 	// (gangmuk): Instead of setting the KEY_INFLIGHT_REQ_COUNT(load) to zero in OnTick function, decrement it when each request is completed.
 	l_0, err := GetUint64SharedData(firstLoadKey((traceId)))
 	if err != nil {
@@ -474,7 +456,6 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 			}
 		}
 	}
-	// todo log on error status code
 	//proxywasm.LogCriticalf("received http call response, status %v body size: %d", hdrs, bodySize)
 	if status >= 400 {
 		proxywasm.LogCriticalf("received ERROR http call response, status %v body size: %d", hdrs, bodySize)
@@ -494,18 +475,18 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 	}
 	// every line is in the following format, need to parse it into a struct
 	// :method GET,:path /foo |cluster1:90,cluster2:10
-	for _, line := range bodyLines {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "|")
-		if len(parts) != 2 {
-			proxywasm.LogCriticalf("invalid line in response body: %s", line)
-			continue
-		}
-		headerMatches := strings.Split(parts[0], ",")
-
-	}
+	//for _, line := range bodyLines {
+	//	if line == "" {
+	//		continue
+	//	}
+	//	parts := strings.Split(line, "|")
+	//	if len(parts) != 2 {
+	//		proxywasm.LogCriticalf("invalid line in response body: %s", line)
+	//		continue
+	//	}
+	//	headerMatches := strings.Split(parts[0], ",")
+	//
+	//}
 }
 
 // IncrementSharedData increments the value of the shared data at the given key. The data is
@@ -736,6 +717,67 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 	return tracedRequestStats, nil
 }
 
+func GetInflightRequestStats() (map[string]uint64, error) {
+	inflightEndpoints, _, err := proxywasm.GetSharedData(KEY_INFLIGHT_ENDPOINT_LIST)
+	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
+		proxywasm.LogCriticalf("Couldn't get shared data for inflight request stats: %v", err)
+		return nil, err
+	}
+	if len(inflightEndpoints) == 0 || errors.Is(err, types.ErrorStatusNotFound) || emptyBytes(inflightEndpoints) {
+		// no requests traced
+		return make(map[string]uint64), nil
+	}
+	inflightRequestStats := make(map[string]uint64)
+	inflightEndpointsList := strings.Split(string(inflightEndpoints), ",")
+	for _, endpoint := range inflightEndpointsList {
+		if emptyBytes([]byte(endpoint)) {
+			continue
+		}
+		inflightRequestStats[endpoint], err = GetUint64SharedData(endpoint)
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get shared data for endpoint %v inflight request stats: %v", endpoint, err)
+		}
+	}
+	return inflightRequestStats, nil
+}
+
+func IncrementInflightCount(method string, path string, amount int) {
+	endpointListBytes, cas, err := proxywasm.GetSharedData(KEY_INFLIGHT_ENDPOINT_LIST)
+	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
+		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
+		return
+	}
+	endpointList := strings.Split(string(endpointListBytes), ",")
+	containsEndpoint := false
+	for _, endpoint := range endpointList {
+		if endpoint == inflightCountKey(method, path) {
+			containsEndpoint = true
+		}
+	}
+	if !containsEndpoint {
+		newListBytes := []byte(strings.Join(append(endpointList, inflightCountKey(method, path)), ","))
+		if err := proxywasm.SetSharedData(KEY_INFLIGHT_ENDPOINT_LIST, newListBytes, cas); err != nil {
+			proxywasm.LogCriticalf("unable to set shared data: %v", err)
+			return
+		}
+	}
+	IncrementSharedData(inflightCountKey(method, path), int64(amount))
+	if newAmt, _ := GetUint64SharedData(inflightCountKey(method, path)); newAmt == uint64(0) {
+		// remove from list
+		newList := make([]string, 0)
+		for _, endpoint := range endpointList {
+			if endpoint != inflightCountKey(method, path) {
+				newList = append(newList, endpoint)
+			}
+		}
+		newListBytes := []byte(strings.Join(newList, ","))
+		if err := proxywasm.SetSharedData(KEY_INFLIGHT_ENDPOINT_LIST, newListBytes, cas); err != nil {
+			proxywasm.LogCriticalf("unable to set shared data: %v", err)
+			return
+		}
+	}
+}
+
 func inboundCountKey(traceId string) string {
 	return traceId + "-inbound-request-count"
 }
@@ -787,6 +829,10 @@ func emptyBytes(b []byte) bool {
 		}
 	}
 	return true
+}
+
+func inflightCountKey(method string, path string) string {
+	return method + "-" + path
 }
 
 // (gangmuk): need to double check to confirm it is correct.
