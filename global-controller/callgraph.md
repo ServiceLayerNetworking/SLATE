@@ -7,10 +7,36 @@
 
 
 ### What is callgraph?
-- Callgraph is a combination of service topology and method,url of services in the topology
+Callgraph is a combination of service topology of request classes executed in each service
+Example
+
+```python
+# Topology
+A: [B, C]
+B: [D]
+C: []
+D: []
+```
+
+```python
+# Callgraph
+{A-endpoint_1:[B-endpoint_3, C-endpoint_2], \
+ B-endpoint_3:[D-endpoint_6], \
+ C-endpoint_2:[], \
+ D-endpoint_6:[]}
+```
+
+```python
+# Callgraph
+{A-req_class_1:[B-req_class_3, C-req_class_2], \
+ B-req_class_3:[D-req_class_6], \
+ C-req_class_2:[], \
+ D-req_class_6:[]}
+```
+
+
 - If service topology and method and url of all services of two different traces(request) are the same, then they are considered to have the same category.
 service topology
-  - { A: [B, C], B: [D], C: [], D: [] }
       
 method and url of services
   - { A: {method: "GET", url: "/product/123"}, B: {method: "GET", url: "/reviews"}, C: {method: "POST", url: "/details/456"}, D: {method: "GET", url: "/ratings"} }

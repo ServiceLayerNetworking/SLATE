@@ -2,7 +2,7 @@
 # coding: utf-8
 
 import time
-from global_controller import app
+# from global_controller import app
 import config as cfg
 import span as sp
 import pandas as pd
@@ -290,9 +290,9 @@ def change_to_relative_time(traces_):
 
 
 def print_single_trace(single_trace):
-    app.logger.debug(f"{cfg.log_prefix} print_sinelg_trace")
+    print(f"{cfg.log_prefix} print_sinelg_trace")
     for span in single_trace:
-        app.logger.debug(f"{cfg.log_prefix} {span}")
+        print(f"{cfg.log_prefix} {span}")
 
 def print_dag(single_dag):
     for parent_span in single_dag():
@@ -358,7 +358,7 @@ def is_parallel_execution(span_a, span_b):
 #     for cid, trace in traces_.items():
 #         for tid, single_trace in traces_[cid].items():
 #             callgraph, cg_key = single_trace_to_callgraph(single_trace)
-#         app.logger.debug(f"{cfg.log_prefix} Call graph: {callgraph}")
+#         print(f"{cfg.log_prefix} Call graph: {callgraph}")
 #     return callgraph
 
 ## New callgraph data structure
@@ -377,6 +377,7 @@ def single_trace_to_callgraph(single_trace):
     return callgraph
 
 def traces_to_callgraph(traces_):
+    span_class_to_callgraph = dict()
     callgraph_table = dict()
     list_of_callgraph = dict()
     for cid in traces_:
@@ -387,12 +388,15 @@ def traces_to_callgraph(traces_):
         for tid, single_trace in traces_[cid].items():
             callgraph = single_trace_to_callgraph(single_trace)
             cg_key = get_callgraph_key(callgraph)
+            for span in single_trace:
+                span_class_to_callgraph[span.get_class()] = cg_key
+                    
             if cg_key not in callgraph_table[cid]:
                 callgraph_table[cid][cg_key] = callgraph
             if cg_key not in list_of_callgraph[cid]:
                 list_of_callgraph[cid][cg_key] = list()
-            list_of_callgraph[cid][cg_key].append(callgraph)
-    return list_of_callgraph, callgraph_table
+            list_of_callgraph[cid][cg_key].append(callgraph)                
+    return list_of_callgraph, callgraph_table, span_class_to_callgraph
 
 def file_write_callgraph_table(callgraph_table):
     with open(f'{cfg.OUTPUT_DIR}/callgraph_table.csv', 'w') as file:
@@ -427,7 +431,7 @@ def find_root_span(cg):
             if sp.are_they_same_endpoint(parent_span, child_span):
                 break
         return parent_span
-    print(f'ERROR: cannot find root node in callgraph[{key}]')
+    print(f'ERROR: cannot find root node in callgraph[{get_callgraph_key(cg)}]')
     assert False
 
 
@@ -436,7 +440,7 @@ def get_callgraph_key(cg):
     cg_key = list()
     bfs_callgraph(root_span, cg_key, cg)
     return cg_key
-    
+
 
 def exclusive_time(single_trace_):
     for parent_span in single_trace_:
@@ -459,7 +463,7 @@ def exclusive_time(single_trace_):
                         # sequential execution
                         exclude_child_rt = child_span_list[i].rt + child_span_list[j].rt
         parent_span.xt = parent_span.rt - exclude_child_rt
-        app.logger.debug(f"{cfg.log_prefix} Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
+        print(f"{cfg.log_prefix} Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
         if parent_span.xt < 0.0:
             print(f"parent_span,{parent_span.svc_name}, span_id,{parent_span.my_span_id} exclusive time cannot be negative value: {parent_span.xt}")
             print(f"st,{parent_span.st}, et,{parent_span.et}, rt,{parent_span.rt}, xt,{parent_span.xt}")
@@ -483,29 +487,34 @@ def calc_exclusive_time(traces_):
 def print_all_trace(traces_):
     for cid in traces_:
         for tid, single_trace in traces_[cid].items():
-            app.logger.debug(f"{cfg.log_prefix} ======================= ")
-            app.logger.debug(f"{cfg.log_prefix} Trace: " + tid)
+            print(f"{cfg.log_prefix} ======================= ")
+            print(f"{cfg.log_prefix} Trace: " + tid)
             for span in single_trace:
-                app.logger.debug(f"{cfg.log_prefix} {span}")
-            app.logger.debug(f"{cfg.log_prefix} ======================= ")
+                print(f"{cfg.log_prefix} {span}")
+            print(f"{cfg.log_prefix} ======================= ")
 
 
-def inject_arbitrary_callsize(traces_, depth_dict):
-    for cid in traces_:
-        for tid, single_trace in traces_[cid].items():
-            for span in single_trace:
-                span.depth = depth_dict[svc]
-                span.call_size = depth_dict[svc]*10
+# Deprecated
+# def inject_arbitrary_callsize(traces_, depth_dict):
+#     for cid in traces_:
+#         for tid, single_trace in traces_[cid].items():
+#             for span in single_trace:
+#                 span.depth = depth_dict[svc]
+#                 span.call_size = depth_dict[svc]*10
 
+def print_callgraph(callgraph):
+    print(f"callgraph key: {get_callgraph_key(callgraph)}")
+    for parent_span in callgraph:
+        for child_span in callgraph[parent_span]:
+            print("{}->{}".format(parent_span.get_class(), child_span.get_class()))
 
 def print_callgraph_table(callgraph_table):
     for cid in callgraph_table:
         for cg_key in callgraph_table[cid]:
             print(f"{cfg.log_prefix} cg_key: {cg_key}")
             for cg in callgraph_table[cid][cg_key]:
-                for parent_span in cg:
-                    for child_span in cg[parent_span]:
-                        print(f"{cfg.log_prefix} {parent_span.svc_name} -> {child_span.svc_name}")
+                print_callgraph(cg)
+                print()
 
 
 def set_depth_of_span(cg, parent_svc, children, depth_d, prev_dep):
@@ -522,10 +531,10 @@ def set_depth_of_span(cg, parent_svc, children, depth_d, prev_dep):
 def critical_path_analysis(parent_span):
     sorted_children = sorted(parent_span.child_spans, key=lambda x: x.et, reverse=True)
     if len(parent_span.critical_child_spans) != 0:
-        app.logger.debug(f"{cfg.log_prefix} critical_path_analysis, {parent_span}")
-        app.logger.debug(f"{cfg.log_prefix} critical_path_analysis, critical_child_spans:", end="")
+        print(f"{cfg.log_prefix} critical_path_analysis, {parent_span}")
+        print(f"{cfg.log_prefix} critical_path_analysis, critical_child_spans:", end="")
         for ch_sp in parent_span.critical_child_spans:
-            app.logger.debug(f"{cfg.log_prefix} {ch_sp}")
+            print(f"{cfg.log_prefix} {ch_sp}")
     cur_end_time = parent_span.et
     total_critical_children_time = 0
     for child_span in sorted_children:
@@ -548,7 +557,7 @@ def analyze_critical_path_time(traces_):
                 critical_path_analysis(span)
 
 
-def traces_to_df(traces_):
+def trace_to_df(traces_):
     list_of_unfold_span = list()
     colname = list()
     for cid in traces_:
@@ -566,7 +575,7 @@ def traces_to_df(traces_):
     return df
 
 
-def get_placement(traces):
+def get_placement_from_trace(traces):
     placement = dict()
     for cid in traces:
         for tid, single_trace in traces[cid].items():
@@ -579,6 +588,6 @@ def stitch_time(traces):
     change_to_relative_time(traces)
     calc_exclusive_time(traces)
     analyze_critical_path_time(traces)
-    df = traces_to_df(traces)
+    df = trace_to_df(traces)
     print_all_trace(traces)
     return traces, df

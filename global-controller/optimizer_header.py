@@ -402,29 +402,6 @@ def get_compute_df_column(callgraph):
         columns.append("min_compute_latency_"+key)
     return columns
 
-
-def get_observed_y(callgraph, load_list, compute_df):
-    obs_y = dict()
-    for index, row in compute_df.iterrows():
-        if row["svc_name"] not in obs_y:
-            obs_y[row["svc_name"]] = dict()
-        for target_cg in callgraph:
-            # if target_cg not in obs_y[row["svc_name"]]:
-            obs_y[row["svc_name"]][target_cg] = list()
-            for load_dict in load_list: # load_dict = {'A':load_of_callgraph_A, 'B':load_of_callgraph_B}
-                slope = get_slope(row['svc_name'], callgraph)
-                intercept = 0
-                compute_latency = get_compute_latency(load_dict, row["svc_name"], slope, intercept, target_cg, callgraph) # compute_latency is ground truth
-                print(f'svc: {row["svc_name"]}, load_dict: {load_dict}, slope: {slope}, compute_latency: {compute_latency}')
-                obs_y[row["svc_name"]][target_cg].append(compute_latency)
-            print(row['svc_name'], target_cg, len(obs_y[row["svc_name"]][target_cg]))
-    return obs_y
-
-# Compute latency prediction using regression model for each load point  
-def fill_observed_y(compute_df, observed_y, callgraph):
-    for index, row in compute_df.iterrows():
-        for target_cg in callgraph:
-            compute_df.at[index, "observed_y_"+target_cg] = np.array(observed_y[row["svc_name"]][target_cg])
             
 def get_regression_pipeline(callgraph):
     numeric_features = list()
@@ -446,7 +423,58 @@ def get_regression_pipeline(callgraph):
         poly = PolynomialFeatures(degree=cfg.REGRESSOR_DEGREE, include_bias=True)
         reg = make_pipeline(feat_transform, poly, LinearRegression())
     return reg
+    
 
+def fill_compute_df(compute_df, compute_arc_var_name, callgraph, callsize_dict, NUM_REQUESTS, MAX_LOAD):
+    svc_list = list()
+    src_cid_list = list()
+    dst_cid_list = list()
+    for var_name in compute_arc_var_name:
+        if type(var_name) == tuple:
+            svc_list.append(var_name[0].split(cfg.DELIMITER)[0])
+            src_cid_list.append(int(var_name[0].split(cfg.DELIMITER)[1]))
+            dst_cid_list.append(int(var_name[1].split(cfg.DELIMITER)[1]))
+        else:
+            svc_list.append(var_name.split(",")[0].split(cfg.DELIMITER)[0])
+            src_cid_list.append(int(var_name.split(",")[0].split(cfg.DELIMITER)[1]))
+            dst_cid_list.append(int(var_name.split(",")[1].split(cfg.DELIMITER)[1]))
+    compute_df["svc_name"] = svc_list
+    compute_df["src_cid"] = src_cid_list
+    compute_df["dst_cid"] = dst_cid_list
+    compute_df["call_size"] = 0
+    per_svc_max_load = calc_max_load_of_each_callgraph(callgraph, MAX_LOAD)
+    for index, row in compute_df.iterrows():
+        for key in callgraph:
+            compute_df.at[index, 'max_load_'+key] = per_svc_max_load[row["svc_name"]][key]
+            compute_df.at[index, 'min_load_'+key] = 0
+            compute_df.at[index, "min_compute_latency_"+key] = 0
+            
+            
+def get_observed_y(callgraph, load_list, compute_df):
+    obs_y = dict()
+    for index, row in compute_df.iterrows():
+        if row["svc_name"] not in obs_y:
+            obs_y[row["svc_name"]] = dict()
+        for target_cg in callgraph:
+            # if target_cg not in obs_y[row["svc_name"]]:
+            obs_y[row["svc_name"]][target_cg] = list()
+            for load_dict in load_list: # load_dict = {'A':load_of_callgraph_A, 'B':load_of_callgraph_B}
+                slope = get_slope(row['svc_name'], callgraph)
+                intercept = 0
+                compute_latency = get_compute_latency(load_dict, row["svc_name"], slope, intercept, target_cg, callgraph) # compute_latency is ground truth
+                print(f'svc: {row["svc_name"]}, load_dict: {load_dict}, slope: {slope}, compute_latency: {compute_latency}')
+                obs_y[row["svc_name"]][target_cg].append(compute_latency)
+            print(row['svc_name'], target_cg, len(obs_y[row["svc_name"]][target_cg]))
+    return obs_y
+
+
+# Compute latency prediction using regression model for each load point  
+def fill_observed_y(compute_df, load_list, callgraph):
+    observed_y = get_observed_y(callgraph, load_list, compute_df)
+    for index, row in compute_df.iterrows():
+        for target_cg in callgraph:
+            compute_df.at[index, "observed_y_"+target_cg] = np.array(observed_y[row["svc_name"]][target_cg])
+            
 def get_observed_x_df(row_, callgraph):
     data = dict()
     for key in callgraph:
@@ -475,42 +503,28 @@ def learn_latency_function(row, callgraph, key):
     print(f'Service {row["svc_name"]}, r2: {r2}, slope: {c_}, intercept: {in_}')
 
     check_negative_relationship(reg)
-    return reg
-    
+    return reg            
 
-def fill_compute_df(compute_df, compute_arc_var_name, callgraph, callsize_dict, NUM_REQUESTS, load_list, MAX_LOAD):
-    svc_list = list()
-    src_cid_list = list()
-    dst_cid_list = list()
-    for var_name in compute_arc_var_name:
-        if type(var_name) == tuple:
-            svc_list.append(var_name[0].split(cfg.DELIMITER)[0])
-            src_cid_list.append(int(var_name[0].split(cfg.DELIMITER)[1]))
-            dst_cid_list.append(int(var_name[1].split(cfg.DELIMITER)[1]))
-        else:
-            svc_list.append(var_name.split(",")[0].split(cfg.DELIMITER)[0])
-            src_cid_list.append(int(var_name.split(",")[0].split(cfg.DELIMITER)[1]))
-            dst_cid_list.append(int(var_name.split(",")[1].split(cfg.DELIMITER)[1]))
-    compute_df["svc_name"] = svc_list
-    compute_df["src_cid"] = src_cid_list
-    compute_df["dst_cid"] = dst_cid_list
-    compute_df["call_size"] = 0
-    per_svc_max_load = calc_max_load_of_each_callgraph(callgraph, MAX_LOAD)
-    for index, row in compute_df.iterrows():
-        for key in callgraph:
-            compute_df.at[index, 'max_load_'+key] = per_svc_max_load[row["svc_name"]][key]
-            compute_df.at[index, 'min_load_'+key] = 0
-            compute_df.at[index, "min_compute_latency_"+key] = 0
-            load_of_certain_cg = [ld[key] for ld in load_list]
-            compute_df.at[index, "observed_x_"+key] = load_of_certain_cg
-            
-    observed_y = get_observed_y(callgraph, load_list, compute_df)
-    fill_observed_y(compute_df, observed_y, callgraph)
-    
+def fill_latency_function(compute_df, callgraph):
     for index, row in compute_df.iterrows():
         for key in callgraph:        
             reg = learn_latency_function(row, callgraph, key)
             compute_df.at[index, 'latency_function_'+key] = reg
+            
+            
+def fill_observed_x(compute_df,load_list, callgraph):
+    for index, row in compute_df.iterrows():
+        for key in callgraph:
+            load_of_certain_cg = [ld[key] for ld in load_list]
+            compute_df.at[index, "observed_x_"+key] = load_of_certain_cg
+            
+            
+def fill_observation_in_compute_df(compute_df, callgraph):
+    # load_list is a list of {cg_key_A: load_of_callgraph_A, cg_key_B: load_of_callgraph_B}
+    load_list = fake_load_gen(callgraph)
+    fill_observed_x(compute_df, load_list, callgraph)
+    fill_observed_y(compute_df, load_list, callgraph)
+    fill_latency_function(compute_df, callgraph)
     
 
 def create_compute_df(unique_service, callgraph, callsize_dict, NUM_REQUESTS, MAX_LOAD):
@@ -518,8 +532,8 @@ def create_compute_df(unique_service, callgraph, callsize_dict, NUM_REQUESTS, MA
     check_compute_arc_var_name(compute_arc_var_name)
     columns = get_compute_df_column(callgraph)
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
-    load_list = fake_load_gen(callgraph)
-    fill_compute_df(compute_df, compute_arc_var_name, callgraph, callsize_dict, NUM_REQUESTS, load_list, MAX_LOAD)
+    fill_compute_df(compute_df, compute_arc_var_name, callgraph, callsize_dict, NUM_REQUESTS, MAX_LOAD)
+    
     return compute_df
 
 

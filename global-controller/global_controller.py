@@ -8,12 +8,18 @@ import config as cfg
 import span as sp
 import time_stitching as tst
 import pandas as pd
+import optimizer_header as opt_func
+from sklearn.model_selection import train_test_split
+from sklearn.compose import make_column_transformer
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.pipeline import make_pipeline
+from sklearn.metrics import r2_score
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
 werklog = logging.getLogger('werkzeug')
 werklog.setLevel(logging.DEBUG)
-
 """
 <Num requests>
 <Method> <URL> <Trace Id> <Span Id> <Parent Span Id> <Start Time> <End Time> <bodySize> <firstLoad> <lastLoad> <avgLoad> <rps>
@@ -26,13 +32,16 @@ NOTE: Root svc will have no parent span id
 NOTE: Make sure you turn on the child_span.parent_span_id = parent_span.span_id
 """
 
+latency_func = {}
+is_trained_flag = False
+
 complete_traces = {}
 all_traces = {}
 prerecorded_trace = {}
 svc_to_rps = {}
 
-per_cluster_endpoint_level_load = {}
-per_cluster_service_level_load = {}
+endpoint_level_load = {}
+service_level_load = {}
 
 '''
 cluster_to_cid and cid_to_cluster should be deprecated
@@ -273,32 +282,21 @@ def optimizer_entrypoint():
             elif cfg.MODE == "PROFILE":
                 traces, df = tst.stitch_time(complete_traces)
                 df.to_csv(f"{cfg.OUTPUT_DIR}/traces.csv")
-                list_of_callgraph, callgraph_table = tst.traces_to_callgraph(complete_traces)
+                list_of_callgraph, callgraph_table, span_class_to_callgraph = tst.traces_to_callgraph(complete_traces)
                 tst.file_write_callgraph_table(callgraph_table)
                 tst.print_callgraph_table(callgraph_table)
             elif cfg.MODE == "SLATE":
                 app.logger.info(f"{cfg.log_prefix} SLATE_ON")
                 ## NOTE: It should be executed only once
-                placement = tst.get_placement(complete_traces)
+                placement = tst.get_placement_from_trace(complete_traces)
                 list_of_callgraph, callgraph_table = tst.traces_to_callgraph(complete_traces)
                 root_endpoint = tst.get_root_endpoint(callgraph_table)
-                pre_recorded_trace = sp.file_to_trace("/app/sampled_both_trace.txt")
-                
-                                
-                # for cid in last_window_traces:
-                #     if cid not in callgraph_load:
-                #         callgraph_load[cid] = dict()
-                #     for tid in last_window_traces[cid]:
-                #         single_trace = last_window_traces[cid][tid]
-                #         cg = tst.single_trace_to_callgraph(single_trace)
-                #         cg_key = tst.get_callgraph_key(cg)
-                #         if cg_key not in callgraph_load[cid]:
-                #             callgraph_load[cid][cg_key] = 0
-                #         for span in single_trace:
-                #             callgraph_load[cid][cg_key] += span.load
-                
-                
-                percentage_df, desc = opt.run_optimizer(pre_recorded_trace, per_endpoint_load, per_cluster_per_endpoint_load, placement, callgraph_table, root_endpoint)
+                if is_trained_flag == False:
+                    # pre_recorded_trace_object = sp.file_to_trace("/app/sampled_both_trace.txt")
+                    # df_trace = tst.trace_to_df(pre_recorded_trace_object)
+                    latency_func = train_latency_function_with_trace("/app/sampled_both_trace.csv"trace)
+                    is_trained_flag = True
+                percentage_df, desc = opt.run_optimizer(latency_func, endpoint_level_load, placement, callgraph_table, root_endpoint)
                 if percentage_df == None: # If optimizer failed, use local routing or stick to the previous routing rule.
                     cluster_pcts = local_routing_rule()
                     app.logger.info(f"{cfg.log_prefix} OPTIMIZER, FAIL, {desc}")
@@ -367,22 +365,25 @@ def proxy_load():
     
     '''
     Five load metrics
-    - per_cluster_service_level_load = {cid_0: {"productpage": 123, "details": 89, ...}, cid_1: {...} }
+    - service_level_load = {cid_0: {"productpage": 123, "details": 89, ...}, cid_1: {...} }
     
-    - per_cluster_endpoint_level_load = { cid_0: {"ingress_gw": {"endpoint_0": 66, ...}, "productpage": {"endpoint_4": 45, ...}}, \                                     cid_1: {"ingress_gw": {"endpoint_0": 33, ...}, "productpage": {"endpoint_4": 22, ...}} }
+    - endpoint_level_load = { cid_0: {"ingress_gw": {"endpoint_0": 66, ...}, "productpage": {"endpoint_4": 45, ...}}, \                                     cid_1: {"ingress_gw": {"endpoint_0": 33, ...}, "productpage": {"endpoint_4": 22, ...}} }
     
     '''
     
-    per_cluster_service_level_load[cluster_id][svc_name] = service_level_rps
+    service_level_load[cluster_id][svc_name] = ontick_rps
+    
     temp = 0
-    for endpoint, endpoint_point_rps in zip(endpoint_list, endpoint_point_rps_list): # NOTE: endpoint_list should be given by wasm
-        if cluster_id not in per_cluster_endpoint_level_load:
-            per_cluster_endpoint_level_load[cluster_id] = dict()
-        if svc_name not in per_cluster_endpoint_level_load[cluster_id]:
-            per_cluster_endpoint_level_load[cluster_id][svc_name] = dict()
-        per_cluster_endpoint_level_load[cluster_id][svc_name][endpoint] = endpoint_point_rps
-        temp += endpoint_point_rps
-    assert endpoint_point_rps == service_level_rps
+    idx = 0
+    for span in spans:
+        if cluster_id not in endpoint_level_load:
+            endpoint_level_load[cluster_id] = dict()
+        if svc_name not in endpoint_level_load[cluster_id]:
+            endpoint_level_load[cluster_id][svc_name] = dict()
+        if idx == 0:
+            endpoint_level_load[cluster_id][svc_name][span.get_class()] = 0
+        endpoint_level_load[cluster_id][svc_name][span.get_class()] += 1
+        idx += 1
     
     if len(spans) > 0 and spans[0].load > 0:
         if prof_start[cluster_id] == False:
@@ -401,15 +402,64 @@ def proxy_load():
     assert cluster_id in cluster_pcts
     # app.logger.info(f"{cfg.log_prefix} Pushing down routing rules to data planes: {cluster_pcts}")
     return cluster_pcts[cluster_id]
+
+
+def train_latency_function_with_trace(trace_file_path):
+    '''
+    We need time-wise 
+    - cg_key_A: [cluster_id, svc_name, load_cg_key_X, load_cg_key_Y, exclusive_time_cg_key_A(==xt)]
+    - cg_key_B: [cluster_id, svc_name, load_cg_key_X, load_cg_key_Y, exclusive_time_cg_key_B(==xt)]
+
+    Assuming trace file has the following columns
     
+    [span]: tid_1, svc_A, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:X
+    [span]: tid_1, svc_B, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:X
+    [span]: tid_1, svc_C, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:X
+    
+    [span]: tid_2, svc_A, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:Y
+    [span]: tid_2, svc_B, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:Y
+    [span]: tid_2, svc_D, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:Y
+    '''
+    
+    df = pd.read_csv(trace_file_path)
+    traces = sp.file_to_trace(trace_file_path)
+    list_of_callgraph, callgraph_table, span_class_to_callgraph = tst.traces_to_callgraph(traces)
+    unique_svc_names = df["svc_name"].unique()
+    # unique_cluster_ids = df["cluster_id"].unique()
+    # unique_cg_keys = df["cg_key"].unique()
+    latency_func = dict()
+    # for cid in unique_cluster_ids:
+    for svc_name in unique_svc_names:
+        # for cg_key in unique_cg_keys:
+        df_cid_svc = df[(df["cluster_id"]==cid) & (df["svc_name"]==svc_name)]
+        if svc_name not in latency_func:
+            latency_func[svc_name] = dict()
+        # if len(df_cid_svc) > 0:
+        endpoints = df_cid_svc["endpoint"].unique()
+        for target_ep in endpoints:
+            df_endpoint = df_cid_svc[df_cid_svc["endpoint"]==target_ep]
+            load_dict = dict()
+            latency = list()
+            for index, row in df_endpoint.iterrows():
+                latency.append(row["xt"])
+                for ep in endpoints:
+                    k = "observed_x_"+ep
+                    if k not in load_dict:
+                        load_dict[k] = list()
+                    load_dict[k].append(row["load_"+ep])
+            X_ = load_dict
+            y_ = latency
+            X_train, X_test, y_train, y_test = train_test_split(X_, y_, train_size=0.9, random_state=1)
+            latency_func[svc_name][target_ep] = opt_func.get_regression_pipeline(endpoints)
+            latency_func[svc_name][target_ep].fit(X_train, y_train)
 
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=4)
     # scheduler.add_job(func=prof_phase, trigger="interval", seconds=1)
     scheduler.add_job(func=garbage_collection, trigger="interval", seconds=600)
-    # scheduler.add_job(func=print_trace, trigger="interval", seconds=10) ## uncomment it if you want trace log print
-    scheduler.add_job(func=check_and_move_to_complete_trace, trigger="interval", seconds=1) ## uncomment it if you want trace log print
+    # scheduler.add_job(func=print_trace, trigger="interval", seconds=10)
+    scheduler.add_job(func=check_and_move_to_complete_trace, trigger="interval", seconds=1)
     # scheduler.add_job(func=retrain_service_models, trigger="interval", seconds=10)
     scheduler.start()
     atexit.register(lambda: scheduler.shutdown())

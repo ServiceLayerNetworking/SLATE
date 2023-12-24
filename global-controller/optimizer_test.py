@@ -39,7 +39,9 @@ And adjust the indentation accordingly.
 '''
 
 # pre_recorded_trace is simply a list of spans?
-def run_optimizer(pre_recorded_trace, per_endpoint_load, per_cluster_per_endpoint_load, placement, callgraph, root_endpoint):
+def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_endpoint):
+    assert len(latency_func) > 0
+    
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
         print(f"{cfg.log_prefix} mkdir {cfg.OUTPUT_DIR}")
@@ -48,11 +50,11 @@ def run_optimizer(pre_recorded_trace, per_endpoint_load, per_cluster_per_endpoin
     objective_function = "avg_latency" # avg_latency, end_to_end_latency, multi_objective, egress_cost
     
     request_in_out_weight = dict() # This is used in flow_conservation-nonleaf_endnode constraint
-    for cid in per_endpoint_load:
-        for endpoint in per_endpoint_load[cid]:
+    for cid in endpoint_level_load:
+        for endpoint in endpoint_level_load[cid]:
             if endpoint not in request_in_out_weight:
                 request_in_out_weight[endpoint] = dict()
-            request_in_out_weight[endpoint] = per_endpoint_load[endpoint]/per_endpoint_load[root_endpoint]
+            request_in_out_weight[endpoint] = endpoint_level_load[endpoint]/endpoint_level_load[root_endpoint]
     
     norm_inout_weight = dict() # NOTE: not being used anywhere. it is redundant
     for key in request_in_out_weight:
@@ -104,7 +106,9 @@ def run_optimizer(pre_recorded_trace, per_endpoint_load, per_cluster_per_endpoin
 
     # In[31]:
 
-    compute_df = opt_func.create_compute_df(placement, callgraph, callsize_dict, NUM_REQUESTS, MAX_LOAD)
+    compute_df = opt_func.create_compute_df(placement, callgraph, callsize_dict, NUM_REQUESTS, MAX_LOAD)    
+    opt_func.fill_observation_in_compute_df(compute_df, callgraph)
+    
     display(compute_df)
     if traffic_segmentation == False:
         original_compute_df = opt_func.create_compute_df(placement, original_callgraph, callsize_dict, original_NUM_REQUESTS, original_MAX_LOAD)
