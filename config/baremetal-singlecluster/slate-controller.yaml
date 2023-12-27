@@ -45,7 +45,7 @@ kind: Deployment
 metadata:
   name: slate-controller
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: slate-controller

@@ -117,7 +117,7 @@ spec:
     matchLabels:
       region: us-east-1
   environmentVariables:
-    - ISTIO_META_REGION: "us-east-1"
+    ISTIO_META_REGION: "us-east-1"
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: ProxyConfig
@@ -129,7 +129,7 @@ spec:
     matchLabels:
       region: us-west-1
   environmentVariables:
-    - ISTIO_META_REGION: "us-west-1"
+    ISTIO_META_REGION: "us-west-1"
 ---
 #########################################################################
 ###

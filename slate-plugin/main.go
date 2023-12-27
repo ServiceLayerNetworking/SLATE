@@ -146,18 +146,10 @@ func (p *pluginContext) OnTick() {
 	*/
 
 	// TODO: OnTick is called multiple times every tick period, mutex does not solve it.
-	// mu.Lock()
 	avg_latency := int64(calculateAverage(latency_list))
 	tail_latency := calculatePercentile(latency_list, 99)
-	// ts := int64(0)
-	// if len(ts_list) > 0 {
-	// 	ts = ts_list[len(ts_list)]
-	// }
-	// proxywasm.LogCriticalf("OnTick,latency summary,avg_latency,%d,99th_latency,%d,%d,", avg_latency, tail_latency, ts)
 	proxywasm.LogCriticalf("OnTick,latency summary,avg_latency,%d,99th_latency,%d,", avg_latency, tail_latency)
 	latency_list = latency_list[:0]
-	// ts_list = ts_list[:0]
-	// mu.Unlock()
 
 	data, cas, err := proxywasm.GetSharedData(KEY_LAST_RESET)
 	if err != nil {
@@ -248,13 +240,13 @@ func (p *pluginContext) OnTick() {
 	controllerHeaders := [][2]string{
 		{":method", "POST"},
 		{":path", "/proxyLoad"},
-		{":authority", "trace-slate-controller.default.svc.cluster.local"},
+		{":authority", "slate-controller.default.svc.cluster.local"},
 		{"x-slate-podname", p.podName},
 		{"x-slate-servicename", p.serviceName},
 		{"x-slate-region", p.region},
 	}
 
-	proxywasm.DispatchHttpCall("outbound|8080||trace-slate-controller.default.svc.cluster.local", controllerHeaders,
+	proxywasm.DispatchHttpCall("outbound|8080||slate-controller.default.svc.cluster.local", controllerHeaders,
 		[]byte(fmt.Sprintf("%d\n%s\n%s", reqCount, inflightStats, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 
 }

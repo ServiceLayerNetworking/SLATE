@@ -4,9 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strings"
+
 	v12 "k8s.io/api/apps/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"strings"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -18,6 +19,7 @@ func main() {
 	deployments := flag.String("deployments", "", "deployments to duplicate into regions (comma separated, no spaces, like deployment1,deployment2). use -exclude to do all except these.")
 	exclude := flag.Bool("exclude", false, "exclude the deployments specified in -deployments instead of including them")
 	ns := flag.String("namespace", "default", "namespace to check")
+	justswitchimage := flag.Bool("justswitchimage", false, "just switch the image of all specified deployments, don't create new deployments")
 	flag.Parse()
 
 	home := homedir.HomeDir()
@@ -58,9 +60,34 @@ func main() {
 	} else {
 		deploymentsList = strings.Split(*deployments, ",")
 	}
-	fmt.Printf("processing deployments %v in regions %v.\n", deploymentsList, regionsList)
 
+	if *justswitchimage {
+		fmt.Printf("switching image of deployments %v from deathstarbench to adiprerepa.\n", deploymentsList)
+		for _, deployment := range deploymentsList {
+			if strings.TrimSpace(deployment) == "" {
+				continue
+			}
+			// get original deployment
+			originalDeployment, err := deploymentsClient.Get(context.TODO(), deployment, v1.GetOptions{})
+			if err != nil {
+				fmt.Printf("Ignoring deployment %s: %v.", deployment, err)
+				continue
+			}
+			originalDeployment.Spec.Template.Spec.Containers[0].Image = strings.ReplaceAll(originalDeployment.Spec.Template.Spec.Containers[0].Image, "deathstarbench", "adiprerepa")
+			_, err = deploymentsClient.Update(context.TODO(), originalDeployment, v1.UpdateOptions{})
+			if err != nil {
+				fmt.Printf("couldn't update deployment %s: %v.\n", originalDeployment.Name, err)
+				continue
+			}
+			fmt.Printf("updated deployment %s.\n", originalDeployment.Name)
+		}
+		fmt.Printf("done.\n")
+		return
+	}
+
+	fmt.Printf("processing deployments %v in regions %v.\n", deploymentsList, regionsList)
 	for _, deployment := range deploymentsList {
+
 		if strings.TrimSpace(deployment) == "" {
 			continue
 		}
