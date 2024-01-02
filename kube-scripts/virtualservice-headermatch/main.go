@@ -96,7 +96,6 @@ func main() {
 		_, err := drClient.Create(context.Background(), dr, v1.CreateOptions{})
 		if err != nil {
 			log.Printf("Failed to create destinationrule: %s", err)
-			continue
 		}
 		vs := &v1alpha3.VirtualService{
 			ObjectMeta: v1.ObjectMeta{
@@ -151,17 +150,11 @@ func main() {
 		}
 		// final catchall route
 		vs.Spec.Http = append(vs.Spec.Http, &v1alpha32.HTTPRoute{
-			Match: []*v1alpha32.HTTPMatchRequest{
-				{
-					Uri: &v1alpha32.StringMatch{
-						MatchType: &v1alpha32.StringMatch_Prefix{Prefix: "/"},
-					},
-				},
-			},
 			Route: []*v1alpha32.HTTPRouteDestination{
 				{
 					Destination: &v1alpha32.Destination{
-						Host: svc,
+						Host:   svc,
+						Subset: "us-west-1",
 					},
 				},
 			},

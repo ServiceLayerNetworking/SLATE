@@ -1,0 +1,10 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: consul-destination
+  namespace: default
+spec:
+  host: consul
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

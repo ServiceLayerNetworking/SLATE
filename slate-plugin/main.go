@@ -27,7 +27,7 @@ const (
 	// this is in millis
 	AGGREGATE_REQUEST_LATENCY = "slate_last_second_latency_avg"
 	// (gangmuk): changed to 2 seconds to capture more inflights.
-	TICK_PERIOD = 2000
+	TICK_PERIOD = 200000
 	// nor_len     = 1000 / TICK_PERIOD
 	DEFAULT_HASH_MOD = 1
 
@@ -269,6 +269,8 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return types.ActionContinue
+	} else {
+		proxywasm.LogCriticalf("OnHttpRequestHeaders, traceId: %v", traceId)
 	}
 	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
 	IncrementSharedData(inboundCountKey(traceId), 1)
@@ -318,6 +320,8 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		}
 		IncrementInflightCount(reqMethod, reqPath, 1)
 	}
+
+	proxywasm.AddHttpRequestHeader("x-slate-routeto", ctx.pluginContext.region)
 
 	// todo(adiprerepa) enforce controller policy by adding headers to route to remote cluster
 

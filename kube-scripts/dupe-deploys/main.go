@@ -20,6 +20,7 @@ func main() {
 	exclude := flag.Bool("exclude", false, "exclude the deployments specified in -deployments instead of including them")
 	ns := flag.String("namespace", "default", "namespace to check")
 	justswitchimage := flag.Bool("justswitchimage", false, "just switch the image of all specified deployments, don't create new deployments")
+	excludeconsul := flag.Bool("excludeconsul", true, "remove consul clusterIP from allowed outbound traffic proxied")
 	flag.Parse()
 
 	home := homedir.HomeDir()
@@ -61,6 +62,16 @@ func main() {
 		deploymentsList = strings.Split(*deployments, ",")
 	}
 
+	consulClusterIP := ""
+	if *excludeconsul {
+		consul, err := clientset.CoreV1().Services(*ns).Get(context.TODO(), "consul", v1.GetOptions{})
+		if err != nil {
+			fmt.Printf("couldn't get consul service: %v.\n", err)
+		} else {
+			consulClusterIP = consul.Spec.ClusterIP
+		}
+	}
+
 	if *justswitchimage {
 		fmt.Printf("switching image of deployments %v from deathstarbench to adiprerepa.\n", deploymentsList)
 		for _, deployment := range deploymentsList {
@@ -74,6 +85,10 @@ func main() {
 				continue
 			}
 			originalDeployment.Spec.Template.Spec.Containers[0].Image = strings.ReplaceAll(originalDeployment.Spec.Template.Spec.Containers[0].Image, "deathstarbench", "adiprerepa")
+			if *excludeconsul {
+				originalDeployment.Spec.Template.Annotations["traffic.sidecar.istio.io/excludeOutboundIPRanges"] = consulClusterIP + "/32"
+			}
+			fmt.Printf("new annotations: %v\n", originalDeployment.Annotations)
 			_, err = deploymentsClient.Update(context.TODO(), originalDeployment, v1.UpdateOptions{})
 			if err != nil {
 				fmt.Printf("couldn't update deployment %s: %v.\n", originalDeployment.Name, err)
@@ -112,6 +127,9 @@ func main() {
 			labels := newDeployment.Spec.Template.GetLabels()
 			labels["region"] = region
 			newDeployment.Spec.Template.SetLabels(labels)
+			if *excludeconsul {
+				newDeployment.Annotations = map[string]string{"traffic.sidecar.istio.io/excludeOutboundIPRanges": consulClusterIP + "/32"}
+			}
 
 			_, err = deploymentsClient.Create(context.TODO(), newDeployment, v1.CreateOptions{})
 			if err != nil {
