@@ -1,5 +1,5 @@
 import config as cfg
-from global_controller import app
+# from global_controller import app
 import graphviz
 import itertools
 import pandas as pd
@@ -40,73 +40,42 @@ def calculate_depth(graph, node):
     return 1 + max(child_depths)
 
 
-def get_depth(callgraph, key, dep_d, cur_node, cur_dep):
-    dep_d[key][cur_node] = cur_dep
-    if len(callgraph[key][cur_node]) == 0:
+def get_depth(cg, dep_dict, cur_node, cur_dep):
+    dep_dict[cur_node] = cur_dep
+    if len(cg[cur_node]) == 0: # leaf
         return
     cur_dep += 1
-    for svc in callgraph[key][cur_node]:
-        get_depth(callgraph, key, dep_d, svc, cur_dep)
-    # if key not in callgraph:
-    #     print(f'Wrong key: {key}')
-    #     assert False
-    # if key not in dep_d:
-    #     dep_d[key] = dict()
-    # for svc in callgraph[key]:
-    #     if svc not in dep_d:
-    #         dep_d[svc] = dict()
-    #     if svc == root_svc:
-    #         dep_d[key][svc] = 1
-    #     else:
-    #         dep_d[key][svc] = dep_d[key][root_svc] + 1
-    #     get_depth(callgraph, svc, dep_d, root_svc)
+    for svc in cg[cur_node]:
+        get_depth(cg, dep_dict, svc, cur_dep)
 
 
-def get_depth_dict(callgraph):
+def get_depth_in_graph(cg):
     depth_dict = dict()
-    for key in callgraph:
-        root_svc = find_root_node(callgraph, key)
-        if key not in depth_dict:
-            depth_dict[key] = dict()
-        get_depth(callgraph, key, depth_dict, root_svc, 0)
+    root_node = find_root_node(cg)
+    get_depth(cg, depth_dict, root_node, 0)
     return depth_dict
 
 
-def get_callsize_dict(callgraph, depth_dict):
+def get_callsize_dict(cg, depth):
     callsize_dict = dict()
-    for key in callgraph:
-        for parent_svc, children in callgraph[key].items():
-            for child_svc in children:
-                assert depth_dict[key][parent_svc] < depth_dict[key][child_svc]
-                callsize_dict[(parent_svc,child_svc)] = (depth_dict[key][parent_svc]+1)
+    for parent_svc, children in cg.items():
+        for child_svc in children:
+            assert depth[parent_svc] < depth[child_svc]
+            callsize_dict[(parent_svc,child_svc)] = (depth[parent_svc]+1)
     return callsize_dict
 
 
-def calc_max_load_of_each_callgraph(callgraph, maxload):
-    per_svc_max_load = dict()
-    for key in callgraph:
-        for svc in callgraph[key]:
-            if svc not in per_svc_max_load:
-                per_svc_max_load[svc] = dict()
-            per_svc_max_load[svc][key] = maxload[key]
-            
-    for key in callgraph:
-        for svc in per_svc_max_load:
-            if svc not in callgraph[key]:
-                per_svc_max_load[svc][key] = 0
-    return per_svc_max_load
-
-
-def get_compute_arc_var_name(svc_name, cid):
-    return (f'{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start', f'{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end') # tuple
-    # return f'{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start,{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end' # string
+def get_compute_arc_var_name(endpoint, cid):
+    return (f'{endpoint}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start', f'{endpoint}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end') # tuple
+    # return f'{endpoint}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start,{endpoint}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end' # string
     
 
-def create_compute_arc_var_name(unique_service):
+def create_compute_arc_var_name(all_endpoints):
     compute_arc_var_name = list()
-    for cid in unique_service:
-        for svc_name in unique_service[cid]:
-            compute_arc_var_name.append(get_compute_arc_var_name(svc_name, cid))
+    for cid in all_endpoints:
+        for svc_name in all_endpoints[cid]:
+            for endpoint in all_endpoints[cid][svc_name]:
+                compute_arc_var_name.append(get_compute_arc_var_name(endpoint, cid))
     return compute_arc_var_name
 
 
@@ -177,37 +146,6 @@ def get_compute_latency(load, svc_name, slope, intercept, target_cg, callgraph):
     # elif = "B, target_cg":
     #     latency_function = YYY
     return ret
-
-
-# ## Deprecated
-# def gen_fake_data(compute_df, callgraph, y_axis_target_cg_key):
-#     # Why there is only one intercept and slope have mulitple values?
-#     # because one regression function has one intercept but can have multiple coefficients which is slope in this case.
-#     slope_dict = dict()
-#     for index, row in compute_df.iterrows():
-#         if row["svc_name"] not in slope_dict:
-#             slope_dict[row['svc_name']] = dict()
-#         # TODO: Currently all callgraphs will use the same slope.
-#         # We need a list of slopes whose length is equal to the number of callgraph
-#         for key in callgraph:
-#             for x_feat_key in callgraph:
-#                 slope_dict[row['svc_name']][key] = [get_slope(row["svc_name"], y_axis_target_cg_key)] * len(callgraph)
-    
-#     observed_y_of_target_cg = list()
-#     for index, row in compute_df.iterrows():
-#         for key in callgraph:
-#             for ld in load_list:
-#                 observed_y_of_target_cg.append(create_compute_time(y_axis_target_cg_key, ld, slope_dict['svc_name'][key], intercept_=0))
-#         # print(f'** cid,{row["src_cid"]}, service,{row["svc_name"]}, degree({cfg.REGRESSOR_DEGREE}), slope({slope_dict['svc_name']}), intercept({intercept})')
-#         assert len(load_list) == len(observed_y_of_target_cg)
-#         # If you want to use polynomial regression, you need to reshape it to (-1, 1)
-#         # compute_df.at[index, "observed_x"] = np.array(load_list).reshape(-1, 1)
-#         compute_df.at[index, "observed_y_of_target_cg_"+y_axis_target_cg_key] = np.array(observed_y_of_target_cg)
-#         for key in callgraph:
-#             # requests from different callgraph have different latency function
-#             load_of_certain_cg = [ld[key] for ld in load_list]
-#             compute_df.at[index, "observed_x_"+key] = np.array(load_of_certain_cg)
-#     # return compute_df
 
 
 def plot_latency_function_3d(compute_df, y_axis_target_cg_key):
@@ -386,32 +324,62 @@ def is_ingress_gw(target_svc, callgraph):
     return True
 
 
-def get_compute_df_column(callgraph):
-    columns = ["svc_name", "src_cid", "dst_cid", "call_size"]
-    for key in callgraph:
-        columns.append("max_load_"+key)
-    for key in callgraph:
-        columns.append("min_load_"+key)
-    for key in callgraph:
-        columns.append("observed_x_"+key)
-    for key in callgraph:
-        columns.append("observed_y_"+key)
-    for key in callgraph:
-        columns.append("latency_function_"+key)
-    for key in callgraph:
-        columns.append("min_compute_latency_"+key)
+def get_compute_df_column(ep_str_callgraph_table):
+    columns = ["svc_name", "src_cid", "dst_cid", "call_size", "max_load", "min_load", "observed_x", "observed_y", "latency_function", "min_compute_latency"]
+        
+    # for cg_key in ep_str_callgraph_table:
+    #     columns.append("max_load_"+cg_key)
+    # for cg_key in ep_str_callgraph_table:
+    #     columns.append("min_load_"+cg_key)
+    # for cg_key in ep_str_callgraph_table:
+    #     columns.append("observed_x_"+cg_key)
+    # for cg_key in ep_str_callgraph_table:
+    #     columns.append("observed_y_"+cg_key)
+    # for cg_key in ep_str_callgraph_table:
+    #     columns.append("latency_function_"+cg_key)
+    # for cg_key in ep_str_callgraph_table:
+    #     columns.append("min_compute_latency_"+cg_key)
     return columns
 
-            
-def get_regression_pipeline(callgraph):
+
+# Old version
+# def get_regression_pipeline(endpoint_load_dict):
+#     numeric_features = list()
+#     for ep in endpoint_load_dict:
+#         numeric_features.append("observed_x_"+ep)
+#     feat_transform = make_column_transformer(
+#         # (StandardScaler(), numeric_featuress),
+#         ('passthrough', numeric_features),
+#         verbose_feature_names_out=False,
+#         remainder='drop'
+#     )
+#     if cfg.REGRESSOR_DEGREE == 1:
+#         reg = make_pipeline(feat_transform, LinearRegression())
+#     elif cfg.REGRESSOR_DEGREE > 1:
+#         '''
+#         (X1,X2) transforms to (1,X1,X2,X1^2,X1X2,X2^2)
+#         (X1,X2,X3) transforms to (1, X1, X2, X3, X1X2, X1X3, X2X3, X1^2 * X2, X2^2 * X3, X3^2 * X1)
+#         '''
+#         poly = PolynomialFeatures(degree=cfg.REGRESSOR_DEGREE, include_bias=True)
+#         reg = make_pipeline(feat_transform, poly, LinearRegression())
+#     return reg
+
+
+def get_regression_pipeline(load_dict):
     numeric_features = list()
-    for key in callgraph:
+    for key in load_dict:
         numeric_features.append("observed_x_"+key)
     feat_transform = make_column_transformer(
         # (StandardScaler(), numeric_featuress),
         ('passthrough', numeric_features),
         verbose_feature_names_out=False,
         remainder='drop'
+    )
+    data = dict()
+    for key in load_dict:
+        data["observed_x_"+key] = load_dict[key]
+    df = pd.DataFrame(
+        data=data,
     )
     if cfg.REGRESSOR_DEGREE == 1:
         reg = make_pipeline(feat_transform, LinearRegression())
@@ -422,50 +390,68 @@ def get_regression_pipeline(callgraph):
         '''
         poly = PolynomialFeatures(degree=cfg.REGRESSOR_DEGREE, include_bias=True)
         reg = make_pipeline(feat_transform, poly, LinearRegression())
-    return reg
+    return reg, df
     
 
-def fill_compute_df(compute_df, compute_arc_var_name, callgraph, callsize_dict, NUM_REQUESTS, MAX_LOAD):
-    svc_list = list()
+def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table):
+    endpoint_list = list()
+    svc_name_list = list()
+    method_list = list()
+    url_list = list()
     src_cid_list = list()
     dst_cid_list = list()
     for var_name in compute_arc_var_name:
         if type(var_name) == tuple:
-            svc_list.append(var_name[0].split(cfg.DELIMITER)[0])
+            ep = var_name[0].split(cfg.DELIMITER)[0]
+            svc_name = ep.split(",")[0]
+            method = ep.split(",")[1]
+            url = ep.split(",")[2]
+            endpoint_list.append(ep)
+            svc_name_list.append(svc_name)
+            method_list.append(method)
+            url_list.append(url)
             src_cid_list.append(int(var_name[0].split(cfg.DELIMITER)[1]))
             dst_cid_list.append(int(var_name[1].split(cfg.DELIMITER)[1]))
         else:
-            svc_list.append(var_name.split(",")[0].split(cfg.DELIMITER)[0])
+            print(f'Wrong var_name type: {type(var_name)}. It must be tuple')
+            assert False
+            endpoint_list.append(var_name.split(",")[0].split(cfg.DELIMITER)[0])
             src_cid_list.append(int(var_name.split(",")[0].split(cfg.DELIMITER)[1]))
             dst_cid_list.append(int(var_name.split(",")[1].split(cfg.DELIMITER)[1]))
-    compute_df["svc_name"] = svc_list
+    compute_df["endpoint"] = endpoint_list
+    compute_df["svc_name"] = svc_name_list
+    compute_df["method"] = method_list
+    compute_df["url"] = url_list
     compute_df["src_cid"] = src_cid_list
     compute_df["dst_cid"] = dst_cid_list
     compute_df["call_size"] = 0
-    per_svc_max_load = calc_max_load_of_each_callgraph(callgraph, MAX_LOAD)
     for index, row in compute_df.iterrows():
-        for key in callgraph:
-            compute_df.at[index, 'max_load_'+key] = per_svc_max_load[row["svc_name"]][key]
-            compute_df.at[index, 'min_load_'+key] = 0
-            compute_df.at[index, "min_compute_latency_"+key] = 0
+        # for cg_key in ep_str_callgraph_table:
+        compute_df.at[index, 'max_load'] = 999999999
+        compute_df.at[index, 'min_load'] = 0
+        compute_df.at[index, "min_compute_latency"] = 0
             
             
 def get_observed_y(callgraph, load_list, compute_df):
-    obs_y = dict()
+    observed_y = dict()
     for index, row in compute_df.iterrows():
-        if row["svc_name"] not in obs_y:
-            obs_y[row["svc_name"]] = dict()
-        for target_cg in callgraph:
-            # if target_cg not in obs_y[row["svc_name"]]:
-            obs_y[row["svc_name"]][target_cg] = list()
+        if row["svc_name"] not in observed_y:
+            observed_y[row["svc_name"]] = dict()
+        for cg_key in callgraph:
+            # if cg_key not in observed_y[row["svc_name"]]:
+            observed_y[row["svc_name"]][cg_key] = list()
             for load_dict in load_list: # load_dict = {'A':load_of_callgraph_A, 'B':load_of_callgraph_B}
                 slope = get_slope(row['svc_name'], callgraph)
                 intercept = 0
-                compute_latency = get_compute_latency(load_dict, row["svc_name"], slope, intercept, target_cg, callgraph) # compute_latency is ground truth
+                compute_latency = get_compute_latency(load_dict, row["svc_name"], slope, intercept, cg_key, callgraph) # compute_latency is ground truth
                 print(f'svc: {row["svc_name"]}, load_dict: {load_dict}, slope: {slope}, compute_latency: {compute_latency}')
-                obs_y[row["svc_name"]][target_cg].append(compute_latency)
-            print(row['svc_name'], target_cg, len(obs_y[row["svc_name"]][target_cg]))
-    return obs_y
+                observed_y[row["svc_name"]][cg_key].append(compute_latency)
+            print(row['svc_name'], cg_key, len(observed_y[row["svc_name"]][cg_key]))
+    '''
+    observed_y[svc_name][cg_key] = a list of compute_latency
+    compute_latency: 
+    '''
+    return observed_y
 
 
 # Compute latency prediction using regression model for each load point  
@@ -503,7 +489,7 @@ def learn_latency_function(row, callgraph, key):
     print(f'Service {row["svc_name"]}, r2: {r2}, slope: {c_}, intercept: {in_}')
 
     check_negative_relationship(reg)
-    return reg            
+    return reg
 
 def fill_latency_function(compute_df, callgraph):
     for index, row in compute_df.iterrows():
@@ -519,24 +505,27 @@ def fill_observed_x(compute_df,load_list, callgraph):
             compute_df.at[index, "observed_x_"+key] = load_of_certain_cg
             
             
-def fill_observation_in_compute_df(compute_df, callgraph):
+def fill_observation_in_compute_df(compute_df, callgraph_table):
     # load_list is a list of {cg_key_A: load_of_callgraph_A, cg_key_B: load_of_callgraph_B}
-    load_list = fake_load_gen(callgraph)
-    fill_observed_x(compute_df, load_list, callgraph)
-    fill_observed_y(compute_df, load_list, callgraph)
-    fill_latency_function(compute_df, callgraph)
+    load_list = fake_load_gen(callgraph_table)
+    fill_observed_x(compute_df, load_list, callgraph_table)
+    fill_observed_y(compute_df, load_list, callgraph_table)
+    fill_latency_function(compute_df, callgraph_table)
     
 
-def create_compute_df(unique_service, callgraph, callsize_dict, NUM_REQUESTS, MAX_LOAD):
-    compute_arc_var_name = create_compute_arc_var_name(unique_service)
+def create_compute_df(all_endpoints, endpoint_to_cg_key, ep_str_callgraph_table, latency_func):
+    compute_arc_var_name = create_compute_arc_var_name(all_endpoints)
     check_compute_arc_var_name(compute_arc_var_name)
-    columns = get_compute_df_column(callgraph)
+    columns = get_compute_df_column(ep_str_callgraph_table)
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
-    fill_compute_df(compute_df, compute_arc_var_name, callgraph, callsize_dict, NUM_REQUESTS, MAX_LOAD)
-    
+    fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table)
+    for index, row in compute_df.iterrows():
+        print(f'{row["svc_name"]}, {row["endpoint"]}')
+        # cg_key = endpoint_to_cg_key[row['endpoint']]
+        # compute_df.at[index, 'latency_function_'+cg_key] = latency_func[row['svc_name']][row['endpoint']]
+        compute_df.at[index, 'latency_function'] = latency_func[row['svc_name']][row['endpoint']]
     return compute_df
-
-
+        
 def check_negative_relationship(reg):
     if cfg.REGRESSOR_DEGREE == 1:
         for i in range(len(reg["linearregression"].coef_)):
@@ -567,13 +556,13 @@ def log_timestamp(event_name):
     timestamp_list.append([event_name, time.time()])
     if len(timestamp_list) > 1:
         dur = round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)
-        app.logger.debug(f"{cfg.log_prefix} Finished, {event_name}, duration,{dur}")
+        print(f"{cfg.log_prefix} Finished, {event_name}, duration,{dur}")
 
 
 def print_timestamp():
-    app.logger.info(f"{cfg.log_prefix} ** timestamp_list(ms)")
+    print(f"{cfg.log_prefix} ** timestamp_list(ms)")
     for i in range(1, len(timestamp_list)):
-        app.logger.info(f"{cfg.log_prefix} {timestamp_list[i][0]}, {timestamp_list[i][1] - timestamp_list[i-1][1]}")
+        print(f"{cfg.log_prefix} {timestamp_list[i][0]}, {timestamp_list[i][1] - timestamp_list[i-1][1]}")
         
         
 def print_error(msg):
@@ -1052,11 +1041,11 @@ def unpack_callgraph(callgraph, key, cur_node, unpack_list):
         unpack_callgraph(callgraph, key, child_node, unpack_list)
 
 
-def is_root(callgraph, key, query_node):
-    assert query_node in callgraph[key]
-    for svc in callgraph[key]:
+def is_root(cg, query_node):
+    assert query_node in cg
+    for svc in cg:
         # If the query node is some node's child, it is not root node.
-        if query_node in callgraph[key][svc]:
+        if query_node in cg[svc]:
             return False
     return True
 
@@ -1108,14 +1097,24 @@ def svc_to_cid(svc_order, unique_service):
                 svc_to_placement[idx].append(cid)
     return svc_to_placement
 
-def find_root_node(callgraph, key):
-    for svc in callgraph[key]:
-        for child_svc in callgraph[key][svc]:
-            if svc in callgraph[key][child_svc]:
-                break
-        return svc
-    print(f'ERROR: cannot find root node in callgraph[{key}]')
-    assert False
+def find_root_node(cg):
+    temp = dict()
+    root_node = list()
+    for parent_node in cg:
+        temp[parent_node] = "True"
+        for child_node in cg:
+            if parent_node in cg[child_node]:
+                temp[parent_node] = "False"
+        if temp[parent_node] == "True":
+            root_node.append(parent_node)
+    if len(root_node) == 0:
+        print(f'ERROR: cannot find root node in callgraph')
+        assert False
+    if len(root_node) > 1:
+        print(f'ERROR: too many root node in callgraph')
+        assert False
+    return root_node[0]
+
     
 def create_path(svc_order, comb, unpack_list, callgraph, key):
     # print('Target path')
@@ -1135,7 +1134,7 @@ def create_path(svc_order, comb, unpack_list, callgraph, key):
         src_cid = comb[svc_order[src_svc]]
         dst_cid = comb[svc_order[dst_svc]]
         print(f'Add path: {src_svc},{src_cid} -> {dst_svc},{dst_cid}')
-        if is_root(callgraph, key, src_svc):
+        if is_root(callgraph[key], src_svc):
             network_arc_var_name = get_network_arc_var_name(source_node_name, NONE_CID, src_svc, src_cid)
             path.append(network_arc_var_name)
         network_arc_var_name = get_network_arc_var_name(src_svc, src_cid, dst_svc, dst_cid)
@@ -1155,29 +1154,31 @@ def merge_callgraph(callgraph):
                 merged_callgraph[parent_svc].append(child_svc)
     return merged_callgraph
 
-def get_max_load(num_requests):
-    max_load = dict()
-    for cid in range(len(num_requests)):
-        for request_type in num_requests[cid]:
-            if request_type not in max_load:
-                max_load[request_type] = 0
-            max_load[request_type] += num_requests[cid][request_type]
-    return max_load
+def get_root_node_max_rps(root_node_rps):
+    root_node_max_rps = dict()
+    for cid in root_node_rps:
+        for ep in root_node_rps[cid]:
+            if ep not in root_node_max_rps:
+                root_node_max_rps[ep] = 0
+            root_node_max_rps[ep] += root_node_rps[cid][ep]
+    return root_node_max_rps
 
-def norm(in_out_weight):
-    def normalize_weight_wrt_ingress_gw(norm_inout_weight_, in_out_weight_, cur_node, last_weight):
-        if in_out_weight_[cur_node] == {}:
-            return
-        for child_svc in in_out_weight_[cur_node]:
-            norm_inout_weight_[cur_node][child_svc] = last_weight*in_out_weight_[cur_node][child_svc]
-            normalize_weight_wrt_ingress_gw(norm_inout_weight_, in_out_weight_, child_svc, norm_inout_weight_[cur_node][child_svc])
-            
+
+## Being developed not done yet due to some issue
+def normalize_weight_wrt_ingress_gw(norm_inout_weight, request_in_out_weight, cur_node, last_weight):
+    if request_in_out_weight[cur_node] == {}:
+        return
+    for child_svc in request_in_out_weight[cur_node]:
+        norm_inout_weight[cur_node][child_svc] = last_weight*request_in_out_weight[cur_node][child_svc]
+        normalize_weight_wrt_ingress_gw(norm_inout_weight, request_in_out_weight, child_svc, norm_inout_weight[cur_node][child_svc])
+        
+def norm(request_in_out_weight, demonimator):
     norm_inout_weight = dict()
-    for parent_svc in in_out_weight:
-        norm_inout_weight[parent_svc] = dict()
-        for child_svc in in_out_weight[parent_svc]:
-            norm_inout_weight[parent_svc][child_svc] = 0
-    normalize_weight_wrt_ingress_gw(norm_inout_weight, in_out_weight, "ingress_gw", 1)
+    for parent in request_in_out_weight:
+        norm_inout_weight[parent] = dict()
+        for child in request_in_out_weight[parent]:
+            norm_inout_weight[parent][child] = 0
+    normalize_weight_wrt_ingress_gw(norm_inout_weight, request_in_out_weight, demonimator, 1)
     return norm_inout_weight
     
 def merge(request_in_out_weight, norm_inout_weight, max_load):
@@ -1197,13 +1198,3 @@ def merge(request_in_out_weight, norm_inout_weight, max_load):
                         # print(f'merged_in_out_weight[{parent_svc}][{child_svc}] += {request_in_out_weight[other_cg_key][parent_svc][child_svc]}*({max_load[other_cg_key]}/{sum(max_load.values())})')
                 merged_in_out_weight[parent_svc][child_svc] = temp
     return merged_in_out_weight
-
-def print_setup():
-    print(f'NUM_REQUESTS: {NUM_REQUESTS}')
-    print(f'MAX_LOAD: {MAX_LOAD}')
-    print(f'placement: {placement}')
-    print(f'callgraph: {callgraph}')
-    print(f'request_in_out_weight: {request_in_out_weight}')
-    print(f'norm_inout_weight: {norm_inout_weight}')
-    print(f'merged_in_out_weight: {merged_in_out_weight}')
-    print(f'norm_merged_in_out_weight: {norm_merged_in_out_weight}')

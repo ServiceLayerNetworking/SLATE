@@ -6,30 +6,20 @@ import sys
 sys.dont_write_bytecode = True
 
 import time
-import numpy as np  
 import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
 import random
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.preprocessing import StandardScaler
-from sklearn.compose import make_column_transformer
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.pipeline import make_pipeline
-from sklearn.metrics import r2_score
 import gurobipy_pandas as gppd
 from gurobi_ml import add_predictor_constr
 from IPython.display import display
-from global_controller import app
-import time_stitching as tst
 import config as cfg
-import span as sp
 import optimizer_header as opt_func
+import time_stitching as tst
 import os
 from IPython.display import display
 import itertools
+from pprint import pprint
 
 random.seed(1234)
 
@@ -39,30 +29,109 @@ And adjust the indentation accordingly.
 '''
 
 # pre_recorded_trace is simply a list of spans?
-def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_endpoint):
+'''
+NUM_REQUESTS = {cid_0: {"cg_1": rps, "cg_2": rps}, 
+                cid_1: {"cg_1": rps, "cg_2": rps}}
+
+cg_key = bfs_callgraph and append svc_name, method, url
+
+ep_str_callgraph_table[cg_key][parent_ep_str] = list of child_ep_str
+
+sp_callgraph_table[cg_key][parent_'span'] = list of child_'span'
+
+latency_func[svc_name][endpoint] = fitted regression model
+
+endpoint_level_inflight_req[cid][svc_name][ep] = #inflight req
+
+endpoint_level_rps[cid][svc_name][ep] = rps
+
+root_node_max_rps[root_node_endpoint] = rps
+
+all_endpoint[cid][svc_name][ep] = endpoint
+
+placement[cid] = span.svc_name
+
+traffic_segmentation = True/False
+
+objective = "avg_latency"/"end_to_end_latency"/"egress_cost"/"multi_objective"
+'''
+def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps, placement, all_endpoints, endpoint_to_cg_key, sp_callgraph_table, ep_str_callgraph_table, traffic_segmentation, objective):
     assert len(latency_func) > 0
-    
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
         print(f"{cfg.log_prefix} mkdir {cfg.OUTPUT_DIR}")
-        
-    traffic_segmentation = 1
-    objective_function = "avg_latency" # avg_latency, end_to_end_latency, multi_objective, egress_cost
+    
+    for cid in endpoint_level_rps:
+        for svc_name in endpoint_level_rps[cid]:
+            for ep in endpoint_level_rps[cid][svc_name]:
+                    print(f'asdf cid: {cid}, svc_name: {svc_name}, ep: {ep}')
+                    print(f'asdf {endpoint_level_rps[cid][svc_name][ep]}')
+
+    
+    root_ep = dict()
+    for cg_key in ep_str_callgraph_table:
+        root_ep[cg_key] = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
+    for cg_key in root_ep:
+        print(f'asdf root_span: {root_ep[cg_key]}')
+    
+    def get_root_node_rps(endpoint_level_rps, root_ep):
+        root_node_rps = dict()
+        for cid in endpoint_level_rps:
+            if cid not in root_node_rps:
+                root_node_rps[cid] = dict()
+            for svc_name in endpoint_level_rps[cid]:
+                for ep in endpoint_level_rps[cid][svc_name]:
+                    for cg_key in root_ep:
+                        if ep == root_ep[cg_key]:
+                            root_node_rps[cid][ep] = endpoint_level_rps[cid][svc_name][ep]
+        return root_node_rps
+    
+    root_node_rps = get_root_node_rps(endpoint_level_rps, root_ep)
+
+    def collapse_cid_in_endpoint_level_rps(endpoint_level_rps):
+        collapsed_endpoint_level_rps = dict()
+        for cid in endpoint_level_rps:
+            for svc_name in endpoint_level_rps[cid]:
+                for ep in endpoint_level_rps[cid][svc_name]:
+                    if svc_name not in collapsed_endpoint_level_rps:
+                        collapsed_endpoint_level_rps[svc_name] = dict()
+                    if ep not in collapsed_endpoint_level_rps[svc_name]:
+                        collapsed_endpoint_level_rps[svc_name][ep] = 0
+                    collapsed_endpoint_level_rps[svc_name][ep] += endpoint_level_rps[cid][svc_name][ep]
+        return collapsed_endpoint_level_rps
+    
+    collapsed_endpoint_level_rps = collapse_cid_in_endpoint_level_rps(endpoint_level_rps)
     
     request_in_out_weight = dict() # This is used in flow_conservation-nonleaf_endnode constraint
-    for cid in endpoint_level_load:
-        for endpoint in endpoint_level_load[cid]:
-            if endpoint not in request_in_out_weight:
-                request_in_out_weight[endpoint] = dict()
-            request_in_out_weight[endpoint] = endpoint_level_load[endpoint]/endpoint_level_load[root_endpoint]
+    for cg_key in sp_callgraph_table:
+        if cg_key not in request_in_out_weight:
+            request_in_out_weight[cg_key] = dict()
+        span_cg = sp_callgraph_table[cg_key]
+        for parent_span in span_cg:
+            parent_ep_str = str(parent_span.endpoint)
+            if parent_ep_str not in request_in_out_weight[cg_key]:
+                request_in_out_weight[cg_key][parent_ep_str] = dict()
+            for child_span in span_cg[parent_span]:
+                child_ep_str = str(child_span.endpoint)
+                if child_ep_str not in request_in_out_weight[cg_key][parent_ep_str]:
+                    request_in_out_weight[cg_key][parent_ep_str][child_ep_str] = dict()
+                in_ = collapsed_endpoint_level_rps[parent_span.svc_name][parent_ep_str]
+                out_ = collapsed_endpoint_level_rps[child_span.svc_name][child_ep_str]
+                request_in_out_weight[cg_key][parent_ep_str][child_ep_str] = in_/out_
+    # pprint(request_in_out_weight)
     
-    norm_inout_weight = dict() # NOTE: not being used anywhere. it is redundant
-    for key in request_in_out_weight:
-        norm_inout_weight[key] = opt_func.norm(request_in_out_weight[key])
-    merged_in_out_weight = opt_func.merge(request_in_out_weight, norm_inout_weight, MAX_LOAD)
-    norm_merged_in_out_weight = opt_func.norm(merged_in_out_weight)
+    ##############################################
+    # TODO: Problem: how should we the endpoint to each call graph? Otherwise, by simply using the endpoint, we are not able to find root endpoint of the call graph.
+    # norm_inout_weight = dict()
+    # for cg_key in request_in_out_weight:
+    #     norm_inout_weight[cg_key] = opt_func.norm(request_in_out_weight[cg_key], root_endpoint[cg_key].endpoint)
+    # merged_in_out_weight = opt_func.merge(request_in_out_weight, norm_inout_weight, MAX_LOAD)
+    # norm_merged_in_out_weight = opt_func.norm(merged_in_out_weight, root_endpoint[cg_key].svc_name)
+    ##############################################
     
     if traffic_segmentation == False:
+        print(f'further implementation is required for traffic_segmentation False')
+        assert False
         original_NUM_REQUESTS = NUM_REQUESTS.copy()
         original_MAX_LOAD = MAX_LOAD.copy()
         original_callgraph = callgraph.copy()
@@ -82,37 +151,43 @@ def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_
         NUM_REQUESTS = merged_NUM_REQUESTS
         MAX_LOAD = opt_func.get_max_load(NUM_REQUESTS)
         
-    opt_func.print_setup()
+    # print(f'NUM_REQUESTS: {NUM_REQUESTS}')
+    # print(f'MAX_LOAD: {MAX_LOAD}')
+    # print(f'placement: {placement}')
+    # print(f'callgraph: {callgraph}')
+    # print(f'request_in_out_weight: {request_in_out_weight}')
+    # print(f'norm_inout_weight: {norm_inout_weight}')
+    # print(f'merged_in_out_weight: {merged_in_out_weight}')
+    # print(f'norm_merged_in_out_weight: {norm_merged_in_out_weight}')
 
-    if len(placement) != len(NUM_REQUESTS):
-        print(f'len(placement)({len(placement)}) != len(NUM_REQUESTS)({len(NUM_REQUESTS)})')
-        assert False
-        
-    if len(callgraph) != len(request_in_out_weight):
-        print(f'len(callgraph)({len(callgraph)}) != len(request_in_out_weight)({len(request_in_out_weight)})')
-        assert False
-            
-    assert len(placement) == len(NUM_REQUESTS)
 
     # In[31]:
 
     # key: cg key, value: dict of {svc: depth}
-    depth_dict = opt_func.get_depth_dict(callgraph)
-    print(f'depth_dict: {depth_dict}')
+    depth_dict = dict()
+    for cg_key in ep_str_callgraph_table:
+        depth_dict[cg_key] = opt_func.get_depth_in_graph(ep_str_callgraph_table[cg_key])
+    pprint(depth_dict)
     # key: (parent_svc,child_svc), value: callsize of the link (= depth+1)
-    callsize_dict = opt_func.get_callsize_dict(callgraph, depth_dict)
+    callsize_dict = dict()
+    for cg_key in ep_str_callgraph_table:
+        callsize_dict[cg_key] = opt_func.get_callsize_dict(ep_str_callgraph_table[cg_key], depth_dict[cg_key])
     print(f'callsize_dict: {callsize_dict}')
 
 
     # In[31]:
-
-    compute_df = opt_func.create_compute_df(placement, callgraph, callsize_dict, NUM_REQUESTS, MAX_LOAD)    
-    opt_func.fill_observation_in_compute_df(compute_df, callgraph)
     
+    root_node_max_rps = opt_func.get_root_node_max_rps(root_node_rps)
+    for svc_name in latency_func:
+        for ep in latency_func[svc_name]:
+            print(f'latency_func[{svc_name}][{ep}]: {latency_func[svc_name][ep]}')
+    compute_df = opt_func.create_compute_df(all_endpoints, endpoint_to_cg_key, ep_str_callgraph_table, latency_func)
     display(compute_df)
     if traffic_segmentation == False:
         original_compute_df = opt_func.create_compute_df(placement, original_callgraph, callsize_dict, original_NUM_REQUESTS, original_MAX_LOAD)
         # display(original_compute_df)
+        
+    compute_df.to_csv('compute_df.csv')
 
 
     # In[42]:
@@ -121,13 +196,12 @@ def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_
 
     compute_latency = dict()
     compute_load = dict()
-    for key in callgraph:
-        compute_latency[key] = gppd.add_vars(gurobi_model, compute_df, name="compute_latency_"+key, lb="min_compute_latency_"+key)
-    for key in callgraph:
-        # compute_load[key] = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge_"+key, lb="min_load_"+key, ub="max_load_"+key)
-        compute_load[key] = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge_"+key)
+    for cg_key in ep_str_callgraph_table:
+        compute_latency[cg_key] = gppd.add_vars(gurobi_model, compute_df, name="compute_latency_"+cg_key, lb="min_compute_latency_"+cg_key)
+    for cg_key in ep_str_callgraph_table:
+        # compute_load[cg_key] = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge_"+cg_key, lb="min_load_"+cg_key, ub="max_load_"+cg_key)
+        compute_load[cg_key] = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge_"+cg_key)
     gurobi_model.update()
-
 
     # In[44]:
 
@@ -263,7 +337,7 @@ def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_
 
 
 
-    # if objective_function == "avg_latency":
+    # if objective == "avg_latency":
     network_latency_sum = 0
     compute_latency_sum = 0
     for key in callgraph:
@@ -271,7 +345,7 @@ def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_
         compute_latency_sum += sum(compute_latency[key].multiply(compute_load[key]))
     total_latency_sum = network_latency_sum + compute_latency_sum
 
-    # if objective_function == "egress_cost":
+    # if objective == "egress_cost":
     network_egress_cost_sum = 0
     for key in callgraph:
         network_egress_cost_sum += sum(network_egress_cost[key].multiply(network_load[key]))
@@ -286,7 +360,7 @@ def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_
     total_egress_sum = network_egress_cost_sum
     gurobi_model.update()
         
-    if objective_function == "end_to_end_latency":
+    if objective == "end_to_end_latency":
         svc_order = dict()
         for key in callgraph:
             assert key not in svc_order
@@ -414,20 +488,20 @@ def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_
     print('total_egress_sum')
     print(f'{total_egress_sum}\n')
 
-    if objective_function == "avg_latency":
+    if objective == "avg_latency":
         gurobi_model.setObjective(total_latency_sum, gp.GRB.MINIMIZE)
-    elif objective_function == "end_to_end_latency":
+    elif objective == "end_to_end_latency":
         gurobi_model.setObjective(max_end_to_end_latency, gp.GRB.MINIMIZE)
-    elif objective_function == "egress_cost":
+    elif objective == "egress_cost":
         gurobi_model.setObjective(total_egress_sum, gp.GRB.MINIMIZE)
-    elif objective_function == "multi_objective":
+    elif objective == "multi_objective":
         # NOTE: higher dollar per ms, more important the latency
         # DOLLAR_PER_MS: value of latency
         # lower dollar per ms, less tempting to re-route since bandwidth cost is becoming more important
         # simply speaking, when we have DOLLAR_PER_MS decreased, less offloading.
         gurobi_model.setObjective(total_latency_sum*cfg.DOLLAR_PER_MS + total_egress_sum, gp.GRB.MINIMIZE)
     else:
-        print("unsupported objective, ", objective_function)
+        print("unsupported objective, ", objective)
         assert False
         
     gurobi_model.update()
@@ -503,8 +577,8 @@ def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_
     #     if len(children) == 0: # leaf service
     #         leaf_services.append(parent_svc)
     # num_leaf_services = len(leaf_services)
-    # app.logger.debug(f"{cfg.log_prefix} num_leaf_services: {num_leaf_services}")
-    # app.logger.debug(f"{cfg.log_prefix} leaf_services: {leaf_services}")
+    # print(f"{cfg.log_prefix} num_leaf_services: {num_leaf_services}")
+    # print(f"{cfg.log_prefix} leaf_services: {leaf_services}")
     # dst_flow = gurobi_model.addConstrs((gp.quicksum(aggregated_load.select('*', dst)) == destination[dst]*num_leaf_services for dst in dest_keys), name="destination")
     # for dst in dest_keys:
     #     print(aggregated_load.select('*', dst))
@@ -633,7 +707,7 @@ def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_
     #     for svc_name in placement[cid]:
     #         max_tput[svc_name+cfg.DELIMITER+str(cid)+cfg.DELIMITER+"start"] = MAX_LOAD
     #         max_tput[svc_name+cfg.DELIMITER+str(cid)+cfg.DELIMITER+"end"] = MAX_LOAD
-    # app.logger.info(f"{cfg.log_prefix} max_tput: {max_tput}")
+    # print(f"{cfg.log_prefix} max_tput: {max_tput}")
     # max_tput_key = max_tput.keys()
     # throughput = gurobi_model.addConstrs((gp.quicksum(aggregated_load.select('*', n_)) <= max_tput[n_] for n_ in max_tput_key), name="service_capacity")
     # constraint_setup_end_time = time.time()
@@ -644,24 +718,28 @@ def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_
 
     opt_func.log_timestamp("gurobi add constraints and model update")
 
-    ## Defining objective function
-    gurobi_model.setParam('NonConvex', 2)
-    solve_start_time = time.time()
-    gurobi_model.update()
-    gurobi_key = open("./gurobi.wls", "r")
-    options = dict()
-    for line in gurobi_key:
-        line = line.strip()
-        # print("line: ", line)
-        if line == "":
-            continue
-        key, value = line.split(",")
-        if key == "LICENSEID":
-            value = int(value)
-        options[key] = value
-    # print("options: ", options)
-    env = gp.Env(params=options)
-    gp.Model(env=env)
+    ## When using gurobi.wls license
+    # ## Defining objective function
+    # gurobi_model.setParam('NonConvex', 2)
+    # solve_start_time = time.time()
+    # gurobi_model.update()
+    # gurobi_key = open("./gurobi.wls", "r")
+    # options = dict()
+    # for line in gurobi_key:
+    #     line = line.strip()
+    #     # print("line: ", line)
+    #     if line == "":
+    #         continue
+    #     key, value = line.split(",")
+    #     if key == "LICENSEID":
+    #         value = int(value)
+    #     options[key] = value
+    # env = gp.Env(params=options)
+    # gp.Model(env=env)
+    
+    ## When using gurobi.lic license
+    gp.Model()
+    
     gurobi_model.optimize()
     solve_end_time = time.time()
     opt_func.log_timestamp("MODEL OPTIMIZE")
@@ -693,9 +771,9 @@ def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_
 
 
     if gurobi_model.Status != GRB.OPTIMAL:
-        app.logger.info(f"{cfg.log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
-        app.logger.info(f"{cfg.log_prefix} XXXX INFEASIBLE MODEL! XXXX")
-        app.logger.info(f"{cfg.log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        print(f"{cfg.log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        print(f"{cfg.log_prefix} XXXX INFEASIBLE MODEL! XXXX")
+        print(f"{cfg.log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
         if cfg.DISPLAY:
             display(df_constr)
         
@@ -709,21 +787,21 @@ def run_optimizer(latency_func, endpoint_level_load, placement, callgraph, root_
             if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
         print("OPTIMIZER, INFEASIBLE MODEL")
     else:
-        app.logger.info(f"{cfg.log_prefix} ooooooooooooooooooooooo")
-        app.logger.info(f"{cfg.log_prefix} oooo SOLVED MODEL! oooo")
-        app.logger.info(f"{cfg.log_prefix} ooooooooooooooooooooooo")
+        print(f"{cfg.log_prefix} ooooooooooooooooooooooo")
+        print(f"{cfg.log_prefix} oooo SOLVED MODEL! oooo")
+        print(f"{cfg.log_prefix} ooooooooooooooooooooooo")
 
         ## Print out the result
         optimize_end_time = time.time()
         # optimizer_runtime = round((optimize_end_time - optimizer_start_time) - substract_time, 5)
         # solve_runtime = round(solve_end_time - solve_start_time, 5)
-        app.logger.error(f"{cfg.log_prefix} ** Objective function: {objective_function}")
-        app.logger.error(f"{cfg.log_prefix} ** Num constraints: {num_constr}")
-        app.logger.error(f"{cfg.log_prefix} ** Num variables: {num_var}")
-        # app.logger.error(f"{cfg.log_prefix} ** Optimization runtime: {optimizer_runtime} ms")
-        # app.logger.error(f"{cfg.log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
-        app.logger.error(f"{cfg.log_prefix} ** model.objVal: {gurobi_model.objVal}")
-        # app.logger.error(f"{cfg.log_prefix} ** gurobi_model.objVal / total num requests: {gurobi_model.objVal/MAX_LOAD}")
+        print(f"{cfg.log_prefix} ** Objective function: {objective}")
+        print(f"{cfg.log_prefix} ** Num constraints: {num_constr}")
+        print(f"{cfg.log_prefix} ** Num variables: {num_var}")
+        # print(f"{cfg.log_prefix} ** Optimization runtime: {optimizer_runtime} ms")
+        # print(f"{cfg.log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
+        print(f"{cfg.log_prefix} ** model.objVal: {gurobi_model.objVal}")
+        # print(f"{cfg.log_prefix} ** gurobi_model.objVal / total num requests: {gurobi_model.objVal/MAX_LOAD}")
         request_flow = dict()
         for key in callgraph:
             request_flow[key] = pd.DataFrame(columns=["Callgraph", "From", "To", "Flow"])
