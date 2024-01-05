@@ -158,6 +158,7 @@ func main() {
 
 	r := gin.New()
 	r.POST("/proxyLoad", HandleProxyLoad)
+	fmt.Printf("\t\tAPP LOG: starting proxy load server on port 8080\n")
 	r.Run()
 }
 

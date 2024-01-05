@@ -27,7 +27,7 @@ const (
 	// this is in millis
 	AGGREGATE_REQUEST_LATENCY = "slate_last_second_latency_avg"
 	// (gangmuk): changed to 2 seconds to capture more inflights.
-	TICK_PERIOD = 200000
+	TICK_PERIOD = 2000
 	// nor_len     = 1000 / TICK_PERIOD
 	DEFAULT_HASH_MOD = 1
 
@@ -43,7 +43,7 @@ todo(adiprerepa)
 
 var (
 	ALL_KEYS = []string{KEY_INFLIGHT_REQ_COUNT, KEY_REQUEST_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
-		KEY_TRACED_REQUESTS, KEY_MATCH_DISTRIBUTION}
+		KEY_TRACED_REQUESTS, KEY_MATCH_DISTRIBUTION, KEY_INFLIGHT_ENDPOINT_LIST}
 	// nor     [nor_len]uint64
 	cur_idx      int
 	latency_list []int64
@@ -246,7 +246,7 @@ func (p *pluginContext) OnTick() {
 		{"x-slate-region", p.region},
 	}
 
-	proxywasm.DispatchHttpCall("outbound|8080||slate-controller.default.svc.cluster.local", controllerHeaders,
+	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
 		[]byte(fmt.Sprintf("%d\n%s\n%s", reqCount, inflightStats, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 
 }
@@ -272,7 +272,6 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	} else {
 		proxywasm.LogCriticalf("OnHttpRequestHeaders, traceId: %v", traceId)
 	}
-	return types.ActionContinue
 	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
 	IncrementSharedData(inboundCountKey(traceId), 1)
 	// useful log
@@ -322,7 +321,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		IncrementInflightCount(reqMethod, reqPath, 1)
 	}
 
-	proxywasm.AddHttpRequestHeader("x-slate-routeto", ctx.pluginContext.region)
+	//proxywasm.AddHttpRequestHeader("x-slate-routeto", ctx.pluginContext.region)
 
 	// todo(adiprerepa) enforce controller policy by adding headers to route to remote cluster
 
@@ -352,7 +351,6 @@ func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.
 // they come from upstream or downstream, we need to do some clever
 // bookkeeping and only record the end time for the last response.
 func (ctx *httpContext) OnHttpStreamDone() {
-	return
 	// get x-request-id from request headers and lookup entry time
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
