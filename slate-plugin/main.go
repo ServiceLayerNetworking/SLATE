@@ -272,6 +272,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	} else {
 		proxywasm.LogCriticalf("OnHttpRequestHeaders, traceId: %v", traceId)
 	}
+	return types.ActionContinue
 	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
 	IncrementSharedData(inboundCountKey(traceId), 1)
 	// useful log
@@ -351,6 +352,7 @@ func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.
 // they come from upstream or downstream, we need to do some clever
 // bookkeeping and only record the end time for the last response.
 func (ctx *httpContext) OnHttpStreamDone() {
+	return
 	// get x-request-id from request headers and lookup entry time
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {

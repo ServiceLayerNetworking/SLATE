@@ -21,6 +21,7 @@ func main() {
 	ns := flag.String("namespace", "default", "namespace to check")
 	justswitchimage := flag.Bool("justswitchimage", false, "just switch the image of all specified deployments, don't create new deployments")
 	excludeconsul := flag.Bool("excludeconsul", true, "remove consul clusterIP from allowed outbound traffic proxied")
+	sharedspancontext := flag.Bool("sharedspancontext", true, "use shared span context bootstrap")
 	flag.Parse()
 
 	home := homedir.HomeDir()
@@ -87,6 +88,9 @@ func main() {
 			originalDeployment.Spec.Template.Spec.Containers[0].Image = strings.ReplaceAll(originalDeployment.Spec.Template.Spec.Containers[0].Image, "deathstarbench", "adiprerepa")
 			if *excludeconsul {
 				originalDeployment.Spec.Template.Annotations["traffic.sidecar.istio.io/excludeOutboundIPRanges"] = consulClusterIP + "/32"
+			}
+			if *sharedspancontext {
+				originalDeployment.Spec.Template.Annotations["sidecar.istio.io/bootstrapOverride"] = "shared-span-bootstrap-config"
 			}
 			fmt.Printf("new annotations: %v\n", originalDeployment.Annotations)
 			_, err = deploymentsClient.Update(context.TODO(), originalDeployment, v1.UpdateOptions{})
