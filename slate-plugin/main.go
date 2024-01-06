@@ -146,9 +146,9 @@ func (p *pluginContext) OnTick() {
 	*/
 
 	// TODO: OnTick is called multiple times every tick period, mutex does not solve it.
-	avg_latency := int64(calculateAverage(latency_list))
-	tail_latency := calculatePercentile(latency_list, 99)
-	proxywasm.LogCriticalf("OnTick,latency summary,avg_latency,%d,99th_latency,%d,", avg_latency, tail_latency)
+	//avg_latency := int64(calculateAverage(latency_list))
+	//tail_latency := calculatePercentile(latency_list, 99)
+	//proxywasm.LogCriticalf("OnTick,latency summary,avg_latency,%d,99th_latency,%d,", avg_latency, tail_latency)
 	latency_list = latency_list[:0]
 
 	data, cas, err := proxywasm.GetSharedData(KEY_LAST_RESET)
@@ -180,7 +180,7 @@ func (p *pluginContext) OnTick() {
 		return
 	}
 	reqCount := binary.LittleEndian.Uint64(data)
-	proxywasm.LogCriticalf("OnTick, reqCount: %d", reqCount)
+	//proxywasm.LogCriticalf("OnTick, reqCount: %d", reqCount)
 	if TICK_PERIOD > 1000 {
 		reqCount = reqCount * 1000 / TICK_PERIOD
 	}
@@ -219,6 +219,7 @@ func (p *pluginContext) OnTick() {
 		requestStatsStr += fmt.Sprintf("%s %s %s %s %s %d %d %d %d %d %d %d\n", stat.method, stat.path, stat.traceId, stat.spanId, stat.parentSpanId,
 			stat.startTime, stat.endTime, stat.bodySize, stat.firstLoad, stat.lastLoad, stat.avgLoad, stat.rps)
 	}
+	proxywasm.LogCriticalf("OnTick, requestStatsStr: %s", requestStatsStr)
 
 	// reset stats
 	if err := proxywasm.SetSharedData(KEY_TRACED_REQUESTS, make([]byte, 8), 0); err != nil {
@@ -234,8 +235,8 @@ func (p *pluginContext) OnTick() {
 		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
 		return
 	}
-	num_cur_inflight_req := int64(binary.LittleEndian.Uint64(data))
-	proxywasm.LogCriticalf("OnTick, num inflight request: %d", num_cur_inflight_req)
+	//num_cur_inflight_req := int64(binary.LittleEndian.Uint64(data))
+	//proxywasm.LogCriticalf("OnTick, num inflight request: %d", num_cur_inflight_req)
 
 	controllerHeaders := [][2]string{
 		{":method", "POST"},
@@ -267,10 +268,7 @@ type httpContext struct {
 func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return types.ActionContinue
-	} else {
-		proxywasm.LogCriticalf("OnHttpRequestHeaders, traceId: %v", traceId)
 	}
 	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
 	IncrementSharedData(inboundCountKey(traceId), 1)
@@ -281,7 +279,6 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	_, _, err = proxywasm.GetSharedData(traceId)
 	if err == nil {
 		// we've been set, get out
-		fmt.Printf("OnhttpRequestHeaders, traceId: %v, we've been set, get out", traceId)
 		return types.ActionContinue
 	}
 
@@ -300,14 +297,15 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 
 	reqMethod, err := proxywasm.GetHttpRequestHeader(":method")
 	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
+		proxywasm.LogCriticalf("Couldn't get :method request header: %v", err)
 		return types.ActionContinue
 	}
 	reqPath, err := proxywasm.GetHttpRequestHeader(":path")
 	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
+		proxywasm.LogCriticalf("Couldn't get :path request header: %v", err)
 		return types.ActionContinue
 	}
+	reqPath = strings.Split(reqPath, "?")[0]
 
 	if tracedRequest(traceId) {
 		// we need to record start and end time
@@ -332,7 +330,6 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.Action {
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
 		return types.ActionContinue
 	}
 	proxywasm.LogCriticalf("OnHttpRequestBody, bodysize, %d", bodySize)
@@ -354,7 +351,7 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	// get x-request-id from request headers and lookup entry time
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
+		proxywasm.LogCriticalf("Couldn't get request header x-b3-traceid: %v", err)
 		return
 	}
 
@@ -375,14 +372,15 @@ func (ctx *httpContext) OnHttpStreamDone() {
 
 	reqMethod, err := proxywasm.GetHttpRequestHeader(":method")
 	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
+		proxywasm.LogCriticalf("Couldn't get request header :method : %v", err)
 		return
 	}
 	reqPath, err := proxywasm.GetHttpRequestHeader(":path")
 	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get request header: %v", err)
+		proxywasm.LogCriticalf("Couldn't get request header :path : %v", err)
 		return
 	}
+	reqPath = strings.Split(reqPath, "?")[0]
 	IncrementInflightCount(reqMethod, reqPath, -1)
 
 	// (gangmuk): Instead of setting the KEY_INFLIGHT_REQ_COUNT(load) to zero in OnTick function, decrement it when each request is completed.
@@ -627,10 +625,7 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 		spanId := string(spanIdBytes)
 		parentSpanIdBytes, _, err := proxywasm.GetSharedData(parentSpanIdKey(traceId))
 		parentSpanId := ""
-		if err != nil {
-			// this is okay. could be root.
-			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v parentSpanId: %v", traceId, err)
-		} else {
+		if err == nil {
 			parentSpanId = string(parentSpanIdBytes)
 		}
 

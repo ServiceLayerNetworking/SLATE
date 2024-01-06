@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -186,8 +185,7 @@ func HandleProxyLoad(c *gin.Context) {
 		Region:      region,
 		Data:        reqBody,
 	}
-	d, _ := json.Marshal(&s)
-	fmt.Println(string(d))
+	fmt.Printf("%s from %s:\n%s----------\n", svcName, region, s.Data)
 	Stats = append(Stats, WorkloadStat{
 		ServiceName: svcName,
 		Region:      region,
