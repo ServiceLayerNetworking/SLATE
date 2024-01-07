@@ -1,0 +1,13 @@
+,src_svc,src_cid,dst_svc,dst_cid,min_network_time,max_network_time,max_load,min_load,min_egress_cost,max_egress_cost,src,dst
+"('A,GET,read#0#end', 'B,GET,read#0#start')",,0,,0,1,1,,,0,0,"A,GET,read","B,GET,read"
+"('A,GET,read#0#end', 'B,GET,read#1#start')",,0,,1,10,10,,,10,10,"A,GET,read","B,GET,read"
+"('A,GET,read#1#end', 'B,GET,read#0#start')",,1,,0,10,10,,,10,10,"A,GET,read","B,GET,read"
+"('A,GET,read#1#end', 'B,GET,read#1#start')",,1,,1,1,1,,,0,0,"A,GET,read","B,GET,read"
+"('A,POST,post#0#end', 'C,POST,post#0#start')",,0,,0,1,1,,,0,0,"A,POST,post","C,POST,post"
+"('A,POST,post#0#end', 'C,POST,post#1#start')",,0,,1,10,10,,,10,10,"A,POST,post","C,POST,post"
+"('A,POST,post#1#end', 'C,POST,post#0#start')",,1,,0,10,10,,,10,10,"A,POST,post","C,POST,post"
+"('A,POST,post#1#end', 'C,POST,post#1#start')",,1,,1,1,1,,,0,0,"A,POST,post","C,POST,post"
+"('SOURCE#-1#end', 'A,GET,read#0#start')",,-1,,0,0,0,,,0,0,SOURCE,"A,GET,read"
+"('SOURCE#-1#end', 'A,GET,read#1#start')",,-1,,1,0,0,,,0,0,SOURCE,"A,GET,read"
+"('SOURCE#-1#end', 'A,POST,post#0#start')",,-1,,0,0,0,,,0,0,SOURCE,"A,POST,post"
+"('SOURCE#-1#end', 'A,POST,post#1#start')",,-1,,1,0,0,,,0,0,SOURCE,"A,POST,post"

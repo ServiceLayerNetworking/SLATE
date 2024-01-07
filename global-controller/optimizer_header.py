@@ -27,8 +27,8 @@ source_node_name = "SOURCE"
 destination_node_name = "DESTINATION"
 NONE_CID = -1
 NONE_TYPE = "-1"
-source_node_fullname = f'{source_node_name}{cfg.DELIMITER}{NONE_CID}{cfg.DELIMITER}{NONE_CID}'
-destination_node_fullname = f'{destination_node_name}{cfg.DELIMITER}{NONE_CID}{cfg.DELIMITER}{NONE_CID}'
+source_node_fullname = f'{source_node_name}{cfg.DELIMITER}{NONE_CID}{cfg.DELIMITER}end'
+destination_node_fullname = f'{destination_node_name}{cfg.DELIMITER}{NONE_CID}{cfg.DELIMITER}end'
 
 
 def calculate_depth(graph, node):
@@ -58,10 +58,12 @@ def get_depth_in_graph(cg):
 
 def get_callsize_dict(cg, depth):
     callsize_dict = dict()
-    for parent_svc, children in cg.items():
-        for child_svc in children:
-            assert depth[parent_svc] < depth[child_svc]
-            callsize_dict[(parent_svc,child_svc)] = (depth[parent_svc]+1)
+    for parent in cg:
+        for child in cg[parent]:
+            assert depth[parent] < depth[child]
+            print(f"depth[{parent}]")
+            print(f"{depth[parent]}")
+            callsize_dict[(parent,child)] = ((depth[parent]+1)*10)
     return callsize_dict
 
 
@@ -213,15 +215,10 @@ def plot_latency_function_2d(compute_df, callgraph, y_axis_target_cg_key):
     plt.show()
 
 
-def get_network_arc_var_name(src_svc, src_cid, dst_svc, dst_cid):
-    assert src_svc != dst_svc
-    if src_cid == NONE_CID:
-        if src_svc != source_node_name:
-            print(f'Wrong src_svc for NONE_CID:  {src_svc}, {src_cid}')
-            assert False
-        return (f'{source_node_fullname}', f'{dst_svc}{cfg.DELIMITER}{dst_cid}{cfg.DELIMITER}start')
+def get_network_arc_var_name(src_ep, dst_ep, src_cid, dst_cid):
+    assert src_ep != dst_ep
     assert dst_cid != NONE_CID
-    return (f'{src_svc}{cfg.DELIMITER}{src_cid}{cfg.DELIMITER}end',f'{dst_svc}{cfg.DELIMITER}{dst_cid}{cfg.DELIMITER}start') # tuple
+    return (f'{src_ep}{cfg.DELIMITER}{src_cid}{cfg.DELIMITER}end',f'{dst_ep}{cfg.DELIMITER}{dst_cid}{cfg.DELIMITER}start')
 
 
 def is_X_child_of_Y(X_svc, Y_svc, callgraph):
@@ -232,16 +229,21 @@ def is_X_child_of_Y(X_svc, Y_svc, callgraph):
     return False
 
 
-def get_cluster_pair(unique_service):
-    cid_list = list(range(len(unique_service)))
+def get_cluster_pair(endpoint_to_placement):
+    cid_list = all_endpoints.keys()
     cluster_pair = list(itertools.product(cid_list, cid_list))
     return cluster_pair
     
-
-def create_network_arc_var_name(unique_service, callgraph):
+# endpoint_to_placement = {
+# {'A,POST,post': {0, 1}, \
+#   'A,GET,read': {0, 1}, \
+#   'B,GET,read': {0, 1}, \
+#   'C,POST,post': {0, 1}}    
+def create_network_arc_var_name(endpoint_to_placement):
+    cluster_pair = get_cluster_pair(endpoint_to_placement)
     network_arc_var_name = list()
-    cluster_pair = get_cluster_pair(unique_service)
-    print("cluster_pair: ", cluster_pair) # [(0, 0), (0, 1), (1, 0), (1, 1)]
+    # [(0, 0), (0, 1), (1, 0), (1, 1)]
+    print("cluster_pair: ", cluster_pair)
     for c_pair in cluster_pair:
         src_cid = c_pair[0]
         dst_cid = c_pair[1]
@@ -325,7 +327,7 @@ def is_ingress_gw(target_svc, callgraph):
 
 
 def get_compute_df_column(ep_str_callgraph_table):
-    columns = ["svc_name", "src_cid", "dst_cid", "call_size", "max_load", "min_load", "observed_x", "observed_y", "latency_function", "min_compute_latency"]
+    columns = ["svc_name", "src_cid", "dst_cid", "call_size", "max_load", "min_load", "observed_x", "observed_y", "coef", "min_compute_latency"]
         
     # for cg_key in ep_str_callgraph_table:
     #     columns.append("max_load_"+cg_key)
@@ -513,18 +515,43 @@ def fill_observation_in_compute_df(compute_df, callgraph_table):
     fill_latency_function(compute_df, callgraph_table)
     
 
-def create_compute_df(all_endpoints, endpoint_to_cg_key, ep_str_callgraph_table, latency_func):
-    compute_arc_var_name = create_compute_arc_var_name(all_endpoints)
-    check_compute_arc_var_name(compute_arc_var_name)
+def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict):
+
     columns = get_compute_df_column(ep_str_callgraph_table)
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
     fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table)
     for index, row in compute_df.iterrows():
         print(f'{row["svc_name"]}, {row["endpoint"]}')
-        # cg_key = endpoint_to_cg_key[row['endpoint']]
-        # compute_df.at[index, 'latency_function_'+cg_key] = latency_func[row['svc_name']][row['endpoint']]
-        compute_df.at[index, 'latency_function'] = latency_func[row['svc_name']][row['endpoint']]
+        compute_df.at[index, 'coef'] = coef_dict[row["svc_name"]][row['endpoint']]
+        # compute_df.at[index, 'latency_function'] = latency_func[row['svc_name']][row['endpoint']]
     return compute_df
+
+def print_gurobi_var(gurobi_model):
+    varInfo = [(v.varName, v.LB, v.UB) for v in gurobi_model.getVars() ]
+    df_var = pd.DataFrame(varInfo) # convert to pandas dataframe
+    df_var.columns=['Variable Name','LB','UB'] # Add column headers
+    num_var = len(df_var)
+    if cfg.OUTPUT_WRITE:
+        df_var.to_csv(cfg.OUTPUT_DIR+"/variable.csv")
+    with pd.option_context('display.max_colwidth', None):
+        with pd.option_context('display.max_rows', None):
+            # print(f"len(df_var): {len(df_var)}")
+            # print("df_var")
+            # display(df_var)
+            df_var.to_csv("variable.csv")
+            
+def print_gurobi_constraint(gurobi_model):
+    constrInfo = [(c.constrName, gurobi_model.getRow(c), c.Sense, c.RHS) for c in gurobi_model.getConstrs() ]
+    df_constr = pd.DataFrame(constrInfo)
+    df_constr.columns=['Constraint Name','Constraint equation', 'Sense','RHS']
+    if cfg.OUTPUT_WRITE:
+        df_constr.to_csv(cfg.OUTPUT_DIR+"/constraint.csv")
+    with pd.option_context('display.max_colwidth', None):
+        with pd.option_context('display.max_rows', None):
+            # print(f"len(df_constr): {len(df_constr)}")
+            # print("df_constr")
+            # display(df_constr)
+            df_constr.to_csv("constraint.csv")
         
 def check_negative_relationship(reg):
     if cfg.REGRESSOR_DEGREE == 1:
@@ -783,7 +810,7 @@ def plot_arc_var_for_callgraph(network_arc, unique_service, callgraph, key):
     g_
     
     
-def plot_callgraph_request_flow(percent_df, cg_key_list, workload, network_arc):
+def plot_callgraph_request_flow(percent_df, network_arc):
     g_ = graphviz.Digraph()
     plot_dict_wo_compute_edge(network_arc, g_)
     node_pw = "1"
@@ -794,28 +821,28 @@ def plot_callgraph_request_flow(percent_df, cg_key_list, workload, network_arc):
     edge_arrowsize="0.5"
     edge_minlen="1"
     name_cut = 6
-    for cg_key in cg_key_list:
-        for index, row in percent_df[cg_key].iterrows():
-            if row["flow"] <= 0 or row["weight"] <= 0:
-                continue
-            src_cid = row["src_cid"]
-            dst_cid = row["dst_cid"]
-            src_svc = row["src"]
-            dst_svc = row["dst"]
-            edge_color = get_network_edge_color(src_cid, dst_cid, cg_key)
-            edge_style = get_network_edge_style(src_cid, dst_cid)
-            src_node_color = get_node_color(src_cid)
-            dst_node_color = get_node_color(dst_cid)
-            src_node_name = src_svc+str(src_cid)
-            dst_node_name = dst_svc+str(dst_cid)
-            # src_node
-            g_.node(name=src_node_name, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=src_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
-            # dst_node
-            g_.node(name=dst_node_name, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
-            # edge from src_node to dst_node        
-            g_.edge(src_node_name, dst_node_name, label=f'{round(row["flow"],1)}({round(row["weight"], 2)})', penwidth=edge_pw, style=edge_style, fontsize=edge_fs, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
-    result_string = ''.join(cg_key_list)
-    g_.render(f'{cfg.OUTPUT_DIR}/wl_{workload}-cg_{result_string}', view = True)
+    for index, row in percent_df.iterrows():
+        if row["flow"] <= 0 or row["weight"] <= 0:
+            continue
+        src_cid = row["src_cid"]
+        dst_cid = row["dst_cid"]
+        src_svc = row["src"]
+        dst_svc = row["dst"]
+        edge_color = get_network_edge_color(src_cid, dst_cid)
+        edge_style = get_network_edge_style(src_cid, dst_cid)
+        src_node_color = get_node_color(src_cid)
+        dst_node_color = get_node_color(dst_cid)
+        src_node_name = src_svc+str(src_cid)
+        dst_node_name = dst_svc+str(dst_cid)
+        # src_node
+        g_.node(name=src_node_name, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=src_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+        # dst_node
+        g_.node(name=dst_node_name, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+        # edge from src_node to dst_node        
+        g_.edge(src_node_name, dst_node_name, label=f'{round(row["flow"],1)}({round(row["weight"], 2)})', penwidth=edge_pw, style=edge_style, fontsize=edge_fs, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
+    # result_string = ''.join(cg_key_list)
+    # g_.render(f'{cfg.OUTPUT_DIR}/wl_{workload}-cg_{result_string}', view = True)
+    g_.render(f'graphviz', view = True)
     g_
 
 
@@ -902,18 +929,18 @@ def get_network_latency(src_cid, dst_cid):
         return cfg.INTER_CLUSTER_RTT
 
 
-def get_egress_cost(src_cid, src_svc, dst_svc, dst_cid, callsize_dict):
-    if src_cid == dst_cid or src_svc == source_node_name or dst_svc == destination_node_name:
+def get_egress_cost(src, src_cid, dst, dst_cid, callsize_dict):
+    if src_cid == dst_cid or src == source_node_name or dst == destination_node_name:
         return 0
     else:
-        return cfg.INTER_CLUSTER_EGRESS_COST * callsize_dict[(src_svc,dst_svc)]
+        return cfg.INTER_CLUSTER_EGRESS_COST * callsize_dict[(src,dst)]
 
 
-def end_node_name(svc_name, cid):
+def get_end_node_name(svc_name, cid):
     return f'{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end'
 
 
-def start_node_name(svc_name, cid):
+def get_start_node_name(svc_name, cid):
     return f'{svc_name}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
 
 

@@ -1,0 +1,9 @@
+,svc_name,src_cid,dst_cid,call_size,max_load,min_load,observed_x,observed_y,coef,min_compute_latency,endpoint,method,url
+"('A,GET,read#0#start', 'A,GET,read#0#end')",A,0,0,0,999999999,0,,,"{'A,GET,read': 1, 'A,POST,post': 1, 'intercept': 0}",0,"A,GET,read",GET,read
+"('A,POST,post#0#start', 'A,POST,post#0#end')",A,0,0,0,999999999,0,,,"{'A,GET,read': 1, 'A,POST,post': 1, 'intercept': 0}",0,"A,POST,post",POST,post
+"('B,GET,read#0#start', 'B,GET,read#0#end')",B,0,0,0,999999999,0,,,"{'B,GET,read': 1, 'intercept': 0}",0,"B,GET,read",GET,read
+"('C,POST,post#0#start', 'C,POST,post#0#end')",C,0,0,0,999999999,0,,,"{'C,POST,post': 1, 'intercept': 0}",0,"C,POST,post",POST,post
+"('A,GET,read#1#start', 'A,GET,read#1#end')",A,1,1,0,999999999,0,,,"{'A,GET,read': 1, 'A,POST,post': 1, 'intercept': 0}",0,"A,GET,read",GET,read
+"('A,POST,post#1#start', 'A,POST,post#1#end')",A,1,1,0,999999999,0,,,"{'A,GET,read': 1, 'A,POST,post': 1, 'intercept': 0}",0,"A,POST,post",POST,post
+"('B,GET,read#1#start', 'B,GET,read#1#end')",B,1,1,0,999999999,0,,,"{'B,GET,read': 1, 'intercept': 0}",0,"B,GET,read",GET,read
+"('C,POST,post#1#start', 'C,POST,post#1#end')",C,1,1,0,999999999,0,,,"{'C,POST,post': 1, 'intercept': 0}",0,"C,POST,post",POST,post

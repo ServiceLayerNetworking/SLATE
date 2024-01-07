@@ -1,0 +1,81 @@
+,method,url,svc_name,endpoint,endpoint_str,span_id,parent_span_id,trace_id,cluster_id,num_inflight_dict,rps,st,et,rt,xt,ct,child_spans,critical_child_spans,call_size,depth
+0,GET,read,A,"A,GET,read","A,GET,read",1,0,0,0,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+1,GET,read,B,"B,GET,read","B,GET,read",2,1,0,0,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+2,GET,read,A,"A,GET,read","A,GET,read",1,0,1,0,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+3,GET,read,B,"B,GET,read","B,GET,read",2,1,1,0,"{'B,GET,read': 4}",0,4,8,4,4,4,[],[],2,0
+4,GET,read,A,"A,GET,read","A,GET,read",1,0,2,0,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+5,GET,read,B,"B,GET,read","B,GET,read",2,1,2,0,"{'B,GET,read': 4}",0,4,8,4,4,4,[],[],2,0
+6,GET,read,A,"A,GET,read","A,GET,read",1,0,3,0,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+7,GET,read,B,"B,GET,read","B,GET,read",2,1,3,0,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+8,GET,read,A,"A,GET,read","A,GET,read",1,0,4,0,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+9,GET,read,B,"B,GET,read","B,GET,read",2,1,4,0,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+10,GET,read,A,"A,GET,read","A,GET,read",1,0,5,0,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+11,GET,read,B,"B,GET,read","B,GET,read",2,1,5,0,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+12,GET,read,A,"A,GET,read","A,GET,read",1,0,6,0,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+13,GET,read,B,"B,GET,read","B,GET,read",2,1,6,0,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+14,GET,read,A,"A,GET,read","A,GET,read",1,0,7,0,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+15,GET,read,B,"B,GET,read","B,GET,read",2,1,7,0,"{'B,GET,read': 4}",0,4,8,4,4,4,[],[],2,0
+16,GET,read,A,"A,GET,read","A,GET,read",1,0,8,0,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+17,GET,read,B,"B,GET,read","B,GET,read",2,1,8,0,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+18,GET,read,A,"A,GET,read","A,GET,read",1,0,9,0,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+19,GET,read,B,"B,GET,read","B,GET,read",2,1,9,0,"{'B,GET,read': 4}",0,4,8,4,4,4,[],[],2,0
+20,POST,post,A,"A,POST,post","A,POST,post",1,0,10,0,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+21,POST,post,C,"C,POST,post","C,POST,post",2,1,10,0,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+22,POST,post,A,"A,POST,post","A,POST,post",1,0,11,0,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+23,POST,post,C,"C,POST,post","C,POST,post",2,1,11,0,"{'C,POST,post': 8}",0,4,12,8,8,8,[],[],2,0
+24,POST,post,A,"A,POST,post","A,POST,post",1,0,12,0,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+25,POST,post,C,"C,POST,post","C,POST,post",2,1,12,0,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+26,POST,post,A,"A,POST,post","A,POST,post",1,0,13,0,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+27,POST,post,C,"C,POST,post","C,POST,post",2,1,13,0,"{'C,POST,post': 8}",0,4,12,8,8,8,[],[],2,0
+28,POST,post,A,"A,POST,post","A,POST,post",1,0,14,0,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+29,POST,post,C,"C,POST,post","C,POST,post",2,1,14,0,"{'C,POST,post': 8}",0,4,12,8,8,8,[],[],2,0
+30,POST,post,A,"A,POST,post","A,POST,post",1,0,15,0,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+31,POST,post,C,"C,POST,post","C,POST,post",2,1,15,0,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+32,POST,post,A,"A,POST,post","A,POST,post",1,0,16,0,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+33,POST,post,C,"C,POST,post","C,POST,post",2,1,16,0,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+34,POST,post,A,"A,POST,post","A,POST,post",1,0,17,0,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+35,POST,post,C,"C,POST,post","C,POST,post",2,1,17,0,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+36,POST,post,A,"A,POST,post","A,POST,post",1,0,18,0,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+37,POST,post,C,"C,POST,post","C,POST,post",2,1,18,0,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+38,POST,post,A,"A,POST,post","A,POST,post",1,0,19,0,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+39,POST,post,C,"C,POST,post","C,POST,post",2,1,19,0,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+40,GET,read,A,"A,GET,read","A,GET,read",1,0,20,1,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+41,GET,read,B,"B,GET,read","B,GET,read",2,1,20,1,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+42,GET,read,A,"A,GET,read","A,GET,read",1,0,21,1,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+43,GET,read,B,"B,GET,read","B,GET,read",2,1,21,1,"{'B,GET,read': 4}",0,4,8,4,4,4,[],[],2,0
+44,GET,read,A,"A,GET,read","A,GET,read",1,0,22,1,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+45,GET,read,B,"B,GET,read","B,GET,read",2,1,22,1,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+46,GET,read,A,"A,GET,read","A,GET,read",1,0,23,1,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+47,GET,read,B,"B,GET,read","B,GET,read",2,1,23,1,"{'B,GET,read': 4}",0,4,8,4,4,4,[],[],2,0
+48,GET,read,A,"A,GET,read","A,GET,read",1,0,24,1,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+49,GET,read,B,"B,GET,read","B,GET,read",2,1,24,1,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+50,GET,read,A,"A,GET,read","A,GET,read",1,0,25,1,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+51,GET,read,B,"B,GET,read","B,GET,read",2,1,25,1,"{'B,GET,read': 4}",0,4,8,4,4,4,[],[],2,0
+52,GET,read,A,"A,GET,read","A,GET,read",1,0,26,1,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+53,GET,read,B,"B,GET,read","B,GET,read",2,1,26,1,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+54,GET,read,A,"A,GET,read","A,GET,read",1,0,27,1,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+55,GET,read,B,"B,GET,read","B,GET,read",2,1,27,1,"{'B,GET,read': 4}",0,4,8,4,4,4,[],[],2,0
+56,GET,read,A,"A,GET,read","A,GET,read",1,0,28,1,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+57,GET,read,B,"B,GET,read","B,GET,read",2,1,28,1,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+58,GET,read,A,"A,GET,read","A,GET,read",1,0,29,1,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+59,GET,read,B,"B,GET,read","B,GET,read",2,1,29,1,"{'B,GET,read': 8}",0,4,12,8,8,8,[],[],2,0
+60,POST,post,A,"A,POST,post","A,POST,post",1,0,30,1,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+61,POST,post,C,"C,POST,post","C,POST,post",2,1,30,1,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+62,POST,post,A,"A,POST,post","A,POST,post",1,0,31,1,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+63,POST,post,C,"C,POST,post","C,POST,post",2,1,31,1,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+64,POST,post,A,"A,POST,post","A,POST,post",1,0,32,1,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+65,POST,post,C,"C,POST,post","C,POST,post",2,1,32,1,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+66,POST,post,A,"A,POST,post","A,POST,post",1,0,33,1,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+67,POST,post,C,"C,POST,post","C,POST,post",2,1,33,1,"{'C,POST,post': 8}",0,4,12,8,8,8,[],[],2,0
+68,POST,post,A,"A,POST,post","A,POST,post",1,0,34,1,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+69,POST,post,C,"C,POST,post","C,POST,post",2,1,34,1,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+70,POST,post,A,"A,POST,post","A,POST,post",1,0,35,1,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+71,POST,post,C,"C,POST,post","C,POST,post",2,1,35,1,"{'C,POST,post': 8}",0,4,12,8,8,8,[],[],2,0
+72,POST,post,A,"A,POST,post","A,POST,post",1,0,36,1,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+73,POST,post,C,"C,POST,post","C,POST,post",2,1,36,1,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+74,POST,post,A,"A,POST,post","A,POST,post",1,0,37,1,"{'A,GET,read': 20, 'A,POST,post': 20}",0,0,20,20,12,20,[],[],1,0
+75,POST,post,C,"C,POST,post","C,POST,post",2,1,37,1,"{'C,POST,post': 8}",0,4,12,8,8,8,[],[],2,0
+76,POST,post,A,"A,POST,post","A,POST,post",1,0,38,1,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+77,POST,post,C,"C,POST,post","C,POST,post",2,1,38,1,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0
+78,POST,post,A,"A,POST,post","A,POST,post",1,0,39,1,"{'A,GET,read': 10, 'A,POST,post': 10}",0,0,10,10,6,10,[],[],1,0
+79,POST,post,C,"C,POST,post","C,POST,post",2,1,39,1,"{'C,POST,post': 4}",0,4,8,4,4,4,[],[],2,0

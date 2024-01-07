@@ -39,6 +39,8 @@ ep_str_callgraph_table[cg_key][parent_ep_str] = list of child_ep_str
 
 sp_callgraph_table[cg_key][parent_'span'] = list of child_'span'
 
+request_in_out_weight[cg_key][parent_ep_str][child_ep_str] = in_/out_ ratio
+
 latency_func[svc_name][endpoint] = fitted regression model
 
 endpoint_level_inflight_req[cid][svc_name][ep] = #inflight req
@@ -47,16 +49,19 @@ endpoint_level_rps[cid][svc_name][ep] = rps
 
 root_node_max_rps[root_node_endpoint] = rps
 
-all_endpoint[cid][svc_name][ep] = endpoint
+all_endpoints[cid][svc_name][ep] = endpoint
 
 placement[cid] = span.svc_name
+
+svc_to_placement[svc_name] = set of cids
+
+endpoint_to_placement[ep] = set of cids
 
 traffic_segmentation = True/False
 
 objective = "avg_latency"/"end_to_end_latency"/"egress_cost"/"multi_objective"
 '''
-def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps, placement, all_endpoints, endpoint_to_cg_key, sp_callgraph_table, ep_str_callgraph_table, traffic_segmentation, objective):
-    assert len(latency_func) > 0
+def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, all_endpoints, endpoint_to_cg_key, sp_callgraph_table, ep_str_callgraph_table, traffic_segmentation, objective):
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
         print(f"{cfg.log_prefix} mkdir {cfg.OUTPUT_DIR}")
@@ -102,7 +107,8 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
     
     collapsed_endpoint_level_rps = collapse_cid_in_endpoint_level_rps(endpoint_level_rps)
     
-    request_in_out_weight = dict() # This is used in flow_conservation-nonleaf_endnode constraint
+    # This is used in flow_conservation-nonleaf_endnode constraint
+    request_in_out_weight = dict()
     for cg_key in sp_callgraph_table:
         if cg_key not in request_in_out_weight:
             request_in_out_weight[cg_key] = dict()
@@ -117,7 +123,11 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
                     request_in_out_weight[cg_key][parent_ep_str][child_ep_str] = dict()
                 in_ = collapsed_endpoint_level_rps[parent_span.svc_name][parent_ep_str]
                 out_ = collapsed_endpoint_level_rps[child_span.svc_name][child_ep_str]
-                request_in_out_weight[cg_key][parent_ep_str][child_ep_str] = in_/out_
+                ###################################################################
+                # TODO
+                # request_in_out_weight[cg_key][parent_ep_str][child_ep_str] = in_/out_
+                request_in_out_weight[cg_key][parent_ep_str][child_ep_str] = 1
+                ###################################################################
     # pprint(request_in_out_weight)
     
     ##############################################
@@ -167,94 +177,174 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
     depth_dict = dict()
     for cg_key in ep_str_callgraph_table:
         depth_dict[cg_key] = opt_func.get_depth_in_graph(ep_str_callgraph_table[cg_key])
-    pprint(depth_dict)
+    print("depth_dict")
+    print(depth_dict)
     # key: (parent_svc,child_svc), value: callsize of the link (= depth+1)
     callsize_dict = dict()
     for cg_key in ep_str_callgraph_table:
         callsize_dict[cg_key] = opt_func.get_callsize_dict(ep_str_callgraph_table[cg_key], depth_dict[cg_key])
     print(f'callsize_dict: {callsize_dict}')
 
-
     # In[31]:
     
     root_node_max_rps = opt_func.get_root_node_max_rps(root_node_rps)
-    for svc_name in latency_func:
-        for ep in latency_func[svc_name]:
-            print(f'latency_func[{svc_name}][{ep}]: {latency_func[svc_name][ep]}')
-    compute_df = opt_func.create_compute_df(all_endpoints, endpoint_to_cg_key, ep_str_callgraph_table, latency_func)
+    compute_arc_var_name = opt_func.create_compute_arc_var_name(all_endpoints)
+    opt_func.check_compute_arc_var_name(compute_arc_var_name)
+    compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict)
     display(compute_df)
+    compute_df.to_csv('compute_df.csv')
     if traffic_segmentation == False:
         original_compute_df = opt_func.create_compute_df(placement, original_callgraph, callsize_dict, original_NUM_REQUESTS, original_MAX_LOAD)
         # display(original_compute_df)
         
-    compute_df.to_csv('compute_df.csv')
+    # for svc_name in latency_function:
+    #     for ep in latency_function[svc_name]:
+    #         # first elem is the first coef for the first endpiont, the second coef is for the second endpoint used to predict the endpoint latency
+    #         # print(f'latency_function[{svc_name}][{ep}]: {latency_function[svc_name][ep]}')
+    #         print(f'latency_function[{svc_name}][{ep}], coef: {latency_function[svc_name][ep]["linearregression"].coef_}')
+    #         print(f'latency_function[{svc_name}][{ep}], intercept: {latency_function[svc_name][ep]["linearregression"].intercept_}')
+        
 
 
     # In[42]:
 
     gurobi_model = gp.Model('RequestRouting')
 
+    ''' 
+    Create new gurobi variables
+    
+    How does adding gurobi variables work in gppd(gurobi pandas)?
+    It takes index only from the dataframe and create variables for each index with the given prefix by name parameter.
+    example: load_for_network_edge_A[('productpage_v1#0#end',_'reviews_v3#0#start')]
+    example: compute_latency_A[('productpage_v1#1#start',_'productpage_v1#1#end')]
+    
+    example: compute_latency[('A,GET,read#0#start',_'A,GET,read#0#end')]
+    
+    example: load_for_compute_edge[('A,GET,read#0#start',_'A,GET,read#0#end')]
+
+    
+    ('aaa', 'bbb') is a tuple, and it is the index of the dataframe.
+    '''
     compute_latency = dict()
     compute_load = dict()
-    for cg_key in ep_str_callgraph_table:
-        compute_latency[cg_key] = gppd.add_vars(gurobi_model, compute_df, name="compute_latency_"+cg_key, lb="min_compute_latency_"+cg_key)
-    for cg_key in ep_str_callgraph_table:
-        # compute_load[cg_key] = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge_"+cg_key, lb="min_load_"+cg_key, ub="max_load_"+cg_key)
-        compute_load[cg_key] = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge_"+cg_key)
+    compute_latency = gppd.add_vars(gurobi_model, compute_df, name="compute_latency", lb="min_compute_latency")
+    compute_load = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge")
     gurobi_model.update()
 
-    # In[44]:
+    
+    # # In[44]:
 
 
+    '''
+    Original latency function constraint
+    
+    It uses gurobi add_predictor_constr
+    '''
+    # for index, row in compute_df.iterrows():
+    #     data = dict()
+    #     for key in callgraph:
+    #         data["observed_x_"+key] = compute_load[key][index]
+    #     m_feats = pd.DataFrame(
+    #         data=data,
+    #         index=[index]
+    #     )
+    #     for key in callgraph:
+    #         print(f'callgraph key: {key}')
+    #         print(f'{row["svc_name"]}')
+    #         print(f'index: {index}')
+    #         print(f'm_feats: {m_feats}')
+    #         print(f'{compute_latency[key][index]}')
+    #         print(f'{row["latency_function_"+key]}')
+    #         print()
+    #         # (gurobi_model, regression model, x, y)
+    #         pred_constr = add_predictor_constr(gurobi_model, row["latency_function_"+key], m_feats, compute_latency[key][index])
+    
+    '''
+    Manually setting the latency function constraint
+    
+    coef[ep_1] = latency_function[svc_A][ep_1]["linearregression"].coef_[0]
+    coef[ep_2] = latency_function[svc_A][ep_1]["linearregression"].coef_[1]
+    intercept = latency_function[svc_A][ep_1]["linearregression"].intercept_
+    
+    Constraint equation:
+        endpoint latency == (coef[ep_1]*scheduled_load[ep_1]) + (coef[ep_2]*scheduled_load[ep_2]) + intercept
+    
+    '''
     for index, row in compute_df.iterrows():
-        data = dict()
-        for key in callgraph:
-            data["observed_x_"+key] = compute_load[key][index]
-        m_feats = pd.DataFrame(
-            data=data,
-            index=[index]
-        )
-        for key in callgraph:
-            print(f'callgraph key: {key}')
-            print(f'{row["svc_name"]}')
-            print(f'index: {index}')
-            print(f'm_feats: {m_feats}')
-            print(f'{compute_latency[key][index]}')
-            print(f'{row["latency_function_"+key]}')
-            print()
-            # (gurobi_model, regression model, x, y)
-            pred_constr = add_predictor_constr(gurobi_model, row["latency_function_"+key], m_feats, compute_latency[key][index])
+        lh = compute_latency[index]
+        rh = 0
+        coefs = row['coef']
+        print(f"target svc,endpoint: {row['svc_name']}, {row['endpoint']}")
+        print(coefs)
+        for dependent_ep in coefs:
+            if dependent_ep != 'intercept':
+                dependent_arc_name = opt_func.get_compute_arc_var_name(dependent_ep, row['src_cid'])
+                print(f'dependent_arc_name: {dependent_arc_name}')
+                print(f'coefs[{dependent_ep}]: {coefs[dependent_ep]}')
+                rh += compute_load[dependent_arc_name] * coefs[dependent_ep]
+        rh += coefs['intercept']
+        print(f"index: {index}")
+        print(f"lh: {lh}")
+        print(f"rh: {rh}")
+        gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
     gurobi_model.update()
 
 
     # In[44]:
 
 
+    endpoint_to_placement = dict()
+    svc_to_placement = dict()
+    for cid in all_endpoints:
+        for svc_name in all_endpoints[cid]:
+            if svc_name not in svc_to_placement:
+                svc_to_placement[svc_name] = set()
+            svc_to_placement[svc_name].add(cid)
+            for ep in all_endpoints[cid][svc_name]:
+                if ep not in endpoint_to_placement:
+                    endpoint_to_placement[ep] = set()
+                endpoint_to_placement[ep].add(cid)
+    print('endpoint_to_placement')
+    print(f'{endpoint_to_placement}')
+    print('svc_to_placement')
+    print(f'{svc_to_placement}')
     ## Define names of the variables for network arc in gurobi
-    network_arc_var_name = opt_func.create_network_arc_var_name(placement, callgraph)
-    opt_func.check_network_arc_var_name(network_arc_var_name)
+    # endpoint_to_placement: 
+    # {'A,POST,post': {0, 1}, 'A,GET,read': {0, 1}, 'B,GET,read': {0, 1}, 'C,POST,post': {0, 1}}
+    network_arc_var_name = list()
+    for cg_key in ep_str_callgraph_table:
+        for parent_ep_str in ep_str_callgraph_table[cg_key]:
+            for child_ep_str in ep_str_callgraph_table[cg_key][parent_ep_str]:
+                for p_cid in endpoint_to_placement[parent_ep_str]:
+                    for c_cid in endpoint_to_placement[child_ep_str]:
+                        print(f'parent_ep_str: {parent_ep_str}, p_cid: {p_cid}, child_ep_str: {child_ep_str}, c_cid: {c_cid}')
+                        var_name = opt_func.get_network_arc_var_name(parent_ep_str, child_ep_str, p_cid, c_cid)
+                        if var_name not in network_arc_var_name:
+                            network_arc_var_name.append(var_name)
+
+    for cg_key in ep_str_callgraph_table:
+        root_node = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
+        # print(f"endpoint_to_placement[{root_node}]")
+        # print(f"{endpoint_to_placement[root_node]}")
+        for dst_cid in endpoint_to_placement[root_node]:
+            print(f'root_node: {root_node}')
+            print(f'dst_cid, {dst_cid}')
+            var_name = opt_func.get_network_arc_var_name(opt_func.source_node_name, root_node, opt_func.NONE_CID, dst_cid)
+            network_arc_var_name.append(var_name)
+    
+    # network_arc_var_name = opt_func.create_network_arc_var_name(endpoint_to_placement)
+    # opt_func.check_network_arc_var_name(network_arc_var_name)
 
 
     # In[36]:
 
-
-    columns=["src_svc", "src_cid", "dst_svc", "dst_cid", "min_network_time", "max_network_time"]
-    for key in callgraph:
-        columns.append("max_load_"+key)
-    for key in callgraph:
-        columns.append("min_load_"+key)
-    for key in callgraph:
-        columns.append("min_egress_cost_"+key)
-    for key in callgraph:
-        columns.append("max_egress_cost_"+key)
+    columns=["src_svc", "src_cid", "dst_svc", "dst_cid", "min_network_time", "max_network_time", "max_load", "min_load", "min_egress_cost", "max_egress_cost"]
     network_df = pd.DataFrame(
         columns=columns,
         data={
         },
         index=network_arc_var_name
     )
-    if cfg.DISPLAY: display(network_df)
-
 
     # In[36]:
 
@@ -267,88 +357,74 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
     max_network_time_list = list()
     min_egress_cost_list = list()
     max_egress_cost_list = list()
-    call_size_list = list()
+    flattened_callsize_dict = {inner_key: value for outer_key, inner_dict in callsize_dict.items() for inner_key, value in inner_dict.items()}
+    print(f'callsize_dict: {callsize_dict}')
+    print(f'flattened_callsize_dict: {flattened_callsize_dict}')
     for var_name in network_arc_var_name:
         # print(var_name)
         if type(var_name) == tuple:
-            src_svc = var_name[0].split(cfg.DELIMITER)[0]
-            dst_svc = var_name[1].split(cfg.DELIMITER)[0]
+            src = var_name[0].split(cfg.DELIMITER)[0]
+            dst = var_name[1].split(cfg.DELIMITER)[0]
             src_cid = int(var_name[0].split(cfg.DELIMITER)[1])
             dst_cid = int(var_name[1].split(cfg.DELIMITER)[1])
         else:
             print("var_name MUST be tuple datatype")
             assert False
-        src_svc_list.append(src_svc)
-        dst_svc_list.append(dst_svc)
+        src_svc_list.append(src)
+        dst_svc_list.append(dst)
         src_cid_list.append(src_cid)
         dst_cid_list.append(dst_cid)
         n_time = opt_func.get_network_latency(src_cid, dst_cid)
         min_network_time_list.append(n_time)
         max_network_time_list.append(n_time)
-        e_cost = opt_func.get_egress_cost(src_cid, src_svc, dst_svc, dst_cid, callsize_dict)
+        e_cost = opt_func.get_egress_cost(src, src_cid, dst, dst_cid, flattened_callsize_dict)
         min_egress_cost_list.append(e_cost)
         max_egress_cost_list.append(e_cost)
         
-    network_df["src_svc"] = src_svc_list
-    network_df["dst_svc"] = dst_svc_list
+    network_df["src"] = src_svc_list
+    network_df["dst"] = dst_svc_list
     network_df["src_cid"] = src_cid_list
     network_df["dst_cid"] = dst_cid_list
     network_df["min_network_time"] = min_network_time_list
     network_df["max_network_time"] = max_network_time_list
-    for index, row in network_df.iterrows():
-        for key in callgraph:
-            # if this network arc is in the callgraph
-            if row["src_svc"] in callgraph[key] and row["dst_svc"] in callgraph[key][row["src_svc"]]:
-                network_df.at[index, 'max_load_'+key] = MAX_LOAD[key]
-            else:
-                if row["src_svc"] == opt_func.source_node_name:
-                    network_df.at[index, 'max_load_'+key] = MAX_LOAD[key]
-                else:
-                    network_df.at[index, 'max_load_'+key] = 0
-            network_df.at[index, 'min_load_'+key] = 0
-    for key in callgraph:
-        network_df["min_egress_cost_"+key] = min_egress_cost_list
-        network_df["max_egress_cost_"+key] = max_egress_cost_list
+    # for index, row in network_df.iterrows():
+    #     network_df.at[index, 'max_load'] = MAX_LOAD[key]
+    #     if row["src_svc"] == opt_func.source_node_name:
+    #         network_df.at[index, 'max_load'] = MAX_LOAD[key]
+    #     else:
+    #         network_df.at[index, 'max_load'] = 0
+    #     network_df.at[index, 'min_load'] = 0
+    network_df["min_egress_cost"] = min_egress_cost_list
+    network_df["max_egress_cost"] = max_egress_cost_list
 
+    network_df.to_csv('network_df.csv')
 
     # In[44]:
-
-
 
 
     network_latency = dict()
-    for key in callgraph:
-        network_latency[key] = gppd.add_vars(gurobi_model, network_df, name="network_latency_"+key, lb="min_network_time", ub="max_network_time")
     network_load = dict()
-    for key in callgraph:
-        # network_load[key] = gppd.add_vars(gurobi_model, network_df, name="load_for_network_edge_"+key, lb="min_load_"+key, ub="max_load_"+key)
-        network_load[key] = gppd.add_vars(gurobi_model, network_df, name="load_for_network_edge_"+key)
-
     network_egress_cost = dict()
-    for key in callgraph:
-        network_egress_cost[key] = gppd.add_vars(gurobi_model, network_df, name="network_egress_cost", lb="min_egress_cost_"+key, ub="max_egress_cost_"+key)
-        
+    network_latency = gppd.add_vars(gurobi_model, network_df, name="network_latency", lb="min_network_time", ub="max_network_time")
+    network_load = gppd.add_vars(gurobi_model, network_df, name="load_for_network_edge")
+    network_egress_cost = gppd.add_vars(gurobi_model, network_df, name="network_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
     gurobi_model.update()
 
 
-        
-
     # In[44]:
-
 
 
     # if objective == "avg_latency":
     network_latency_sum = 0
     compute_latency_sum = 0
-    for key in callgraph:
-        network_latency_sum += sum(network_latency[key].multiply(network_load[key]))
-        compute_latency_sum += sum(compute_latency[key].multiply(compute_load[key]))
+    network_latency_sum += sum(network_latency.multiply(network_load))
+    compute_latency_sum += sum(compute_latency.multiply(compute_load))
     total_latency_sum = network_latency_sum + compute_latency_sum
 
     # if objective == "egress_cost":
     network_egress_cost_sum = 0
-    for key in callgraph:
-        network_egress_cost_sum += sum(network_egress_cost[key].multiply(network_load[key]))
+    network_egress_cost_sum += sum(network_egress_cost.multiply(network_load))
+    
     # compute_egress_cost = dict()
     # compute_egress_cost = gppd.add_vars(gurobi_model, compute_df, name="compute_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
     # compute_egress_cost_sum = sum(compute_egress_cost.multiply(compute_load))
@@ -359,7 +435,24 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
     # total_egress_sum = network_egress_cost_sum + compute_egress_cost_sum
     total_egress_sum = network_egress_cost_sum
     gurobi_model.update()
-        
+    
+    print("network_latency_sum")
+    print(network_latency_sum)
+    print()
+    print("compute_latency_sum")
+    print(compute_latency_sum)
+    print()
+    print("total_latency_sum")
+    print(total_latency_sum)
+    print()
+    print("network_egress_cost_sum")
+    print(network_egress_cost_sum)
+    print()
+    print("total_egress_sum")
+    print(total_egress_sum)
+    print()
+
+    
     if objective == "end_to_end_latency":
         svc_order = dict()
         for key in callgraph:
@@ -510,9 +603,9 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
 
     # In[44]:
 
+
     temp = dict()
-    for key in callgraph:
-        temp[key] = pd.concat([network_load[key], compute_load[key]], axis=0)
+    temp = pd.concat([network_load, compute_load], axis=0)
     # concat_df = pd.concat(temp, axis=0)
     # print("type(concat_df): ", type(concat_df))
     # print("concat_df.to_dict()")
@@ -522,8 +615,7 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
     # print()
     arcs = dict()
     aggregated_load = dict()
-    for key in callgraph:
-        arcs[key], aggregated_load[key] = gp.multidict(temp[key].to_dict())
+    arcs, aggregated_load = gp.multidict(temp.to_dict())
     if cfg.DISPLAY:
         # print("arcs")
         # print(f'{arcs}\n')
@@ -531,38 +623,49 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
         # print(f'{aggregated_load}\n')
         print("aggregated_load")
         # print(type(aggregated_load))
-        for key in callgraph:
-            for k, v in aggregated_load[key].items():
-                print(f"key: {k}\nvalue: {v}")
-                print()
+        for k, v in aggregated_load.items():
+            print(f"key: {k}\nvalue: {v}")
+            print()
         
     opt_func.log_timestamp("gurobi add_vars and set objective")
 
 
     # In[45]:
 
-        
+    print(endpoint_level_rps)
+    # print(endpoint_level_inflight_req)
     ## Constraint 1: SOURCE
     if cfg.LOAD_IN:
-        source = dict()
-        for key in callgraph:
-            source[key] = dict()
-            source[key][opt_func.source_node_fullname] = MAX_LOAD[key]
-        for key in callgraph:
-            src_keys = source[key].keys()
-            src_flow = gurobi_model.addConstrs((gp.quicksum(aggregated_load[key].select(src, '*')) == source[key][src] for src in src_keys), name="source_"+key)
+        total_coming = 0
+        for cg_key in sp_callgraph_table:
             for cid in placement:
-                for svc in placement[cid]:
-                    if opt_func.is_ingress_gw(svc, callgraph):
-                        ingress_gw_start_node = f'{svc}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
-                        lh = gp.quicksum(aggregated_load[key].select('*', ingress_gw_start_node))
-                        rh = NUM_REQUESTS[cid][key]
-                        per_cluster_load_in = gurobi_model.addConstr((lh == rh), name="cluster_"+str(cid)+"_load_in-"+key)
-                        if cfg.DISPLAY:
-                            print(lh)
-                            print("==")
-                            print(rh)
-                            print("-"*80)
+                root_span = opt_func.find_root_node(sp_callgraph_table[cg_key])
+                print(f'endpoint_level_rps[{cid}][{root_span.svc_name}][{root_span.endpoint_str}]: {endpoint_level_rps[cid][root_span.svc_name][root_span.endpoint_str]}')
+                incoming = endpoint_level_rps[cid][root_span.svc_name][root_span.endpoint_str]
+                # incoming += endpoint_level_inflight_req[cid][root_span.svc_name][root_span.endpoint_str]
+                print(f"incoming: {incoming}")
+                total_coming += incoming
+                
+                
+                # ingress_gw_start_node = f'{svc}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
+                node_name = f'{root_span.endpoint_str}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
+                print(f'node_name: {node_name}')
+                lh = gp.quicksum(aggregated_load.select('*', node_name))
+                rh = incoming
+                gurobi_model.addConstr((lh == rh), name="cluster_"+str(cid)+"_load_in_"+str(root_span.endpoint_str))
+                if cfg.DISPLAY:
+                    print(lh)
+                    print("==")
+                    print(rh)
+                    print("-"*80)
+        
+        print("*"*80)
+        print(aggregated_load.select(opt_func.source_node_fullname, '*'))
+        print("==")
+        print(total_coming)
+        gurobi_model.addConstr((gp.quicksum(aggregated_load.select(opt_func.source_node_fullname, '*')) == total_coming), name="source")
+        print("*"*80)
+                
         gurobi_model.update()
 
 
@@ -589,21 +692,20 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
 
     ## Constraint 3: flow conservation
     # Start node in-out flow conservation
-    for key in callgraph:
-        for svc in callgraph[key]:
-            for cid in placement:
-                if svc in placement[cid]:
-                    start_node = svc + cfg.DELIMITER + str(cid) + cfg.DELIMITER + "start"
-                    lh = gp.quicksum(aggregated_load[key].select('*', start_node))
-                    rh = gp.quicksum(aggregated_load[key].select(start_node, '*'))
-                    node_flow = gurobi_model.addConstr((lh == rh), name="flow_conservation-start_node-"+key)
-                    # if cfg.DISPLAY:
-                    print(lh)
-                    print("==")
-                    print(rh)
-                    print("-"*50)
-            
-            
+    for cid in all_endpoints:
+        for svc_name in all_endpoints[cid]:
+            for ep_str in all_endpoints[cid][svc_name]:
+                # start_node = f'{ep_str}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
+                start_node = opt_func.get_start_node_name(ep_str, cid)
+                lh = gp.quicksum(aggregated_load.select('*', start_node))
+                rh = gp.quicksum(aggregated_load.select(start_node, '*'))
+                gurobi_model.addConstr((lh == rh), name="flow_conservation-start_node-"+ep_str)
+                print(lh)
+                print("==")
+                print(rh)
+                print("-"*50)
+    gurobi_model.update()
+    
     # In[47]:
 
 
@@ -626,50 +728,33 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
 
     # case 2 
     # For non-leaf node and end node, incoming to end node == sum of outgoing
-    for key in callgraph:
-        for parent_svc, children in callgraph[key].items():
-            if len(children) > 0: # non-leaf services:
-                for parent_cid in placement:
-                    if parent_svc in placement[parent_cid]:
-                        end_node = opt_func.end_node_name(parent_svc, parent_cid)
-                        for child_svc in children:
-                            outgoing_sum = 0
-                            # child_list = list()
-                            for child_cid in placement:
-                                if child_svc in placement[child_cid]:
-                                    child_start_node = opt_func.start_node_name(child_svc, child_cid)
-                                    # child_list.append(child_start_node)
-                                    outgoing_sum += aggregated_load[key].sum(end_node, child_start_node)
-                            # print(f"request_in_out_weight[{key}][{parent_svc}][{child_svc}]: {request_in_out_weight[key][parent_svc][child_svc]}")
-                            
-                            # if traffic_segmentation:
-                                # lh = gp.quicksum(aggregated_load[key].select('*', end_node))*request_in_out_weight[key][parent_svc][child_svc]
-                            if key not in aggregated_load:
-                                print(f'key: {key}')
-                                print(f'aggregated_load: {aggregated_load} not in aggregated_load')
-                                assert False
-                            if parent_svc not in request_in_out_weight[key]:
-                                print(f'parent_svc: {parent_svc} not in request_in_out_weight[{key}]')
-                                print(f'request_in_out_weight: {request_in_out_weight}')
-                                assert False
-                            if child_svc not in request_in_out_weight[key][parent_svc]:
-                                print(f'child_svc: {child_svc} not in request_in_out_weight[{key}][{parent_svc}]')
-                                print(f'request_in_out_weight: {request_in_out_weight}')
-                                assert False
-                            # else:
-                            #     lh = gp.quicksum(aggregated_load[key].select('*', end_node))*merged_in_out_weight[parent_svc][child_svc]
-                            lh = gp.quicksum(aggregated_load[key].select('*', end_node))*request_in_out_weight[key][parent_svc][child_svc]
-                            rh = outgoing_sum
-                            node_flow = gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+key)
-                            # if cfg.DISPLAY:
-                            # print(aggregated_load[key].select('*', end_node))
-                            print(lh)
-                            print('==')
-                            print(rh)
-                            # print(outgoing_sum)
-                            print("-"*80)
+    for cg_key in ep_str_callgraph_table:
+        for parent_ep in ep_str_callgraph_table[cg_key]:
+            for child_ep in ep_str_callgraph_table[cg_key][parent_ep]:
+                # non-leaf node will only have child
+                for parent_cid in endpoint_to_placement[parent_ep]:
+                    end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
+                    print(f'end_node: {end_node}')
+                    outgoing_sum = 0
+                    for child_cid in endpoint_to_placement[child_ep]:
+                        child_start_node = opt_func.get_start_node_name(child_ep, child_cid)
+                        outgoing_sum += aggregated_load.sum(end_node, child_start_node)
+                    # if traffic_segmentation:
+                        # lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_svc][child_svc]
+                    # else:
+                    #     lh = gp.quicksum(aggregated_load.select('*', end_node))*merged_in_out_weight[parent_svc][child_svc]
+                    try:
+                        lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
+                        rh = outgoing_sum
+                        gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
+                        print(lh)
+                        print('==')
+                        print(rh)
+                        print("-"*80)
+                    except Exception as e:
+                        print(f'Error: {e}')
+                        assert False
     gurobi_model.update()
-
 
     # In[48]:
 
@@ -720,7 +805,6 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
 
     ## When using gurobi.wls license
     # ## Defining objective function
-    # gurobi_model.setParam('NonConvex', 2)
     # solve_start_time = time.time()
     # gurobi_model.update()
     # gurobi_key = open("./gurobi.wls", "r")
@@ -740,6 +824,12 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
     ## When using gurobi.lic license
     gp.Model()
     
+    gurobi_model.update()
+    
+    opt_func.print_gurobi_var(gurobi_model)
+    opt_func.print_gurobi_constraint(gurobi_model)
+    
+    gurobi_model.setParam('NonConvex', 2)
     gurobi_model.optimize()
     solve_end_time = time.time()
     opt_func.log_timestamp("MODEL OPTIMIZE")
@@ -757,6 +847,8 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
     if cfg.OUTPUT_WRITE:
         df_var.to_csv(cfg.OUTPUT_DIR+"/variable.csv")
         df_constr.to_csv(cfg.OUTPUT_DIR+"/constraint.csv")
+    # df_var.to_csv("variable.csv")
+    # df_constr.to_csv("constraint.csv")
     with pd.option_context('display.max_colwidth', None):
         with pd.option_context('display.max_rows', None):
             print("df_var")
@@ -767,7 +859,7 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
     substract_time = time.time() - ts
     opt_func.log_timestamp("get var and constraint")
 
-    opt_func.write_arguments_to_file(NUM_REQUESTS, callgraph, depth_dict, callsize_dict, placement)
+    # opt_func.write_arguments_to_file(NUM_REQUESTS, callgraph, depth_dict, callsize_dict, placement)
 
 
     if gurobi_model.Status != GRB.OPTIMAL:
@@ -802,26 +894,20 @@ def run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,
         # print(f"{cfg.log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
         print(f"{cfg.log_prefix} ** model.objVal: {gurobi_model.objVal}")
         # print(f"{cfg.log_prefix} ** gurobi_model.objVal / total num requests: {gurobi_model.objVal/MAX_LOAD}")
-        request_flow = dict()
-        for key in callgraph:
-            request_flow[key] = pd.DataFrame(columns=["Callgraph", "From", "To", "Flow"])
-        for key in callgraph:
-            for arc in arcs[key]:
-                if aggregated_load[key][arc].x > 1e-6:
-                    temp = pd.DataFrame({"Callgraph":key, "From": [arc[0]], "To": [arc[1]], "Flow": [aggregated_load[key][arc].x]})
-                    request_flow[key] = pd.concat([request_flow[key], temp], ignore_index=True)
-        if cfg.DISPLAY:
-            for key in callgraph:
-                display(request_flow[key])
+        request_flow = pd.DataFrame(columns=["From", "To", "Flow"])
+        for arc in arcs:
+            if aggregated_load[arc].x > 1e-6:
+                temp = pd.DataFrame({"From": [arc[0]], "To": [arc[1]], "Flow": [aggregated_load[arc].x]})
+                request_flow = pd.concat([request_flow, temp], ignore_index=True)
+        request_flow.to_csv('request_flow.csv')
+        display(request_flow)
         percentage_df = dict()
-        for key in callgraph:
-            percentage_df[key] = opt_func.translate_to_percentage(request_flow[key])
-        for key in callgraph:
-            print(f"percentage_df[{key}]")
-            display(percentage_df[key])
-            if percentage_df[key].empty == False:
-                percentage_df[key].to_csv(f'{cfg.OUTPUT_DIR}/routing-{key}.csv')
-                # opt_func.plot_callgraph_request_flow(percentage_df, key, placement, callgraph, network_arc_var_name)
+        percentage_df = opt_func.translate_to_percentage(request_flow)
+        print(f"percentage_df")
+        display(percentage_df)
+        percentage_df.to_csv(f'percentage_df.csv')
+        opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)
+        exit()
 
 
 

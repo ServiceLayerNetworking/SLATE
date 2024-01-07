@@ -10,6 +10,10 @@ import gen_trace
 from IPython.display import display
 from pprint import pprint
 import random
+import test as test
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
+
 
 latency_func = {}
 is_trained_flag = False
@@ -115,11 +119,11 @@ def local_routing_rule():
 
 
 
-def optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_level_inflight_req, endpoint_level_rps, placement, latency_func, all_endpoints, endpoint_to_cg_key):
+def optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_level_inflight_req, endpoint_level_rps, placement, coef_dict, all_endpoints, endpoint_to_cg_key):
     # latency_func[svc_name][ep]: trained regression model
     traffic_segmentation = 1
     objective = "avg_latency" # avg_latency, end_to_end_latency, multi_objective, egress_cost
-    percentage_df, desc = opt.run_optimizer(latency_func, endpoint_level_inflight_req, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, sp_callgraph_table, ep_str_callgraph_table, traffic_segmentation, objective)
+    percentage_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, sp_callgraph_table, ep_str_callgraph_table, traffic_segmentation, objective)
     ingress_gw_df = percentage_df[percentage_df['src']=='ingress_gw']
     for src_cid in range(cfg.NUM_CLUSTER):
         for dst_cid in range(cfg.NUM_CLUSTER):
@@ -137,98 +141,183 @@ def optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_le
     return cluster_pcts
 
 
+# Sample data
+def train_linear_regression(data, y_col_name):
+    df = pd.DataFrame(data)
+
+    # Separate features and target
+    x_colnames = list()
+    for colname in df.columns:
+        if colname != y_col_name:
+            x_colnames.append(colname)
+    X = df[x_colnames]
+    y = df[y_col_name]
+    # Standardize features using StandardScaler
+    '''
+    Use this if you want preprocessing like normalization, standardization, etc.
+    '''
+    # scaler = StandardScaler()
+    # X = scaler.fit_transform(X)
+
+    # Create and fit a linear regression model on standardized features
+    model = LinearRegression()
+    model.fit(X, y)
+    
+    feature_names =  list(X.columns)+ ['intercept']
+
+    # Create a DataFrame with coefficients and feature names
+    coefficients_df = pd.DataFrame(\
+            {'Feature': feature_names, \
+            'Coefficient':  list(model.coef_)+[model.intercept_]}\
+        )
+
+    # Display the coefficients DataFrame
+    coef = dict()
+    for index, row in coefficients_df.iterrows():
+        coef[row['Feature']] = row['Coefficient']
+    return coef
+
+
 def train_latency_function_with_trace(traces):
     '''
-    We need time-wise 
+    We need the following data for each request (requests can be sampled)
     - cg_key_A: [cluster_id, svc_name, load_cg_key_X, load_cg_key_Y, exclusive_time_cg_key_A(==xt)]
     - cg_key_B: [cluster_id, svc_name, load_cg_key_X, load_cg_key_Y, exclusive_time_cg_key_B(==xt)]
 
-    Assuming trace file has the following columns
-    
-    [span]: tid_1, svc_A, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:X
-    [span]: tid_1, svc_B, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:X
-    [span]: tid_1, svc_C, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:X
-    
-    [span]: tid_2, svc_A, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:Y
-    [span]: tid_2, svc_B, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:Y
-    [span]: tid_2, svc_D, load_cg_key_X, load_cg_key_Y, st, et, xt, cg_key:Y
+    The columns in df come from the member variables of Span class
     '''
     # df = pd.read_csv(f"{trace_file_path}")
     # traces = sp.file_to_trace(trace_file_path)
     df = tst.trace_to_df(traces)
     df.to_csv(f"trace_to_file.csv")
-    latency_func = dict()
+    # latency_func = dict()
+    coef_dict = dict()
     for cid in df["cluster_id"].unique():
         cid_df = df[df["cluster_id"]==cid]
         for svc_name in cid_df["svc_name"].unique():
             cid_svc_df = cid_df[cid_df["svc_name"]==svc_name]
             if svc_name not in latency_func:
                 latency_func[svc_name] = dict()
+            if svc_name not in coef_dict:
+                coef_dict[svc_name] = dict()
             for ep_str in cid_svc_df["endpoint_str"].unique():
                 # print(f"before len(temp_df): {len(temp_df)}")
                 ep_df = cid_svc_df[cid_svc_df["endpoint_str"]==ep_str]
-                print(f'cluter_id: {cid}, svc_name: {svc_name}, ep_str: {ep_str}, len(X_) == 0')
-                print(f"after len(ep_df): {len(ep_df)}")
-                load_dict = dict()
-                y_ = list()
+                # print(f'cluter_id: {cid}, svc_name: {svc_name}, ep_str: {ep_str}, len(X_) == 0')
+                # print(f"after len(ep_df): {len(ep_df)}")
+                
+                # Data preparation: load(X) and latency(y) 
+                data = dict()
+                y_col = "latency"
                 for index, row in ep_df.iterrows():
                     for key, val in row["num_inflight_dict"].items():
-                        if key not in load_dict:
-                            load_dict[key] = list()
-                        load_dict[key].append(val)
-                    y_.append(row["xt"])
-                latency_func[svc_name][ep_str], X_ = opt_func.get_regression_pipeline(load_dict)
-                X_.to_csv(f"X_c{cid}_{row['method']}.csv")
-                # print(f"latency_func[ep_str]: {latency_func[svc_name][ep_str]}")
-                if len(X_) == 0:
-                    print(f'cluter_id: {cid}, svc_name: {svc_name}, ep_str: {ep_str}, len(X_) == 0')
-                print(f"len(X_): {len(X_)}")
-                if len(X_) > 10:
-                    X_train, X_test, y_train, y_test = train_test_split(X_, y_, train_size=0.9, random_state=1)
-                else:
-                    X_train = X_
-                    X_test = X_
-                    y_train = y_
-                    y_test = y_
-                latency_func[svc_name][ep_str].fit(X_train, y_train)
-                print(f"fitted latency_func[{svc_name}][{row['method']}] coef: {latency_func[svc_name][ep_str]['linearregression'].coef_}")
-                print(f"fitted latency_func[{svc_name}][{row['method']}] intercept: {latency_func[svc_name][ep_str]['linearregression'].intercept_}")
-    return latency_func
+                        if key not in data:
+                            data[key] = list()
+                        data[key].append(val)
+                    if y_col not in data:
+                        data[y_col] = list()
+                    data[y_col].append(row["xt"])
+                
+                # print(data)
+                # df = pd.DataFrame(data)
+                # print("="*20)
+                # print(df)
+                print(f"data: {data}")
+                print()
+                coef_dict[svc_name][ep_str] = train_linear_regression(data, y_col)
+                # NOTE: overwriting for debugging
+                for svc_name in coef_dict:
+                    for ep_str in coef_dict[svc_name]:
+                        for feature_ep in coef_dict[svc_name][ep_str]:
+                            if feature_ep == "intercept":
+                                coef_dict[svc_name][ep_str][feature_ep] = 0
+                            else:
+                                coef_dict[svc_name][ep_str][feature_ep] = 1
+                
+                # latency_func[svc_name][ep_str], X_ = opt_func.get_regression_pipeline(load_dict)
+                # X_.to_csv(f"X_c{cid}_{row['method']}.csv")
+                # # print(f"latency_func[ep_str]: {latency_func[svc_name][ep_str]}")
+                # if len(X_) == 0:
+                #     print(f'cluter_id: {cid}, svc_name: {svc_name}, ep_str: {ep_str}, len(X_) == 0')
+                # print(f"len(X_): {len(X_)}")
+                # if len(X_) > 10:
+                #     X_train, X_test, y_train, y_test = train_test_split(X_, y_, train_size=0.9, random_state=1)
+                # else:
+                #     X_train = X_
+                #     X_test = X_
+                #     y_train = y_
+                #     y_test = y_
+                # latency_func[svc_name][ep_str].fit(X_train, y_train)
+                # print(f"fitted latency_func[{svc_name}][{row['method']}] coef: {latency_func[svc_name][ep_str]['linearregression'].coef_}")
+                # print(f"fitted latency_func[{svc_name}][{row['method']}] intercept: {latency_func[svc_name][ep_str]['linearregression'].intercept_}")
+    for svc_name in coef_dict:
+        for ep_str in coef_dict[svc_name]:
+            print(f'coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
+    return coef_dict
 
-if __name__ == "__main__":
-    complete_traces = gen_trace.run(cfg.NUM_CLUSTER, num_traces=100)
-    stitched_traces = tst.stitch_time(complete_traces)
-    sp_callgraph_table = tst.traces_to_span_callgraph_table(stitched_traces)
-    endpoint_to_cg_key = tst.get_endpoint_to_cg_key_map(stitched_traces)
-    ep_str_callgraph_table = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
-    all_endpoints = tst.get_all_endpoints(stitched_traces)
-    tst.file_write_callgraph_table(sp_callgraph_table)
-    placement = tst.get_placement_from_trace(stitched_traces)
-    latency_func = train_latency_function_with_trace(stitched_traces)
-    # print("="*20)
-    # pprint(callgraph_table)
-    # print("="*20)
-    # pprint(all_endpoints)
-    def gen_endpoint_level_inflight_req(all_endpoints):
+def gen_endpoint_level_inflight_req(all_endpoints):
         endpoint_level_inflight_req = dict()
         for cid in all_endpoints:
             endpoint_level_inflight_req[cid] = dict()
             for svc_name in all_endpoints[cid]:
                 endpoint_level_inflight_req[cid][svc_name] = dict()
                 for ep in all_endpoints[cid][svc_name]:
-                    endpoint_level_inflight_req[cid][svc_name][ep] = random.randint(50, 60)
+                    ########################################################
+                    # endpoint_level_inflight_req[cid][svc_name][ep] = random.randint(50, 60)
+                    endpoint_level_inflight_req[cid][svc_name][ep] = 0
+                    ########################################################
         return endpoint_level_inflight_req
     
-    def gen_endpoint_level_rps(all_endpoints):
-        endpoint_level_rps = dict()
-        for cid in all_endpoints:
-            endpoint_level_rps[cid] = dict()
-            for svc_name in all_endpoints[cid]:
-                endpoint_level_rps[cid][svc_name] = dict()
-                for ep in all_endpoints[cid][svc_name]:
-                    endpoint_level_rps[cid][svc_name][ep] = random.randint(10, 50)
-        return endpoint_level_rps
-            
+def gen_endpoint_level_rps(all_endpoints):
+    endpoint_level_rps = dict()
+    for cid in all_endpoints:
+        endpoint_level_rps[cid] = dict()
+        for svc_name in all_endpoints[cid]:
+            endpoint_level_rps[cid][svc_name] = dict()
+            for ep in all_endpoints[cid][svc_name]:
+                ########################################################
+                # endpoint_level_rps[cid][svc_name][ep] = random.randint(10, 50)
+                if cid == 0:
+                    endpoint_level_rps[cid][svc_name][ep] = 10
+                else:
+                    endpoint_level_rps[cid][svc_name][ep] = 100
+                ########################################################
+    return endpoint_level_rps
+
+if __name__ == "__main__":
+    '''Generate dummy traces'''
+    complete_traces = gen_trace.run(cfg.NUM_CLUSTER, num_traces=10)
+    
+    
+    '''Time stitching'''
+    stitched_traces = tst.stitch_time(complete_traces)
+    
+    
+    '''Create useful data structures from the traces'''
+    sp_callgraph_table = tst.traces_to_span_callgraph_table(stitched_traces)
+    endpoint_to_cg_key = tst.get_endpoint_to_cg_key_map(stitched_traces)
+    ep_str_callgraph_table = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
+    all_endpoints = tst.get_all_endpoints(stitched_traces)
+    tst.file_write_callgraph_table(sp_callgraph_table)
+    placement = tst.get_placement_from_trace(stitched_traces)
+    
+    
+    '''
+    Train linear regression model
+    The linear regression model is function of "inflight_req"
+    
+    '''
+    coef_dict = train_latency_function_with_trace(stitched_traces)
+    
+    
+    '''
+    Set load
+    - rps(future incoming load): request per second
+    - inflight_req(current): number of inflight requests in the system at the moment
+    '''
     endpoint_level_inflight_req = gen_endpoint_level_inflight_req(all_endpoints)
     endpoint_level_rps = gen_endpoint_level_rps(all_endpoints)
-    optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_level_inflight_req, endpoint_level_rps, placement, latency_func, all_endpoints, endpoint_to_cg_key)
+    
+    
+    '''Entry point of optimizer'''
+    optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_level_inflight_req, endpoint_level_rps, placement, coef_dict, all_endpoints, endpoint_to_cg_key)

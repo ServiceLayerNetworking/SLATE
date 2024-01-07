@@ -333,11 +333,11 @@ def single_trace_to_span_callgraph(single_trace):
 def single_trace_to_endpoint_str_callgraph(single_trace):
     callgraph = dict()
     for parent_span in single_trace:
-        parent_ep_str = str(parent_span.endpoint)
+        parent_ep_str = parent_span.endpoint_str
         if parent_ep_str not in callgraph:
             callgraph[parent_ep_str] = list()
         for child_span in single_trace:
-            child_ep_str = str(child_span.endpoint)
+            child_ep_str = child_span.endpoint_str
             if child_span.parent_span_id == parent_span.span_id:
                 callgraph[parent_ep_str].append(child_ep_str)
     for parent_ep_str in callgraph:
@@ -392,7 +392,7 @@ def get_all_endpoints(traces):
             for span in single_trace:
                 if span.svc_name not in all_endpoints[cid]:
                     all_endpoints[cid][span.svc_name] = set()
-                all_endpoints[cid][span.svc_name].add(str(span.endpoint))
+                all_endpoints[cid][span.svc_name].add(span.endpoint_str)
     return all_endpoints
 
 def traces_to_span_callgraph_table(traces):
@@ -415,6 +415,7 @@ def traces_to_endpoint_str_callgraph_table(traces):
             single_trace = traces[cid][tid]
             ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
             cg_key = get_callgraph_key(ep_str_cg)
+            # print(f'cg_key: {cg_key}')
             if cg_key not in endpoint_callgraph_table:
                 print(f"new callgraph key: {cg_key} in cluster {cid}")
                 # NOTE: It is currently overwriting for the existing cg_key
@@ -442,7 +443,8 @@ def bfs_callgraph(start_node, cg_key, ep_cg):
         if cur_node not in visited:
             visited.add(cur_node)
             if type(cur_node) == type("asdf"):
-                print(f"cur_node: {cur_node}")
+                # print(f"cur_node: {cur_node}")
+                # print(cg_key)
                 cg_key.append(cur_node.split(",")[0])
                 cg_key.append(cur_node.split(",")[1])
                 cg_key.append(cur_node.split(",")[2])
@@ -472,9 +474,10 @@ def get_callgraph_key(cg):
     root_node = opt_func.find_root_node(cg)
     cg_key = list()
     bfs_callgraph(root_node, cg_key, cg)
-    cg_key_str = ""
-    for elem in cg_key:
-        cg_key_str += elem + ","
+    print(f'cg_key: {cg_key}')
+    cg_key_str = ",".join(cg_key)
+    # for elem in cg_key:
+    #     cg_key_str += elem + ","
     return cg_key_str
 
 
@@ -501,8 +504,8 @@ def calc_exclusive_time(single_trace):
         parent_span.xt = parent_span.rt - exclude_child_rt
         print(f"Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
         if parent_span.xt < 0.0:
-            print(f"parent_span,{parent_span.svc_name}, span_id,{parent_span.span_id} exclusive time cannot be negative value: {parent_span.xt}")
-            print(f"st,{parent_span.st}, et,{parent_span.et}, rt,{parent_span.rt}, xt,{parent_span.xt}")
+            print(f"ERROR: parent_span,{parent_span.svc_name}, span_id,{parent_span.span_id} exclusive time cannot be negative value: {parent_span.xt}")
+            print(f"ERROR: st,{parent_span.st}, et,{parent_span.et}, rt,{parent_span.rt}, xt,{parent_span.xt}")
             assert False
         assert parent_span.xt >= 0.0
         

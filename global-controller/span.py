@@ -50,32 +50,10 @@ class Endpoint:
 
 
 class Span:
-    # def __init__(self, svc_name="dummy_svc"):
-    #     self.method = "GET"
-    #     self.url = "http://..."
-    #     self.svc_name = svc_name
-    #     self.endpoint = f"{self.svc_name},{self.method},{self.url}"
-    #     self.span_id = 0
-    #     self.parent_span_id = 0
-    #     self.trace_id = 0
-    #     self.cluster_id = 0
-    #     self.num_inflight = {"dummy_endpoint_1": 0, "dummy_endpoint_2": 0}
-    #     self.rps = 0
-    #     self.st = 0
-    #     self.et = 0
-    #     self.rt = 0
-    #     self.xt = 0
-    #     self.ct = 0
-    #     self.child_spans = list()
-    #     self.critical_child_spans = list()
-    #     self.call_size = 0
-    #     self.depth = 0
-        
     def __init__(self, method="METHOD", url="URL", svc_name="SVC", cluster_id="CID", trace_id="TRACE_ID", span_id="SPAN_ID", parent_span_id="PARENT_SPAN_ID", st=-1, et=-1, rps=-1, cs=-1, num_inflight_dict={"dummy_endpoint_1": 0, "dummy_endpoint_2": 0}):
         self.method = method
         self.url = url
         self.svc_name = svc_name
-        # self.endpoint = f"{self.svc_name},{self.method},{self.url}"
         self.endpoint = Endpoint(self.svc_name, self.method, self.url)
         self.endpoint_str = str(Endpoint(self.svc_name, self.method, self.url))
         self.span_id = span_id
@@ -101,7 +79,6 @@ class Span:
     
     def get_class(self):
         return self.endpoint
-    
     
     def unfold(self):
         unfold_dict = {k:v for k, v in self.__dict__.items() if not (k.startswith('__') and k.endswith('__'))}
