@@ -6,7 +6,7 @@ import sys
 sys.dont_write_bytecode = True
 
 import time
-import numpy as np  
+import numpy as np
 import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
@@ -23,7 +23,7 @@ import gurobipy_pandas as gppd
 from gurobi_ml import add_predictor_constr
 from IPython.display import display
 import time_stitching as tst
-import config as cfg
+import config2 as cfg
 import span as sp
 import optimizer_header as opt_func
 import os

@@ -1,4 +1,4 @@
-import config as cfg
+import config2 as cfg
 # from global_controller import app
 import graphviz
 import itertools
