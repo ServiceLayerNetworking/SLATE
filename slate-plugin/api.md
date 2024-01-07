@@ -14,20 +14,13 @@ variable set in the Deployment.
 
 Request Body Structure:
 ```
-numRequests
-method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
-method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
-method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
-```
-
-**gangmuk**
-```
-service_level_rps
-endpoint_0, endpoint_1, endpoint_2
-rps_endpoint_0, rps_endpoint_1, rps_endpoint_2
-method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
-method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
-method path traceId spanId parentSpanId startTime endTime bodySize firstLoad lastLoad avgLoad rps
+service_level_rps_of_all_endpoints
+service_level_num_inflight_req_of_all_endpoints
+endpoint_GET,rps_endpoint_GET,num_inflight_req_endpoint_GET
+endpoint_POST,rps_endpoint_POST,num_inflight_req_endpoint_POST
+method path traceId spanId parentSpanId startTime endTime bodySize inflight_req rps
+method path traceId spanId parentSpanId startTime endTime bodySize inflight_req rps
+method path traceId spanId parentSpanId startTime endTime bodySize inflight_req rps
 ```
 
 First line is always number of requests from the current iteration, and the following lines are the requests statistics themselves.
