@@ -16,11 +16,14 @@ Request Body Structure:
 ```
 service_level_rps_of_all_endpoints
 service_level_num_inflight_req_of_all_endpoints
-endpoint_GET,rps_endpoint_GET,num_inflight_req_endpoint_GET
-endpoint_POST,rps_endpoint_POST,num_inflight_req_endpoint_POST
-method path traceId spanId parentSpanId startTime endTime bodySize inflight_req rps
-method path traceId spanId parentSpanId startTime endTime bodySize inflight_req rps
-method path traceId spanId parentSpanId startTime endTime bodySize inflight_req rps
+endpoint_0,endpoint_0_rps,endpoint_0_num_inflight_req
+endpoint_1,endpoint_1_rps,endpoint_1_num_inflight_req
+
+method path traceId spanId parentSpanId startTime endTime bodySize endpoint_0,endpoint_0_rps,endpoint_0_num_inflight_req endpoint_1,endpoint_1_rps,endpoint_1_num_inflight_req
+
+method path traceId spanId parentSpanId startTime endTime bodySize endpoint_0,endpoint_0_rps,endpoint_0_num_inflight_req endpoint_1,endpoint_1_rps,endpoint_1_num_inflight_req
+
+method path traceId spanId parentSpanId startTime endTime bodySize endpoint_0,endpoint_0_rps,endpoint_0_num_inflight_req endpoint_1,endpoint_1_rps,endpoint_1_num_inflight_req
 ```
 
 First line is always number of requests from the current iteration, and the following lines are the requests statistics themselves.
