@@ -281,7 +281,9 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                 dependent_arc_name = opt_func.get_compute_arc_var_name(dependent_ep, row['src_cid'])
                 print(f'dependent_arc_name: {dependent_arc_name}')
                 print(f'coefs[{dependent_ep}]: {coefs[dependent_ep]}')
-                rh += compute_load[dependent_arc_name] * coefs[dependent_ep]
+                c = coefs[dependent_ep]
+                print(f'dependent_arc_name: {dependent_arc_name}')
+                rh += compute_load[dependent_arc_name] * c
         rh += coefs['intercept']
         print(f"index: {index}")
         print(f"lh: {lh}")
@@ -847,8 +849,8 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     if cfg.OUTPUT_WRITE:
         df_var.to_csv(cfg.OUTPUT_DIR+"/variable.csv")
         df_constr.to_csv(cfg.OUTPUT_DIR+"/constraint.csv")
-    # df_var.to_csv("variable.csv")
-    # df_constr.to_csv("constraint.csv")
+    df_var.to_csv("variable.csv")
+    df_constr.to_csv("constraint.csv")
     with pd.option_context('display.max_colwidth', None):
         with pd.option_context('display.max_rows', None):
             print("df_var")

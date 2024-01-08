@@ -1,11 +1,11 @@
 index_col,src,dst,src_cid,dst_cid,flow,total,weight
-"('A,GET,read', 0, 'B,GET,read')","A,GET,read","B,GET,read",0,0,10,10,1.0
-"('A,GET,read', 1, 'B,GET,read')","A,GET,read","B,GET,read",1,0,43,101,0.42574257425742573
-"('A,GET,read', 1, 'B,GET,read')","A,GET,read","B,GET,read",1,1,58,101,0.5742574257425742
-"('A,POST,post', 0, 'C,POST,post')","A,POST,post","C,POST,post",0,0,10,10,1.0
-"('A,POST,post', 1, 'C,POST,post')","A,POST,post","C,POST,post",1,0,43,101,0.42574257425742573
-"('A,POST,post', 1, 'C,POST,post')","A,POST,post","C,POST,post",1,1,58,101,0.5742574257425742
-"('SOURCE', -1, 'A,GET,read')",SOURCE,"A,GET,read",-1,0,10,110,0.09090909090909091
-"('SOURCE', -1, 'A,GET,read')",SOURCE,"A,GET,read",-1,1,100,110,0.9090909090909091
-"('SOURCE', -1, 'A,POST,post')",SOURCE,"A,POST,post",-1,0,10,110,0.09090909090909091
-"('SOURCE', -1, 'A,POST,post')",SOURCE,"A,POST,post",-1,1,100,110,0.9090909090909091
+"('A.GET./read', 0, 'B.GET./read')",A.GET./read,B.GET./read,0,0,10,10,1.0
+"('A.GET./read', 1, 'B.GET./read')",A.GET./read,B.GET./read,1,0,43,101,0.42574257425742573
+"('A.GET./read', 1, 'B.GET./read')",A.GET./read,B.GET./read,1,1,58,101,0.5742574257425742
+"('A.POST./write', 0, 'C.POST./write')",A.POST./write,C.POST./write,0,0,10,10,1.0
+"('A.POST./write', 1, 'C.POST./write')",A.POST./write,C.POST./write,1,0,43,101,0.42574257425742573
+"('A.POST./write', 1, 'C.POST./write')",A.POST./write,C.POST./write,1,1,58,101,0.5742574257425742
+"('SOURCE', -1, 'A.GET./read')",SOURCE,A.GET./read,-1,0,10,110,0.09090909090909091
+"('SOURCE', -1, 'A.GET./read')",SOURCE,A.GET./read,-1,1,100,110,0.9090909090909091
+"('SOURCE', -1, 'A.POST./write')",SOURCE,A.POST./write,-1,0,10,110,0.09090909090909091
+"('SOURCE', -1, 'A.POST./write')",SOURCE,A.POST./write,-1,1,100,110,0.9090909090909091

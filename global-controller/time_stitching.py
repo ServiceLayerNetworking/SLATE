@@ -445,9 +445,9 @@ def bfs_callgraph(start_node, cg_key, ep_cg):
             if type(cur_node) == type("asdf"):
                 # print(f"cur_node: {cur_node}")
                 # print(cg_key)
-                cg_key.append(cur_node.split(",")[0])
-                cg_key.append(cur_node.split(",")[1])
-                cg_key.append(cur_node.split(",")[2])
+                cg_key.append(cur_node.split(sp.ep_del)[0])
+                cg_key.append(cur_node.split(sp.ep_del)[1])
+                cg_key.append(cur_node.split(sp.ep_del)[2])
             elif type(cur_node) == sp.Span:
                 cg_key.append(cur_node.svc_name)
                 cg_key.append(cur_node.method)

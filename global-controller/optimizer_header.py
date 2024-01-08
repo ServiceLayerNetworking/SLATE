@@ -18,6 +18,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
 from sklearn.metrics import r2_score
+import span as sp
 
 
 random.seed(1234)
@@ -405,9 +406,9 @@ def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table):
     for var_name in compute_arc_var_name:
         if type(var_name) == tuple:
             ep = var_name[0].split(cfg.DELIMITER)[0]
-            svc_name = ep.split(",")[0]
-            method = ep.split(",")[1]
-            url = ep.split(",")[2]
+            svc_name = ep.split(sp.ep_del)[0]
+            method = ep.split(sp.ep_del)[1]
+            url = ep.split(sp.ep_del)[2]
             endpoint_list.append(ep)
             svc_name_list.append(svc_name)
             method_list.append(method)
@@ -516,7 +517,7 @@ def fill_observation_in_compute_df(compute_df, callgraph_table):
     
 
 def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict):
-
+    print(f'compute_arc_var_name: {compute_arc_var_name}')
     columns = get_compute_df_column(ep_str_callgraph_table)
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
     fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table)

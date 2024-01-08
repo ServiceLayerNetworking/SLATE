@@ -1,3 +1,7 @@
+from flask import Flask, request
+import logging
+from apscheduler.schedulers.background import BackgroundScheduler
+import atexit
 from threading import Lock
 import optimizer_test as opt
 import optimizer_header as opt_func
@@ -14,6 +18,10 @@ import test as test
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
 
+app = Flask(__name__)
+app.logger.setLevel(logging.INFO)
+werklog = logging.getLogger('werkzeug')
+werklog.setLevel(logging.DEBUG)
 
 latency_func = {}
 is_trained_flag = False
@@ -69,6 +77,41 @@ load_bucket = dict()
 #             print(f"{cfg.log_prefix} {span}")
 #         print(f"{cfg.log_prefix} ==================================")
 #     return spans
+
+
+
+def is_this_trace_complete(single_trace):
+    # TODO: Must be changed for other applications.
+    if len(single_trace) == 4: 
+        return True
+    return False
+
+
+# This function can be async
+def check_and_move_to_complete_trace():
+    for cid in all_traces:
+        for tid in all_traces[cid]:
+            single_trace = all_traces[cid][tid]
+            if is_this_trace_complete(single_trace) == True:
+                ########################################################
+                ## Weird behavior: In some traces, all spans have the same span id which is productpage's span id.
+                ## For now, to filter out them following code exists.
+                ## If the traces were good, it is redundant code.
+                span_exists = []
+                ignore_cur = False
+                for span in single_trace:
+                    if span.my_span_id in span_exists:
+                        ignore_cur = True
+                        break
+                    span_exists.append(span.my_span_id)
+                    if ignore_cur:
+                        app.logger.debug(f"{cfg.log_prefix} span exist, ignore_cur, cid,{span.cluster_id}, tid,{span.trace_id}, span_id,{span.my_span_id}")
+                        continue
+                    if span.cluster_id not in complete_traces:
+                        complete_traces[span.cluster_id] = {}
+                    if span.trace_id not in complete_traces[span.cluster_id]:
+                        complete_traces[span.cluster_id][span.trace_id] = {}
+                    complete_traces[span.cluster_id][span.trace_id] = all_traces[span.cluster_id][span.trace_id].copy()
 
 
 def print_routing_rule(pct_df):
@@ -179,13 +222,6 @@ def train_linear_regression(data, y_col_name):
 
 
 def train_latency_function_with_trace(traces):
-    '''
-    We need the following data for each request (requests can be sampled)
-    - cg_key_A: [cluster_id, svc_name, load_cg_key_X, load_cg_key_Y, exclusive_time_cg_key_A(==xt)]
-    - cg_key_B: [cluster_id, svc_name, load_cg_key_X, load_cg_key_Y, exclusive_time_cg_key_B(==xt)]
-
-    The columns in df come from the member variables of Span class
-    '''
     # df = pd.read_csv(f"{trace_file_path}")
     # traces = sp.file_to_trace(trace_file_path)
     df = tst.trace_to_df(traces)
@@ -226,14 +262,6 @@ def train_latency_function_with_trace(traces):
                 print()
                 coef_dict[svc_name][ep_str] = train_linear_regression(data, y_col)
                 # NOTE: overwriting for debugging
-                for svc_name in coef_dict:
-                    for ep_str in coef_dict[svc_name]:
-                        for feature_ep in coef_dict[svc_name][ep_str]:
-                            if feature_ep == "intercept":
-                                coef_dict[svc_name][ep_str][feature_ep] = 0
-                            else:
-                                coef_dict[svc_name][ep_str][feature_ep] = 1
-                
                 # latency_func[svc_name][ep_str], X_ = opt_func.get_regression_pipeline(load_dict)
                 # X_.to_csv(f"X_c{cid}_{row['method']}.csv")
                 # # print(f"latency_func[ep_str]: {latency_func[svc_name][ep_str]}")
@@ -250,9 +278,6 @@ def train_latency_function_with_trace(traces):
                 # latency_func[svc_name][ep_str].fit(X_train, y_train)
                 # print(f"fitted latency_func[{svc_name}][{row['method']}] coef: {latency_func[svc_name][ep_str]['linearregression'].coef_}")
                 # print(f"fitted latency_func[{svc_name}][{row['method']}] intercept: {latency_func[svc_name][ep_str]['linearregression'].intercept_}")
-    for svc_name in coef_dict:
-        for ep_str in coef_dict[svc_name]:
-            print(f'coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
     return coef_dict
 
 def gen_endpoint_level_inflight_req(all_endpoints):
@@ -284,9 +309,53 @@ def gen_endpoint_level_rps(all_endpoints):
                 ########################################################
     return endpoint_level_rps
 
+def trace_string_file_to_trace_data_structure(trace_string_file_path):
+    df = pd.read_csv(trace_string_file_path)
+    sliced_df = df.iloc[:, 10:]
+    list_of_span = list()
+    for (index1, row1), (index2, row2) in zip(df.iterrows(), sliced_df.iterrows()):
+        num_inflight_dict = dict()
+        rps_dict = dict()
+        print(f'row1: {row1}')
+        for _, v_list in row2.items():
+            print(f'v_list: {v_list}')
+            for v in v_list.split("@"):
+                elem = v.split("#")
+                endpoint = elem[0]
+                rps = int(float(elem[1]))
+                inflight = int(float(elem[2]))
+                num_inflight_dict[endpoint] = inflight
+                rps_dict[endpoint] = rps
+                
+        span = sp.Span(row1["method"], row1["path"], row1["svc_name"], int(row1["region"]), row1["traceId"], row1["spanId"], row1["parentSpanId"], st=float(row1["startTime"]), et=float(row1["endTime"]), callsize=int(row1["bodySize"]), rps_dict=num_inflight_dict, num_inflight_dict=num_inflight_dict)
+        list_of_span.append(span)
+        
+    # Convert list of span to traces data structure
+    traces = dict()
+    for span in list_of_span:
+        if span.cluster_id not in traces:
+            traces[span.cluster_id] = dict()
+        if span.trace_id not in traces[span.cluster_id]:
+            traces[span.cluster_id][span.trace_id] = list()
+        traces[span.cluster_id][span.trace_id].append(span)
+    return traces
+
 if __name__ == "__main__":
-    '''Generate dummy traces'''
-    complete_traces = gen_trace.run(cfg.NUM_CLUSTER, num_traces=10)
+    
+    # scheduler = BackgroundScheduler()
+    # scheduler.add_job(func=check_and_move_to_complete_trace, trigger="interval", seconds=1)
+    # scheduler.start()
+    # atexit.register(lambda: scheduler.shutdown())
+    # app.run(host='0.0.0.0', port=8080)
+    
+    
+    '''Option 1: Generate dummy traces'''
+    # complete_traces = gen_trace.run(cfg.NUM_CLUSTER, num_traces=10)
+    
+    '''Option 2: Read trace string file'''
+    complete_traces = trace_string_file_to_trace_data_structure("trace_string.csv")
+    for span in complete_traces:
+        print(span)
     
     
     '''Time stitching'''
@@ -298,6 +367,10 @@ if __name__ == "__main__":
     endpoint_to_cg_key = tst.get_endpoint_to_cg_key_map(stitched_traces)
     ep_str_callgraph_table = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
     all_endpoints = tst.get_all_endpoints(stitched_traces)
+    # for cid in all_endpoints:
+    #     for svc_name in all_endpoints[cid]:
+    #         print(f"all_endpoints[{cid}][{svc_name}]: {all_endpoints[cid][svc_name]}")
+    # exit()
     tst.file_write_callgraph_table(sp_callgraph_table)
     placement = tst.get_placement_from_trace(stitched_traces)
     
@@ -305,10 +378,19 @@ if __name__ == "__main__":
     '''
     Train linear regression model
     The linear regression model is function of "inflight_req"
-    
     '''
     coef_dict = train_latency_function_with_trace(stitched_traces)
-    
+    ## NOTE: overwriting coefficient for debugging
+    for svc_name in coef_dict:
+        for ep_str in coef_dict[svc_name]:
+            for feature_ep in coef_dict[svc_name][ep_str]:
+                if feature_ep == "intercept":
+                    coef_dict[svc_name][ep_str][feature_ep] = 0
+                else:
+                    coef_dict[svc_name][ep_str][feature_ep] = 1
+    for svc_name in coef_dict:
+        for ep_str in coef_dict[svc_name]:
+            print(f'coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
     
     '''
     Set load
