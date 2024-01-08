@@ -19,11 +19,9 @@ service_level_num_inflight_req_of_all_endpoints
 endpoint_0,endpoint_0_rps,endpoint_0_num_inflight_req
 endpoint_1,endpoint_1_rps,endpoint_1_num_inflight_req
 
-method path traceId spanId parentSpanId startTime endTime bodySize endpoint_0,endpoint_0_rps,endpoint_0_num_inflight_req endpoint_1,endpoint_1_rps,endpoint_1_num_inflight_req
+region svc_name method path traceId spanId parentSpanId startTime endTime bodySize endpoint_0#endpoint_0_rps#endpoint_0_num_inflight_req@endpoint_1#endpoint_1_rps#endpoint_1_num_inflight_req
 
-method path traceId spanId parentSpanId startTime endTime bodySize endpoint_0,endpoint_0_rps,endpoint_0_num_inflight_req endpoint_1,endpoint_1_rps,endpoint_1_num_inflight_req
-
-method path traceId spanId parentSpanId startTime endTime bodySize endpoint_0,endpoint_0_rps,endpoint_0_num_inflight_req endpoint_1,endpoint_1_rps,endpoint_1_num_inflight_req
+region svc_name method path traceId spanId parentSpanId startTime endTime bodySize endpoint_0#endpoint_0_rps#endpoint_0_num_inflight_req@endpoint_1#endpoint_1_rps#endpoint_1_num_inflight_req
 ```
 
 First line is always number of requests from the current iteration, and the following lines are the requests statistics themselves.
