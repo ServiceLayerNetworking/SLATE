@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
@@ -18,6 +17,7 @@ import (
 
 const (
 	KEY_INFLIGHT_ENDPOINT_LIST = "slate_inflight_endpoint_list"
+	KEY_ENDPOINT_RPS_LIST      = "slate_endpoint_rps_list"
 	KEY_INFLIGHT_REQ_COUNT     = "slate_inflight_request_count"
 	KEY_REQUEST_COUNT          = "slate_rps"
 	KEY_LAST_RESET             = "slate_last_reset"
@@ -43,12 +43,10 @@ todo(adiprerepa)
 
 var (
 	ALL_KEYS = []string{KEY_INFLIGHT_REQ_COUNT, KEY_REQUEST_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
-		KEY_TRACED_REQUESTS, KEY_MATCH_DISTRIBUTION, KEY_INFLIGHT_ENDPOINT_LIST}
-	// nor     [nor_len]uint64
+		KEY_TRACED_REQUESTS, KEY_MATCH_DISTRIBUTION, KEY_INFLIGHT_ENDPOINT_LIST, KEY_ENDPOINT_RPS_LIST}
 	cur_idx      int
 	latency_list []int64
 	ts_list      []int64
-	mu           sync.Mutex
 )
 
 func main() {
@@ -80,6 +78,11 @@ type TracedRequestStats struct {
 	lastLoad     int64
 	avgLoad      int64
 	rps          int64
+}
+
+type EndpointStats struct {
+	Inflight uint64
+	Total    uint64
 }
 
 // Override types.DefaultVMContext.
@@ -200,12 +203,9 @@ func (p *pluginContext) OnTick() {
 		proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
 		return
 	}
-	for k, _ := range inflightStatsMap {
-		inflightStats += k + " "
-	}
-	inflightStats += "\n"
-	for _, stat := range inflightStatsMap {
-		inflightStats += strconv.Itoa(int(stat)) + " "
+	for k, v := range inflightStatsMap {
+		inflightStats += strings.Join([]string{k, strconv.Itoa(int(v.Total)), strconv.Itoa(int(v.Inflight))}, ",")
+		inflightStats += "\n"
 	}
 
 	requestStats, err := GetTracedRequestStats()
@@ -219,14 +219,17 @@ func (p *pluginContext) OnTick() {
 		requestStatsStr += fmt.Sprintf("%s %s %s %s %s %d %d %d %d %d %d %d\n", stat.method, stat.path, stat.traceId, stat.spanId, stat.parentSpanId,
 			stat.startTime, stat.endTime, stat.bodySize, stat.firstLoad, stat.lastLoad, stat.avgLoad, stat.rps)
 	}
-	proxywasm.LogCriticalf("OnTick, requestStatsStr: %s", requestStatsStr)
 
 	// reset stats
 	if err := proxywasm.SetSharedData(KEY_TRACED_REQUESTS, make([]byte, 8), 0); err != nil {
 		proxywasm.LogCriticalf("Couldn't reset traced requests: %v", err)
 	}
+	ResetEndpointCounts()
 	if err := proxywasm.SetSharedData(KEY_INFLIGHT_ENDPOINT_LIST, make([]byte, 8), 0); err != nil {
 		proxywasm.LogCriticalf("Couldn't reset inflight endpoint list: %v", err)
+	}
+	if err := proxywasm.SetSharedData(KEY_ENDPOINT_RPS_LIST, make([]byte, 8), 0); err != nil {
+		proxywasm.LogCriticalf("Couldn't reset endpoint rps list: %v", err)
 	}
 
 	// print ontick results
@@ -247,6 +250,8 @@ func (p *pluginContext) OnTick() {
 		{"x-slate-region", p.region},
 	}
 
+	reqBody := fmt.Sprintf("%d\n%s\n%s", reqCount, inflightStats, requestStatsStr)
+	proxywasm.LogCriticalf("OnTick, reqBody:\n%s", reqBody)
 	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
 		[]byte(fmt.Sprintf("%d\n%s\n%s", reqCount, inflightStats, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 
@@ -383,8 +388,7 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	reqPath = strings.Split(reqPath, "?")[0]
 	IncrementInflightCount(reqMethod, reqPath, -1)
 
-	// (gangmuk): Instead of setting the KEY_INFLIGHT_REQ_COUNT(load) to zero in OnTick function, decrement it when each request is completed.
-	l_0, err := GetUint64SharedData(firstLoadKey((traceId)))
+	l_0, err := GetUint64SharedData(firstLoadKey(traceId))
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get shared data for firstLoadKey traceId %v load: %v", traceId, err)
 		return
@@ -495,13 +499,28 @@ func IncrementSharedData(key string, amount int64) {
 		val = amount
 	} else {
 		// hopefully we don't overflow...
-		val = int64(binary.LittleEndian.Uint64(data)) + amount
+		if int64(binary.LittleEndian.Uint64(data)) != 0 || amount > 0 {
+			val = int64(binary.LittleEndian.Uint64(data)) + amount
+		} else {
+			val = int64(binary.LittleEndian.Uint64(data))
+		}
 	}
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(val))
 	if err := proxywasm.SetSharedData(key, buf, cas); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data: %v", err)
 	}
+}
+
+func GetUint64SharedDataOrZero(key string) uint64 {
+	data, _, err := proxywasm.GetSharedData(key)
+	if err != nil {
+		return 0
+	}
+	if len(data) == 0 {
+		return 0
+	}
+	return binary.LittleEndian.Uint64(data)
 }
 
 func GetUint64SharedData(key string) (uint64, error) {
@@ -708,61 +727,142 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 	return tracedRequestStats, nil
 }
 
-func GetInflightRequestStats() (map[string]uint64, error) {
-	inflightEndpoints, _, err := proxywasm.GetSharedData(KEY_INFLIGHT_ENDPOINT_LIST)
+func GetInflightRequestStats() (map[string]EndpointStats, error) {
+	inflightEndpoints, _, err := proxywasm.GetSharedData(KEY_ENDPOINT_RPS_LIST)
 	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
 		proxywasm.LogCriticalf("Couldn't get shared data for inflight request stats: %v", err)
 		return nil, err
 	}
 	if len(inflightEndpoints) == 0 || errors.Is(err, types.ErrorStatusNotFound) || emptyBytes(inflightEndpoints) {
 		// no requests traced
-		return make(map[string]uint64), nil
+		return make(map[string]EndpointStats), nil
 	}
-	inflightRequestStats := make(map[string]uint64)
+	inflightRequestStats := make(map[string]EndpointStats)
 	inflightEndpointsList := strings.Split(string(inflightEndpoints), ",")
 	for _, endpoint := range inflightEndpointsList {
 		if emptyBytes([]byte(endpoint)) {
 			continue
 		}
-		inflightRequestStats[endpoint], err = GetUint64SharedData(endpoint)
+		method := strings.Split(endpoint, " ")[0]
+		path := strings.Split(endpoint, " ")[1]
+		inflightRequestStats[endpoint] = EndpointStats{
+			Inflight: GetUint64SharedDataOrZero(inflightCountKey(method, path)),
+		}
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't get shared data for endpoint %v inflight request stats: %v", endpoint, err)
 		}
 	}
+
+	rpsEndpoints, _, err := proxywasm.GetSharedData(KEY_ENDPOINT_RPS_LIST)
+	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
+		proxywasm.LogCriticalf("Couldn't get shared data for rps request stats: %v", err)
+		return nil, err
+	}
+	if len(rpsEndpoints) == 0 || errors.Is(err, types.ErrorStatusNotFound) || emptyBytes(rpsEndpoints) {
+		// no requests traced
+		return inflightRequestStats, nil
+	}
+	rpsEndpointsList := strings.Split(string(rpsEndpoints), ",")
+	for _, endpoint := range rpsEndpointsList {
+		if emptyBytes([]byte(endpoint)) {
+			continue
+		}
+		method := strings.Split(endpoint, " ")[0]
+		path := strings.Split(endpoint, " ")[1]
+		if val, ok := inflightRequestStats[endpoint]; ok {
+			val.Total = GetUint64SharedDataOrZero(endpointCountKey(method, path))
+			inflightRequestStats[endpoint] = val
+		} else {
+			inflightRequestStats[endpoint] = EndpointStats{
+				Total: GetUint64SharedDataOrZero(endpointCountKey(method, path)),
+			}
+		}
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get shared data for endpoint %v inflight request stats: %v", endpoint, err)
+		}
+	}
+
 	return inflightRequestStats, nil
 }
 
 func IncrementInflightCount(method string, path string, amount int) {
-	endpointListBytes, cas, err := proxywasm.GetSharedData(KEY_INFLIGHT_ENDPOINT_LIST)
+	// the lists themselves contain endpoints in the form METHOD PATH, so when we read from the list,
+	// we have to split on space to get method and path, and then we can get the inflight/rps by using the
+	// inflightCountKey and endpointCountKey functions. This is to correlate the inflight count with the
+	// endpoint count.
+	AddToSharedDataList(KEY_INFLIGHT_ENDPOINT_LIST, endpointListKey(method, path))
+	AddToSharedDataList(KEY_ENDPOINT_RPS_LIST, endpointListKey(method, path))
+	IncrementSharedData(inflightCountKey(method, path), int64(amount))
+	if amount > 0 {
+		IncrementSharedData(endpointCountKey(method, path), int64(amount))
+	}
+
+	//if newAmt, _ := GetUint64SharedData(inflightCountKey(method, path)); newAmt == uint64(0) {
+	//	// remove from list
+	//	newList := make([]string, 0)
+	//	for _, endpoint := range endpointList {
+	//		if endpoint != inflightCountKey(method, path) {
+	//			newList = append(newList, endpoint)
+	//		}
+	//	}
+	//	newListBytes := []byte(strings.Join(newList, ","))
+	//	if err := proxywasm.SetSharedData(KEY_INFLIGHT_ENDPOINT_LIST, newListBytes, cas); err != nil {
+	//		proxywasm.LogCriticalf("unable to set shared data: %v", err)
+	//		return
+	//	}
+	//}
+}
+
+func ResetEndpointCounts() {
+	// get list of endpoints
+	endpointListBytes, cas, err := proxywasm.GetSharedData(KEY_ENDPOINT_RPS_LIST)
 	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
-		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
+		proxywasm.LogCriticalf("Couldn't get shared data for endpoint rps list: %v", err)
+		return
+	}
+	if len(endpointListBytes) == 0 || errors.Is(err, types.ErrorStatusNotFound) || emptyBytes(endpointListBytes) {
+		// no requests traced
 		return
 	}
 	endpointList := strings.Split(string(endpointListBytes), ",")
-	containsEndpoint := false
+	// reset counts
 	for _, endpoint := range endpointList {
-		if endpoint == inflightCountKey(method, path) {
-			containsEndpoint = true
+		if emptyBytes([]byte(endpoint)) {
+			continue
 		}
-	}
-	if !containsEndpoint {
-		newListBytes := []byte(strings.Join(append(endpointList, inflightCountKey(method, path)), ","))
-		if err := proxywasm.SetSharedData(KEY_INFLIGHT_ENDPOINT_LIST, newListBytes, cas); err != nil {
+		method := strings.Split(endpoint, " ")[0]
+		path := strings.Split(endpoint, " ")[1]
+		// reset endpoint count
+		if err := proxywasm.SetSharedData(endpointCountKey(method, path), make([]byte, 8), 0); err != nil {
 			proxywasm.LogCriticalf("unable to set shared data: %v", err)
 			return
 		}
 	}
-	IncrementSharedData(inflightCountKey(method, path), int64(amount))
-	if newAmt, _ := GetUint64SharedData(inflightCountKey(method, path)); newAmt == uint64(0) {
-		// remove from list
-		newList := make([]string, 0)
-		for _, endpoint := range endpointList {
-			if endpoint != inflightCountKey(method, path) {
-				newList = append(newList, endpoint)
-			}
+	// reset list
+	if err := proxywasm.SetSharedData(KEY_ENDPOINT_RPS_LIST, make([]byte, 8), cas); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data: %v", err)
+		return
+	}
+}
+
+// AddToSharedDataList adds a value to a list stored in shared data at the given key, if it is not already in the list.
+// The list is stored as a comma separated string.
+func AddToSharedDataList(key string, value string) {
+	listBytes, cas, err := proxywasm.GetSharedData(key)
+	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
+		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
+		return
+	}
+	list := strings.Split(string(listBytes), ",")
+	containsValue := false
+	for _, v := range list {
+		if v == value {
+			containsValue = true
 		}
-		newListBytes := []byte(strings.Join(newList, ","))
-		if err := proxywasm.SetSharedData(KEY_INFLIGHT_ENDPOINT_LIST, newListBytes, cas); err != nil {
+	}
+	if !containsValue {
+		newListBytes := []byte(strings.Join(append(list, value), ","))
+		if err := proxywasm.SetSharedData(key, newListBytes, cas); err != nil {
 			proxywasm.LogCriticalf("unable to set shared data: %v", err)
 			return
 		}
@@ -822,8 +922,16 @@ func emptyBytes(b []byte) bool {
 	return true
 }
 
+func endpointListKey(method string, path string) string {
+	return method + " " + path
+}
+
 func inflightCountKey(method string, path string) string {
-	return method + "-" + path
+	return "inflight/" + method + "-" + path
+}
+
+func endpointCountKey(method string, path string) string {
+	return "endpointRPS/" + method + "-" + path
 }
 
 // (gangmuk): need to double check to confirm it is correct.
