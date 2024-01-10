@@ -3,7 +3,7 @@
 
 import time
 # from global_controller import app
-import config as cfg
+import config2 as cfg
 import span as sp
 import pandas as pd
 from IPython.display import display
