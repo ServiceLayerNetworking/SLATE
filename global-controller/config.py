@@ -18,7 +18,7 @@ VERBOSITY=1
 DELIMITER="#"
 OUTPUT_WRITE=False
 FAKE_DATA=True
-cur_time = datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S")
+cur_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 OUTPUT_DIR="./optimizer_output/"+cur_time
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)

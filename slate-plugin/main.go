@@ -260,8 +260,8 @@ func (p *pluginContext) OnTick() {
 		{"x-slate-region", p.region},
 	}
 
-	reqBody := fmt.Sprintf("%d\n%s\n%s", reqCount, inflightStats, requestStatsStr)
-	proxywasm.LogCriticalf("OnTick, reqBody:\n%s", reqBody)
+	reqBody := fmt.Sprintf("reqCount\n%d\n\ninflightStats\n%s\nrequestStats\n%s", reqCount, inflightStats, requestStatsStr)
+	proxywasm.LogCriticalf("<OnTick>\nreqBody:\n%s", reqBody)
 	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
 		[]byte(fmt.Sprintf("%d\n%s\n%s", reqCount, inflightStats, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 

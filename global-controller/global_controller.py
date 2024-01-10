@@ -19,9 +19,21 @@ from sklearn.preprocessing import StandardScaler
 import datetime
 
 app = Flask(__name__)
-app.logger.setLevel(logging.INFO)
-werklog = logging.getLogger('werkzeug')
-werklog.setLevel(logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG)
+
+# app.logger.setLevel(logging.INFO)
+# werklog = logging.getLogger('werkzeug')
+# werklog.setLevel(logging.DEBUG)
+# app.logger.setLevel(logging.INFO)
+
+# Create a custom filter to exclude log messages for the specified route
+# class SuppressRouteFilter(logging.Filter):
+#     def filter(self, record):
+#         # Exclude log messages for the "/proxyLoad" route
+#         return "/proxyLoad" not in record.getMessage()
+
+# # Add the custom filter to the app logger
+# app.logger.addFilter(SuppressRouteFilter())
 
 latency_func = {}
 is_trained_flag = False
@@ -71,12 +83,12 @@ def check_and_move_to_complete_trace():
                 span_exists = []
                 ignore_cur = False
                 for span in single_trace:
-                    if span.my_span_id in span_exists:
+                    if span.span_id in span_exists:
                         ignore_cur = True
                         break
-                    span_exists.append(span.my_span_id)
+                    span_exists.append(span.span_id)
                     if ignore_cur:
-                        app.logger.debug(f"{cfg.log_prefix} span exist, ignore_cur, cid,{span.cluster_id}, tid,{span.trace_id}, span_id,{span.my_span_id}")
+                        app.logger.debug(f"{cfg.log_prefix} span exist, ignore_cur, cid,{span.cluster_id}, tid,{span.trace_id}, span_id,{span.span_id}")
                         continue
                     if span.cluster_id not in complete_traces:
                         complete_traces[span.cluster_id] = {}
@@ -141,7 +153,7 @@ def is_span_existed_in_trace(traces_, span_):
     if (span_.cluster_id in traces_) and (span_.trace_id in traces_[span_.cluster_id]):
             for span in traces_[span_.cluster_id][span_.trace_id]:
                 if sp.are_they_same_service_spans(span_, span):
-                    app.logger.info(f"{cfg.log_prefix} span already exists in all_trace {span.trace_id[:8]}, {span.my_span_id}, {span.svc_name}")
+                    print(f"{cfg.log_prefix} span already exists in all_trace {span.trace_id[:8]}, {span.my_span_id}, {span.svc_name}")
                     return True
     return False
 
@@ -153,47 +165,60 @@ def is_span_existed_in_trace(traces_, span_):
 #     traces_[span_.cluster_id][span_.trace_id].append(span_)
 #     return traces_[span_.cluster_id][span_.trace_id]
 
-def parse_stats_into_spans(stats, cluster_id, service):
-    '''
-    service_level_rps
-    3
-
-    inflightStats
-    GET /recommendations,6,0
-
-    requestStats
-    us-west-1 frontend-us-west-1 POST /reservation f00efe914c9ad9427077af93f0f42b3a 7077af93f0f42b3a  1704850297727 1704850297793 0 GET /hotels,8,0|POST /user,1,0|GET /recommendations,26,0|POST /reservation,59,2|
-    
-    us-west-1 frontend-us-west-1 GET /recommendations 8d025f3477105642098d1be482cb9d20 098d1be482cb9d20  1704850297777 1704850297871 0 POST /reservation,59,1|GET /hotels,8,0|GET /recommendations,27,1|POST /user,1,0|
-    us-west-1 frontend-us-west-1 GET /recommendations d355834dbf0a45032c18e6905b0a8839 2c18e6905b0a8839  1704850297800 1704850297871 0 GET /recommendations,28,2|POST /reservation,59,0|GET /hotels,8,0|POST /user,1,0|
-    '''
+def parse_stats_into_spans(body, cluster_id, service):
     spans = []
-    lines = stats.split("\n")
-    for i in range(1, len(lines)):
-        line = lines[i]
-        ss = line.split(" ")
+    lines = body.split("\n")
+    '''
+     ['us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '4a1afd4e0565e973d6bfd803432ae314', '31efa4c6f2197ac7', 'd6bfd803432ae314', '1704910272445', '1704910272447', '0', 'POST@/profile.Profile/GetProfiles,1,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '2857529ac30263da51709ea9b6c9c578', '022d10421302e0f6', '51709ea9b6c9c578', '1704910272723', '1704910272725', '0', 'POST@/profile.Profile/GetProfiles,2,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '3e7eb51dcdeeae6b1456481977f216fc', 'c23cfe5e72207f6a', '1456481977f216fc', '1704910272943', '1704910272945', '0', 'POST@/profile.Profile/GetProfiles,3,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '1d99a31fa2261f7d62e52212c362bfda', 'b124fe1f6fc5c726', '62e52212c362bfda', '1704910273122', '1704910273124', '0', 'POST@/profile.Profile/GetProfiles,4,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', 'a7eed018a3853824b2bd871b66e07e1d', '4a73e25f4d0526c1', 'b2bd871b66e07e1d', '1704910273304', '1704910273306', '0', 'POST@/profile.Profile/GetProfiles,5,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '9e6ffa80728847844c827938e1fd09c8', '5dc9301134652860', '4c827938e1fd09c8', '1704910273487', '1704910273489', '0', 'POST@/profile.Profile/GetProfiles,6,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '7f1a217d64410611b44abf639652e341', 'f7fe7d2e60f46317', 'b44abf639652e341', '1704910273656', '1704910273657', '0', 'POST@/profile.Profile/GetProfiles,7,1|']
+    '''
+    service_level_rps = int(lines[0])
+    inflightStats = lines[1]
+    requestStats = lines[3:]
+    # app.logger.debug('='*30)
+    # app.logger.debug(f'lines: {lines}')
+    # app.logger.debug('='*30)
+    # app.logger.debug(f'service_level_rps: {service_level_rps}')
+    # app.logger.debug('='*30)
+    # app.logger.debug(f'inflightStats: {inflightStats}')
+    # app.logger.debug('='*30)
+    # app.logger.debug(f'requestStats: {requestStats}')
+    # app.logger.debug('='*30)
+    for span_stat in requestStats:
+        ss = span_stat.split(" ")
+        # app.logger.debug(f"ss: {ss}")
+        # app.logger.debug(f"len(ss): {len(ss)}")
         ## NOTE: THIS SHOUD BE UPDATED WHEN member fields in span class is updated.
-        if len(ss) != 12:
-            app.logger.info(f"{cfg.log_prefix} parse_stats_into_spans, len(ss) != 12, {len(ss)}")
-            assert False
-        method = ss[0]
-        url = ss[1]
-        trace_id = ss[2]
-        my_span_id = ss[3]
-        parent_span_id = ss[4]
-        start = int(ss[5])
-        end = int(ss[6])
-        call_size = int(ss[7])
-        first_load = int(ss[8])
-        last_load = int(ss[9])
-        avg_load = int(ss[10])
-        rps = int(ss[11])
-        spans.append(sp.Span(method, url, service, cluster_id, trace_id, my_span_id, parent_span_id, start, end, first_load, last_load, avg_load, rps, call_size))
-    if len(spans) > 0:
-        app.logger.info(f"{cfg.log_prefix} ==================================")
-        for span in spans:
-            app.logger.info(f"{cfg.log_prefix} parse_stats_into_spans: {span}")
-        app.logger.info(f"{cfg.log_prefix} ==================================")
+        if len(ss) != 11:
+            app.logger.error(f"ERROR, len(ss) != 11, {len(ss)}, {ss}")
+            # assert False
+            continue
+        region = ss[0]
+        serviceName = ss[1]
+        method = ss[2]
+        path = ss[3]
+        traceId = ss[4]
+        spanId = ss[5]
+        parentSpanId = ss[6]
+        startTime = int(ss[7])
+        endTime = int(ss[8])
+        bodySize = int(ss[9])
+        # 'GET@/hotels,0,1|POST@/reservation,2,0|GET@/recommendations,2,1|'
+        endpointInflightStats = ss[10].split("|")
+        if endpointInflightStats[-1] == "":
+            endpointInflightStats = endpointInflightStats[:-1]
+        rps_dict = dict()
+        inflight_dict = dict()
+        for ep_load in endpointInflightStats:
+            method_and_path = ep_load.split(",")[0]
+            method = method_and_path.split("@")[0]
+            path = method_and_path.split("@")[1]
+            endpoint = sp.Endpoint(svc_name=serviceName, method=method, url=path)
+            rps = ep_load.split(",")[1]
+            inflight = ep_load.split(",")[2]
+            rps_dict[str(endpoint)] = rps
+            inflight_dict[str(endpoint)] = inflight
+        spans.append(sp.Span(method, path, serviceName, region, traceId, spanId, parentSpanId, startTime, endTime, bodySize, rps_dict=rps_dict, num_inflight_dict=inflight_dict))
+        app.logger.info(f"{cfg.log_prefix} new span parsed")
     return spans
 
 
@@ -208,12 +233,15 @@ def parse_rps_stats(cid, svc_name, inflight_stats):
     return ep_rps
 
 def write_trace_str_to_file():
-    with open(cfg.cur_time+"-trace_string.csv", "a") as file:
+    app.logger.info("asdf")
+    for span_str in trace_str:
+        app.logger.info(f"asdf {span_str}")
+    with open(cfg.cur_time+"-trace_string.csv", "w") as file:
         for span_str in trace_str:
             file.write(span_str+"\n")
     
 '''
-<proxy_load stat format>
+<handleProxyLoad stat format>
 ----------------------------------------------------
 service_level_rps_of_all_endpoints
 service_level_num_inflight_req_of_all_endpoints
@@ -236,25 +264,31 @@ us-west-1 frontend-us-west-1 GET /recommendations d355834dbf0a45032c18e6905b0a88
 ...
 ----------------------------------------------------
 '''
-@app.route("/clusterLoad", methods=["POST"])
-def proxy_load():
-    body = request.get_json(force=True)
-    cluster_id = body["clusterId"]
-    pod = body["podName"]
-    svc_name = body["serviceName"]
-    stats = body["body"]
-    # inflight_stats = body["inflightStats"] # NOTE: 
-    # rps_stats = body["rpsStats"]
-    # ontick_rps = int(stats.split("\n")[0])
-    
+# @app.route("/clusterLoad", methods=["POST"]) # from cluster-controller
+@app.post('/proxyLoad') # from wasm
+def handleProxyLoad():
+    # body = request.get_json(force=True)
+    svc = request.headers.get('x-slate-servicename')
+    region = request.headers.get('x-slate-region')
+    body = request.get_data().decode('utf-8')
+    # print("{svc} in {region}:\n{body}".format(svc=svc, region=region, body=body))
     if profiling:
         # TODO: In the end of the profiling phase, all the traces have to be written into a file.
-        spans = parse_stats_into_spans(stats, cluster_id, svc_name)
-        with stats_mutex:
+        spans = parse_stats_into_spans(body, region, svc)
+        app.logger.debug(f"{cfg.log_prefix} len(spans): {len(spans)}")
+        if len(spans) > 0:
+            app.logger.info(f"{cfg.log_prefix} ==================================")
             for span in spans:
-                if is_span_existed_in_trace(all_traces, span) == False:
-                    # NOTE: Trace could be incomplete. It should be filtered in postprocessing phase.
-                    trace_str.append(str(span))
+                app.logger.info(f"{span}")
+            app.logger.info(f"{cfg.log_prefix} ==================================")
+            with stats_mutex:
+                for span in spans:
+                    if is_span_existed_in_trace(all_traces, span):
+                        app.logger.info(f"{cfg.log_prefix} span already exists in all_trace {span.trace_id}, {span.span_id}, {span.svc_name}")
+                    else:
+                        # NOTE: Trace could be incomplete. It should be filtered in postprocessing phase.
+                        trace_str.append(str(span))
+                        # app.logger.info(f"{cfg.log_prefix} span added to all_trace {span.cluster_id} {span.trace_id}, {span.span_id}, {span.svc_name}")
     else:
         ''' generate fake load stat '''
         # endpoint_level_inflight = gen_endpoint_level_inflight(all_endpoints)
@@ -263,7 +297,7 @@ def proxy_load():
         ''' parse actual load stat '''
         endpoint_level_inflight = parse_inflight_stats(cluster_id, svc_name, inflight_stats)
         endpoint_level_rps = parse_rps_stats(cluster_id, svc_name, rps_stats)
-
+    return ""
 
 # def optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_level_inflight, endpoint_level_rps, placement, coef_dict, all_endpoints, endpoint_to_cg_key):
 ## All variables are global variables
@@ -487,8 +521,8 @@ def training_phase():
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
     if profiling:
-        cluster_pcts = local_routing_rule()
-        scheduler.add_job(func=write_trace_str_to_file, trigger="interval", seconds=1)
+        # cluster_pcts = local_routing_rule()
+        scheduler.add_job(func=write_trace_str_to_file, trigger="interval", seconds=5)
     else:
         training_phase()
         '''Entry point of optimizer'''

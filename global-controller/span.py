@@ -1,20 +1,20 @@
-import pandas as pd
+# import pandas as pd
 
-def pre_recorded_trace_object(TRACE_PATH):
-    df = pd.read_csv(TRACE_PATH)
-    traces = dict()
-    for index, row in df.iterrows():
-        if row["cluster_id"] not in traces:
-            traces[row["cluster_id"]] = dict()
-        if row["trace_id"] not in traces[row["cluster_id"]]:
-            traces[row["cluster_id"]][row["trace_id"]] = dict()
-        span = Span(row["method"], row["url"], row["svc_name"], row["cluster_id"], row["trace_id"], row["span_id"], row["parent_span_id"], row["st"], row["et"], row["num_inflight"], row["rps"], row["call_size"], ct=row["ct"])
-        traces[row["cluster_id"]][row["trace_id"]].append(span)
-    return traces
+# def pre_recorded_trace_object(TRACE_PATH):
+#     df = pd.read_csv(TRACE_PATH)
+#     traces = dict()
+#     for index, row in df.iterrows():
+#         if row["cluster_id"] not in traces:
+#             traces[row["cluster_id"]] = dict()
+#         if row["trace_id"] not in traces[row["cluster_id"]]:
+#             traces[row["cluster_id"]][row["trace_id"]] = dict()
+#         span = Span(row["method"], row["url"], row["svc_name"], row["cluster_id"], row["trace_id"], row["span_id"], row["parent_span_id"], row["st"], row["et"], row["num_inflight"], row["rps"], row["call_size"], ct=row["ct"])
+#         traces[row["cluster_id"]][row["trace_id"]].append(span)
+#     return traces
 
-def parse_num_cluster(trace_file):
-    df = pd.read_csv(trace_file)
-    return len(df["cluster_id"].unique())
+# def parse_num_cluster(trace_file):
+#     df = pd.read_csv(trace_file)
+#     return len(df["cluster_id"].unique())
 
 
 def are_they_same_endpoint(span1, span2):
@@ -51,7 +51,7 @@ class Endpoint:
 
 
 class Span:
-    def __init__(self, method="METHOD", url="URL", svc_name="SVC", cluster_id="CID", trace_id="TRACE_ID", span_id="SPAN_ID", parent_span_id="PARENT_SPAN_ID", st=-1, et=-1, callsize=-1, rps_dict={"dummy_endpoint_0":0, "dummy_endpoint_1":0}, num_inflight_dict={"dummy_endpoint_0": 0, "dummy_endpoint_1": 0}):
+    def __init__(self, method="METHOD", url="URL", svc_name="SVC", cluster_id="CID", trace_id="TRACE_ID", span_id="SPAN_ID", parent_span_id="PARENT_SPAN_ID", st=-1, et=-1, callsize=-1, rps_dict={str(Endpoint("svc_A","GET","/recommendation")):0, str(Endpoint("svc_A","POST","/hotel")):0}, num_inflight_dict={str(Endpoint("svc_A","GET","/recommendation")):0, str(Endpoint("svc_A","POST","/hotel")):0}):
         self.method = method
         self.url = url
         self.svc_name = svc_name
@@ -94,9 +94,10 @@ class Span:
         return colname
     
     def __str__(self):
-        temp = f"{self.cluster_id},{self.trace_id},{self.span_id},{self.parent_span_id},{self.svc_name},{self.method},{self.url},{self.st},{self.et},{self.rt},{self.xt},{self.ct},{self.call_size}"
+        temp = f"{self.cluster_id},{self.svc_name},{self.method},{self.url},{self.trace_id},{self.span_id},{self.parent_span_id},{self.st},{self.et},{self.rt},{self.xt},{self.ct},{self.call_size},"
         for endpoint in self.num_inflight_dict:
-            temp += f",{self.num_inflight_dict[endpoint]}"
+            temp += f"{endpoint}:{self.num_inflight_dict[endpoint]}|"
+        temp += ","
         for endpoint in self.rps_dict:
-            temp += f",{self.rps_dict[endpoint]}"
+            temp += f"{endpoint}:{self.rps_dict[endpoint]}|"
         return temp
