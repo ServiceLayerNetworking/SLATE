@@ -216,8 +216,18 @@ func (p *pluginContext) OnTick() {
 	// unbelievably shitty but what can you do if you don't have gRPC :)
 	requestStatsStr := ""
 	for _, stat := range requestStats {
-		requestStatsStr += fmt.Sprintf("%s %s %s %s %s %d %d %d %d %d %d %d\n", stat.method, stat.path, stat.traceId, stat.spanId, stat.parentSpanId,
-			stat.startTime, stat.endTime, stat.bodySize, stat.firstLoad, stat.lastLoad, stat.avgLoad, stat.rps)
+		endpointInflightStatsBytes, _, err := proxywasm.GetSharedData(endpointInflightStatsKey(stat.traceId))
+		endpointInflightStats := ""
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v endpoint inflight stats: %v", stat.traceId, err)
+			endpointInflightStats = "NOT FOUND"
+		} else {
+			endpointInflightStats = string(endpointInflightStatsBytes)
+		}
+		requestStatsStr += fmt.Sprintf("%s %s %s %s %s %s %s %d %d %d %s\n", p.region, p.serviceName, stat.method, stat.path, stat.traceId, stat.spanId, stat.parentSpanId,
+			stat.startTime, stat.endTime, stat.bodySize, endpointInflightStats)
+		//requestStatsStr += fmt.Sprintf("%s %s %s %s %s %d %d %d %d %d %d %d\n", stat.method, stat.path, stat.traceId, stat.spanId, stat.parentSpanId,
+		//	stat.startTime, stat.endTime, stat.bodySize, stat.firstLoad, stat.lastLoad, stat.avgLoad, stat.rps)
 	}
 
 	// reset stats
@@ -322,6 +332,13 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 			return types.ActionContinue
 		}
 		IncrementInflightCount(reqMethod, reqPath, 1)
+		// save current load to shareddata
+		inflightStats, err := GetInflightRequestStats()
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
+			return types.ActionContinue
+		}
+		saveEndpointStatsForTrace(traceId, inflightStats)
 	}
 
 	//proxywasm.AddHttpRequestHeader("x-slate-routeto", ctx.pluginContext.region)
@@ -509,6 +526,9 @@ func IncrementSharedData(key string, amount int64) {
 	binary.LittleEndian.PutUint64(buf, uint64(val))
 	if err := proxywasm.SetSharedData(key, buf, cas); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data: %v", err)
+		if errors.Is(err, types.ErrorStatusCasMismatch) {
+			IncrementSharedData(key, amount)
+		}
 	}
 }
 
@@ -727,6 +747,16 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 	return tracedRequestStats, nil
 }
 
+func saveEndpointStatsForTrace(traceId string, stats map[string]EndpointStats) {
+	str := ""
+	for k, v := range stats {
+		str += fmt.Sprintf("%s,%d,%d", k, v.Total, v.Inflight) + "|"
+	}
+	if err := proxywasm.SetSharedData(endpointInflightStatsKey(traceId), []byte(str), 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data for traceId %v endpointInflightStats: %v %v", traceId, str, err)
+	}
+}
+
 func GetInflightRequestStats() (map[string]EndpointStats, error) {
 	inflightEndpoints, _, err := proxywasm.GetSharedData(KEY_ENDPOINT_RPS_LIST)
 	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
@@ -932,6 +962,10 @@ func inflightCountKey(method string, path string) string {
 
 func endpointCountKey(method string, path string) string {
 	return "endpointRPS/" + method + "-" + path
+}
+
+func endpointInflightStatsKey(traceId string) string {
+	return traceId + "-endpointInflightStats"
 }
 
 // (gangmuk): need to double check to confirm it is correct.
