@@ -475,7 +475,7 @@ def get_callgraph_key(cg):
     cg_key = list()
     bfs_callgraph(root_node, cg_key, cg)
     print(f'cg_key: {cg_key}')
-    cg_key_str = ",".join(cg_key)
+    cg_key_str = sp.ep_del.join(cg_key)
     # for elem in cg_key:
     #     cg_key_str += elem + ","
     return cg_key_str

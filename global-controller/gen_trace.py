@@ -157,7 +157,7 @@ def print_trace(target_traces):
     
     
 if __name__ == "__main__":
-    # Option 1: generate trace of span data structure
+    ''' Option 1: Generate trace of span data structure '''
     # traces = run(num_cluster=2, num_traces=10)
     # root = dict()
     # for cid in traces:
@@ -168,7 +168,7 @@ if __name__ == "__main__":
     # print(temp.get_colunm_name())
     # print_trace(traces)
     
-    # Option 2: generate trace of string
+    ''' Option 2: generate trace of string '''
     traces_string = list()
     tid = 0
     num_cluster = 2
