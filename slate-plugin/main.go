@@ -773,8 +773,8 @@ func GetInflightRequestStats() (map[string]EndpointStats, error) {
 		if emptyBytes([]byte(endpoint)) {
 			continue
 		}
-		method := strings.Split(endpoint, " ")[0]
-		path := strings.Split(endpoint, " ")[1]
+		method := strings.Split(endpoint, "@")[0]
+		path := strings.Split(endpoint, "@")[1]
 		inflightRequestStats[endpoint] = EndpointStats{
 			Inflight: GetUint64SharedDataOrZero(inflightCountKey(method, path)),
 		}
@@ -797,8 +797,8 @@ func GetInflightRequestStats() (map[string]EndpointStats, error) {
 		if emptyBytes([]byte(endpoint)) {
 			continue
 		}
-		method := strings.Split(endpoint, " ")[0]
-		path := strings.Split(endpoint, " ")[1]
+		method := strings.Split(endpoint, "@")[0]
+		path := strings.Split(endpoint, "@")[1]
 		if val, ok := inflightRequestStats[endpoint]; ok {
 			val.Total = GetUint64SharedDataOrZero(endpointCountKey(method, path))
 			inflightRequestStats[endpoint] = val
@@ -860,8 +860,8 @@ func ResetEndpointCounts() {
 		if emptyBytes([]byte(endpoint)) {
 			continue
 		}
-		method := strings.Split(endpoint, " ")[0]
-		path := strings.Split(endpoint, " ")[1]
+		method := strings.Split(endpoint, "@")[0]
+		path := strings.Split(endpoint, "@")[1]
 		// reset endpoint count
 		if err := proxywasm.SetSharedData(endpointCountKey(method, path), make([]byte, 8), 0); err != nil {
 			proxywasm.LogCriticalf("unable to set shared data: %v", err)
@@ -953,7 +953,7 @@ func emptyBytes(b []byte) bool {
 }
 
 func endpointListKey(method string, path string) string {
-	return method + " " + path
+	return method + "@" + path
 }
 
 func inflightCountKey(method string, path string) string {
