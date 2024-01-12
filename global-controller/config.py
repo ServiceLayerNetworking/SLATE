@@ -1,6 +1,9 @@
 import datetime
 import os
 
+def get_cur_time():
+    return datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S")
+
 log_prefix="[SLATE]"
 
 #######################
@@ -18,8 +21,8 @@ VERBOSITY=1
 DELIMITER="#"
 OUTPUT_WRITE=False
 FAKE_DATA=True
-cur_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-OUTPUT_DIR="./optimizer_output/"+cur_time
+init_time = get_cur_time()
+OUTPUT_DIR="./optimizer_output/"+init_time
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 DISPLAY=True

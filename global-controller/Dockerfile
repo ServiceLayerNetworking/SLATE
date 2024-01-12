@@ -17,6 +17,7 @@ RUN apt-get install curl -y
 RUN apt-get install vim -y
 RUN apt-get install procps -y
 RUN apt-get install htop -y
+RUN apt-get install jq -y
 
 
 COPY requirements.txt /app
@@ -24,6 +25,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip3 install -r requirements.txt
 
 COPY . /app
+COPY ./vimrc_file /root/.vimrc
 
 
 ENTRYPOINT ["python3"]

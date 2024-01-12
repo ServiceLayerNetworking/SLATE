@@ -13,6 +13,7 @@ import (
 
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
+	_ "github.com/wasilibs/nottinygc"
 )
 
 const (
@@ -75,8 +76,6 @@ type TracedRequestStats struct {
 	endTime      int64
 	bodySize     int64
 	firstLoad    int64
-	lastLoad     int64
-	avgLoad      int64
 	rps          int64
 }
 
@@ -226,8 +225,6 @@ func (p *pluginContext) OnTick() {
 		}
 		requestStatsStr += fmt.Sprintf("%s %s %s %s %s %s %s %d %d %d %s\n", p.region, p.serviceName, stat.method, stat.path, stat.traceId, stat.spanId, stat.parentSpanId,
 			stat.startTime, stat.endTime, stat.bodySize, endpointInflightStats)
-		//requestStatsStr += fmt.Sprintf("%s %s %s %s %s %d %d %d %d %d %d %d\n", stat.method, stat.path, stat.traceId, stat.spanId, stat.parentSpanId,
-		//	stat.startTime, stat.endTime, stat.bodySize, stat.firstLoad, stat.lastLoad, stat.avgLoad, stat.rps)
 	}
 
 	// reset stats
@@ -404,35 +401,6 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	}
 	reqPath = strings.Split(reqPath, "?")[0]
 	IncrementInflightCount(reqMethod, reqPath, -1)
-
-	l_0, err := GetUint64SharedData(firstLoadKey(traceId))
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get shared data for firstLoadKey traceId %v load: %v", traceId, err)
-		return
-	}
-	l_1, err := GetUint64SharedData(KEY_INFLIGHT_REQ_COUNT)
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get shared data for firstLoadKey traceId %v load: %v", traceId, err)
-		return
-	}
-	load_0 := int64(l_0) // first load, #inflight requests when a req is received
-	load_1 := int64(l_1) // last load, #inflight requests when a req is completed
-	avg_load := (load_0 + load_1) / 2
-	// useful log
-	// proxywasm.LogCriticalf("OnHttpStreamDone, This is THE LAST response! load_0,%d, load_1,%d, avg_load,%d", load_0, load_1, avg_load)
-
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(l_1))
-	if err := proxywasm.SetSharedData(lastLoadKey(traceId), buf, 0); err != nil { // Set the trace with the current load
-		proxywasm.LogCriticalf("unable to set shared data lastLoadKey for traceId %v load: %v", traceId, err)
-		return
-	}
-	buf = make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(avg_load))
-	if err := proxywasm.SetSharedData(avgLoadKey(traceId), buf, 0); err != nil { // Set the trace with the current load
-		proxywasm.LogCriticalf("unable to set shared data avgLoadKey for traceId %v load: %v", traceId, err)
-		return
-	}
 
 	currentTime := time.Now().UnixMilli()
 	endTimeBytes := make([]byte, 8)
@@ -708,23 +676,11 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v  from firstLoadKey: %v", traceId, err)
 			return nil, err
 		}
-		lastLoadBytes, _, err := proxywasm.GetSharedData(lastLoadKey(traceId)) // Get stored load of this traceid
-		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v  from lastLoadKey: %v", traceId, err)
-			return nil, err
-		}
-		avgLoadBytes, _, err := proxywasm.GetSharedData(avgLoadKey(traceId)) // Get stored load of this traceid
-		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v from avgLoadKey: %v", traceId, err)
-			return nil, err
-		}
 		first_load := int64(binary.LittleEndian.Uint64(firstLoadBytes)) // should it be int or int64?
-		last_load := int64(binary.LittleEndian.Uint64(lastLoadBytes))   // to int
-		avg_load := int64(binary.LittleEndian.Uint64(avgLoadBytes))     // to int
 
 		rpsBytes, _, err := proxywasm.GetSharedData(KEY_REQUEST_COUNT) // Get stored load of this traceid
 		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v from avgLoadKey: %v", traceId, err)
+			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v from KEY_REQUEST_COUNT: %v", traceId, err)
 			return nil, err
 		}
 		rps_ := int64(binary.LittleEndian.Uint64(rpsBytes)) // to int
@@ -738,10 +694,8 @@ func GetTracedRequestStats() ([]TracedRequestStats, error) {
 			startTime:    startTime,
 			endTime:      endTime,
 			bodySize:     bodySize,
-			firstLoad:    first_load, // newly added per-request level load field
-			lastLoad:     last_load,  // newly added per-request level load field
-			avgLoad:      avg_load,   // newly added per-request level load field
-			rps:          rps_,       // rps
+			firstLoad:    first_load,
+			rps:          rps_,
 		})
 	}
 	return tracedRequestStats, nil
@@ -925,14 +879,6 @@ func bodySizeKey(traceId string) string {
 
 func firstLoadKey(traceId string) string {
 	return traceId + "-firstLoad"
-}
-
-func avgLoadKey(traceId string) string {
-	return traceId + "-avgLoad"
-}
-
-func lastLoadKey(traceId string) string {
-	return traceId + "-lastLoad"
 }
 
 func methodKey(traceId string) string {

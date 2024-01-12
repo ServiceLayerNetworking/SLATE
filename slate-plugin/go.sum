@@ -1,2 +1,6 @@
+github.com/magefile/mage v1.14.0 h1:6QDX3g6z1YvJ4olPhT1wksUcSa/V0a1B+pJb73fBjyo=
+github.com/magefile/mage v1.14.0/go.mod h1:z5UZb/iS3GoOSn0JgWuiw7dxlurVYTu+/jHXqQg881A=
 github.com/tetratelabs/proxy-wasm-go-sdk v0.18.0 h1:8STySDjmzWmwkCAwgkMJ4WLbjZ802cryXgCf5Qi+//0=
 github.com/tetratelabs/proxy-wasm-go-sdk v0.18.0/go.mod h1:Aq7ewLe7qv2pmzRgoYWk+5kYLj/oSYMJjvmPXpGSAbc=
+github.com/wasilibs/nottinygc v0.7.1 h1:rKu19+SFniRNuSo5NX7/wxpSpXmMUmkcyt/YiWLJg8w=
+github.com/wasilibs/nottinygc v0.7.1/go.mod h1:oDcIotskuYNMpqMF23l7Z8uzD4TC0WXHK8jetlB3HIo=
