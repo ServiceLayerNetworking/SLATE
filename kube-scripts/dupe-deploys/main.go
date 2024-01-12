@@ -135,6 +135,10 @@ func main() {
 				newDeployment.Annotations = map[string]string{"traffic.sidecar.istio.io/excludeOutboundIPRanges": consulClusterIP + "/32"}
 			}
 
+			if *sharedspancontext {
+				newDeployment.Spec.Template.Annotations["sidecar.istio.io/bootstrapOverride"] = "shared-span-bootstrap-config"
+			}
+
 			_, err = deploymentsClient.Create(context.TODO(), newDeployment, v1.CreateOptions{})
 			if err != nil {
 				fmt.Printf("couldn't create deployment %s: %v.\n", newDeployment.Name, err)
