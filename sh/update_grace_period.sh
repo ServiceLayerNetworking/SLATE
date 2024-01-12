@@ -1,0 +1,22 @@
+update_grace_period() {
+  local namespace="$1"
+  local exclude_deployments=("${@:2}")
+  local grace_period="5"
+
+  # Get a list of all deployments in the specified namespace
+  local deployment_names=($(kubectl get deployments -n "$namespace" -o jsonpath='{.items[*].metadata.name}'))
+
+  # Loop through the deployments and update CPU requests and limits for all containers
+  for deployment in "${deployment_names[@]}"; do
+    if [[ " ${exclude_deployments[@]} " =~ " $deployment " ]]; then
+      # Skip deployments that are in the exclusion list
+      continue
+    fi
+
+    kubectl patch deployment "$deployment" -n "$namespace" --type='json' -p='[{"op": "replace", "path": "/spec/template/spec/terminationGracePeriodSeconds", "value": '$grace_period'}]'
+  done
+}
+
+
+# Usage:
+update_grace_period default slate-controller
