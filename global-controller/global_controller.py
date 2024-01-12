@@ -233,12 +233,15 @@ def parse_rps_stats(cid, svc_name, inflight_stats):
     return ep_rps
 
 def write_trace_str_to_file():
-    app.logger.info("asdf")
-    for span_str in trace_str:
-        app.logger.info(f"asdf {span_str}")
-    with open(cfg.cur_time+"-trace_string.csv", "w") as file:
-        for span_str in trace_str:
-            file.write(span_str+"\n")
+    with stats_mutex:
+        # app.logger.info("asdf")
+        # for span_str in trace_str:
+        #     app.logger.info(f"asdf {span_str}")
+        with open(cfg.init_time+"-trace_string.csv", "w") as file:
+            file.write("update is " + cfg.get_cur_time() + "\n")
+            for span_str in trace_str:
+                file.write(span_str+"\n")
+        trace_str.clear()
     
 '''
 <handleProxyLoad stat format>
@@ -277,10 +280,10 @@ def handleProxyLoad():
         spans = parse_stats_into_spans(body, region, svc)
         app.logger.debug(f"{cfg.log_prefix} len(spans): {len(spans)}")
         if len(spans) > 0:
-            app.logger.info(f"{cfg.log_prefix} ==================================")
-            for span in spans:
-                app.logger.info(f"{span}")
-            app.logger.info(f"{cfg.log_prefix} ==================================")
+            # app.logger.info(f"{cfg.log_prefix} ==================================")
+            # for span in spans:
+            #     app.logger.info(f"{span}")
+            # app.logger.info(f"{cfg.log_prefix} ==================================")
             with stats_mutex:
                 for span in spans:
                     if is_span_existed_in_trace(all_traces, span):
