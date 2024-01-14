@@ -197,15 +197,15 @@ func (p *pluginContext) OnTick() {
 	}
 
 	inflightStats := ""
-	inflightStatsMap, err := GetInflightRequestStats()
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
-		return
-	}
-	for k, v := range inflightStatsMap {
-		inflightStats += strings.Join([]string{k, strconv.Itoa(int(v.Total)), strconv.Itoa(int(v.Inflight))}, ",")
-		inflightStats += "\n"
-	}
+	//inflightStatsMap, err := GetInflightRequestStats()
+	//if err != nil {
+	//	proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
+	//	return
+	//}
+	//for k, v := range inflightStatsMap {
+	//	inflightStats += strings.Join([]string{k, strconv.Itoa(int(v.Total)), strconv.Itoa(int(v.Inflight))}, ",")
+	//	inflightStats += "\n"
+	//}
 
 	requestStats, err := GetTracedRequestStats()
 	if err != nil {
@@ -330,12 +330,12 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		}
 		IncrementInflightCount(reqMethod, reqPath, 1)
 		// save current load to shareddata
-		inflightStats, err := GetInflightRequestStats()
-		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
-			return types.ActionContinue
-		}
-		saveEndpointStatsForTrace(traceId, inflightStats)
+		//inflightStats, err := GetInflightRequestStats()
+		//if err != nil {
+		//	proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
+		//	return types.ActionContinue
+		//}
+		//saveEndpointStatsForTrace(traceId, inflightStats)
 	}
 
 	//proxywasm.AddHttpRequestHeader("x-slate-routeto", ctx.pluginContext.region)
