@@ -4,9 +4,9 @@
 
 
 ## Update deployments except for slate-controller deployment
-#kubectl get deployments -n default -o json | \
-#  jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "0.5", "memory": "256Mi"}, "limits": {"cpu": "1", "memory": "512Mi"}}' | \
-#    kubectl apply -f -
+kubectl get deployments -n default -o json | \
+ jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "0.1"}, "limits": {"cpu": "5"}}' | \
+   kubectl apply -f -
 
 remove_cpu_limit() {
   local namespace="$1"
@@ -102,7 +102,7 @@ update_cpu() {
   local namespace="$1"
   local exclude_deployments=("${@:2}")
   local cpu_request="0.1"
-  local cpu_limit="1"
+  local cpu_limit="5"
 
   # Get a list of all deployments in the specified namespace
   local deployment_names=($(kubectl get deployments -n "$namespace" -o jsonpath='{.items[*].metadata.name}'))
@@ -145,7 +145,7 @@ update_cpu_request() {
 
 # Usage:
 #update_cpu_and_memory default slate-controller
-#update_cpu default slate-controller
-#remove_cpu_limit default slate-controller
-remove_mem default slate-controller
+update_cpu default slate-controller
+# remove_cpu_limit default slate-controller
+#remove_mem default slate-controller
 
