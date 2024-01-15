@@ -16,6 +16,8 @@
 #     df = pd.read_csv(trace_file)
 #     return len(df["cluster_id"].unique())
 
+ep_del = "@"
+
 
 def are_they_same_endpoint(span1, span2):
     if span1.svc_name == span2.svc_name and span1.method == span2.method and span1.method == span2.method:
@@ -27,8 +29,6 @@ def are_they_same_service_spans(span1, span2):
     if span1.svc_name == span2.svc_name:
         return True
     return False
-
-ep_del = "."
 
 class Endpoint:
     def __init__(self, svc_name, method, url):

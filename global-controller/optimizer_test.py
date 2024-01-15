@@ -69,16 +69,14 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     for cid in endpoint_level_rps:
         for svc_name in endpoint_level_rps[cid]:
             for ep in endpoint_level_rps[cid][svc_name]:
-                    print(f'asdf cid: {cid}, svc_name: {svc_name}, ep: {ep}')
-                    print(f'asdf {endpoint_level_rps[cid][svc_name][ep]}')
-
-    
+                    print(f'cid: {cid}, svc_name: {svc_name}, ep: {ep}')
+                    print(f'{endpoint_level_rps[cid][svc_name][ep]}')
     root_ep = dict()
     for cg_key in ep_str_callgraph_table:
         root_ep[cg_key] = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
     for cg_key in root_ep:
-        print(f'asdf root_span: {root_ep[cg_key]}')
-    
+        print(f'root_span: {root_ep[cg_key]}')
+            
     def get_root_node_rps(endpoint_level_rps, root_ep):
         root_node_rps = dict()
         for cid in endpoint_level_rps:
@@ -367,8 +365,10 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         if type(var_name) == tuple:
             src = var_name[0].split(cfg.DELIMITER)[0]
             dst = var_name[1].split(cfg.DELIMITER)[0]
-            src_cid = int(var_name[0].split(cfg.DELIMITER)[1])
-            dst_cid = int(var_name[1].split(cfg.DELIMITER)[1])
+            # src_cid = int(var_name[0].split(cfg.DELIMITER)[1])
+            # dst_cid = int(var_name[1].split(cfg.DELIMITER)[1])
+            src_cid = var_name[0].split(cfg.DELIMITER)[1]
+            dst_cid = var_name[1].split(cfg.DELIMITER)[1]
         else:
             print("var_name MUST be tuple datatype")
             assert False
@@ -910,7 +910,6 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         percentage_df.to_csv(f'percentage_df.csv')
         opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)
         exit()
-
 
 
         # In[52]:
