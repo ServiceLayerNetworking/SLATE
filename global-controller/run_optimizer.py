@@ -190,33 +190,30 @@ def fit_linear_regression(data, y_col_name, svc_name):
             print(f"ERROR: row['Coefficient'] < 0: {row['Coefficient']}")
             assert False
         coef[row['Feature']] = row['Coefficient']
-    # coef
-    print("coef")
-    print(coef)
+        
+    
+    request_type = "recommend"
+    # plot
     # y = ax + b
-    key_for_latency = list()
+    key_for_coef = list()
     for key in coef:
         if key == 'intercept':
             b = coef[key]
         else:
-            key_for_latency.append(key)
-    a = coef[key_for_latency[0]]
-
-            
+            key_for_coef.append(key)
+    a = coef[key_for_coef[0]]
     x_list = [0, 100]
     y_list = list()
     for x in x_list:
         y_list.append(a*x+b)
-    
-    
     plt.plot(X, y, 'bo', alpha=0.4)
     plt.plot(x_list, y_list, color='red', linewidth=2)
     plt.xlabel('inflight_req')
     plt.ylabel('exclusive time (ms)')
     plt.title(svc_name)
-    plt.savefig(f"latency.pdf")
+    plt.savefig(f"latency_{request_type}_{svc_name}.pdf")
     plt.show()
-    exit()
+    
     return coef
 
 
@@ -224,7 +221,7 @@ def train_latency_function_with_trace(traces):
     # df = pd.read_csv(f"{trace_file_path}")
     # traces = sp.file_to_trace(trace_file_path)
     df = tst.trace_to_df(traces)
-    df.to_csv(f"trace_to_file.csv")
+    # df.to_csv(f"trace_to_file.csv")
     for cid in df["cluster_id"].unique():
         cid_df = df[df["cluster_id"]==cid]
         for svc_name in cid_df["svc_name"].unique():
@@ -234,11 +231,7 @@ def train_latency_function_with_trace(traces):
             if svc_name not in coef_dict:
                 coef_dict[svc_name] = dict()
             for ep_str in cid_svc_df["endpoint_str"].unique():
-                # print(f"before len(temp_df): {len(temp_df)}")
                 ep_df = cid_svc_df[cid_svc_df["endpoint_str"]==ep_str]
-                # print(f'cluter_id: {cid}, svc_name: {svc_name}, ep_str: {ep_str}, len(X_) == 0')
-                # print(f"after len(ep_df): {len(ep_df)}")
-                
                 # Data preparation: load(X) and latency(y) 
                 data = dict()
                 y_col = "latency"
@@ -250,14 +243,9 @@ def train_latency_function_with_trace(traces):
                     if y_col not in data:
                         data[y_col] = list()
                     data[y_col].append(row["xt"])
-                
-                # print(data)
-                # df = pd.DataFrame(data)
-                # print("="*20)
-                # print(df)
-                # print(f"data: {data}")
-                # print()
                 coef_dict[svc_name][ep_str] = fit_linear_regression(data, y_col, svc_name)
+                
+                
                 # NOTE: overwriting for debugging
                 # latency_func[svc_name][ep_str], X_ = opt_func.get_regression_pipeline(load_dict)
                 # X_.to_csv(f"X_c{cid}_{row['method']}.csv")
@@ -328,7 +316,12 @@ def trace_string_file_to_trace_data_structure(trace_string_file_path):
         # inflight_row =  "user-us-west-1@POST@/user.User/CheckUser:1|user-us-west-1@POST@/user.User/CheckUser:1|"
         # print(row)
         # print(row["inflight_dict"])
-        inflight_list = row["inflight_dict"].split("|")[:-1]
+        try:
+            inflight_list = row["inflight_dict"].split("|")[:-1]
+        except:
+            print(f"row: {row}")
+            print(f"row['inflight_dict']: {row['inflight_dict']}")
+            assert False
         for ep_inflight in inflight_list:
             # print(row)
             temp = ep_inflight.split(":")
@@ -407,11 +400,16 @@ def training_phase():
     
     '''Option 2: Read trace string file'''
     ts = time.time()
-    complete_traces = trace_string_file_to_trace_data_structure("trace_string.csv")
-    for span in complete_traces:
-        print(span)
-        break
-    print(f"trace_string_file_to_trace_data_structure takes {time.time()-ts} seconds")
+    
+    filename = "./profiled_data/slate_trace_string_reserve_only_.slatelog.csv"
+    filename = "./profiled_data/slate_trace_string_recommend_only_.slatelog.csv"
+    # filename = "./profiled_data/slate_trace_string_user_only_.slatelog.csv"
+    
+    
+    complete_traces = trace_string_file_to_trace_data_structure(filename)
+    
+    print(f"FILE ==> DATA STRUCTURE: {int(time.time()-ts)} seconds")
+    
     
     '''Time stitching'''
     stitched_traces = tst.stitch_time(complete_traces)
@@ -420,22 +418,20 @@ def training_phase():
     '''Create useful data structures from the traces'''
     sp_callgraph_table = tst.traces_to_span_callgraph_table(stitched_traces)
     endpoint_to_cg_key = tst.get_endpoint_to_cg_key_map(stitched_traces)
-    
     ep_str_callgraph_table = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
     print("ep_str_callgraph_table")
     print(f"num different callgraph: {len(ep_str_callgraph_table)}")
     for cg_key in ep_str_callgraph_table:
         print(f"{cg_key}: {ep_str_callgraph_table[cg_key]}")
-        
     all_endpoints = tst.get_all_endpoints(stitched_traces)
     for cid in all_endpoints:
         for svc_name in all_endpoints[cid]:
             print(f"all_endpoints[{cid}][{svc_name}]: {all_endpoints[cid][svc_name]}")
-                
     tst.file_write_callgraph_table(sp_callgraph_table)
     placement = tst.get_placement_from_trace(stitched_traces)
     for cid in placement:
         print(f"placement[{cid}]: {placement[cid]}")
+    
     
     '''
     Train linear regression model
@@ -463,4 +459,5 @@ def training_phase():
 if __name__ == "__main__":
 
     training_phase()
+    exit()
     optimizer_entrypoint()

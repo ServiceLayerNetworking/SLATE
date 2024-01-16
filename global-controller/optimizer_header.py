@@ -533,7 +533,7 @@ def fill_observation_in_compute_df(compute_df, callgraph_table):
     
 
 def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict):
-    print(f'compute_arc_var_name: {compute_arc_var_name}')
+    # print(f'compute_arc_var_name: {compute_arc_var_name}')
     columns = get_compute_df_column(ep_str_callgraph_table)
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
     fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table)

@@ -175,13 +175,13 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     depth_dict = dict()
     for cg_key in ep_str_callgraph_table:
         depth_dict[cg_key] = opt_func.get_depth_in_graph(ep_str_callgraph_table[cg_key])
-    print("depth_dict")
-    print(depth_dict)
+    # print("depth_dict")
+    # print(depth_dict)
     # key: (parent_svc,child_svc), value: callsize of the link (= depth+1)
     callsize_dict = dict()
     for cg_key in ep_str_callgraph_table:
         callsize_dict[cg_key] = opt_func.get_callsize_dict(ep_str_callgraph_table[cg_key], depth_dict[cg_key])
-    print(f'callsize_dict: {callsize_dict}')
+    # print(f'callsize_dict: {callsize_dict}')
 
     # In[31]:
     
@@ -358,8 +358,8 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     min_egress_cost_list = list()
     max_egress_cost_list = list()
     flattened_callsize_dict = {inner_key: value for outer_key, inner_dict in callsize_dict.items() for inner_key, value in inner_dict.items()}
-    print(f'callsize_dict: {callsize_dict}')
-    print(f'flattened_callsize_dict: {flattened_callsize_dict}')
+    # print(f'callsize_dict: {callsize_dict}')
+    # print(f'flattened_callsize_dict: {flattened_callsize_dict}')
     for var_name in network_arc_var_name:
         # print(var_name)
         if type(var_name) == tuple:
