@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"math/rand"
 
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
@@ -28,7 +29,7 @@ const (
 	// this is in millis
 	AGGREGATE_REQUEST_LATENCY = "slate_last_second_latency_avg"
 	// (gangmuk): changed to 2 seconds to capture more inflights.
-	TICK_PERIOD = 2000
+	TICK_PERIOD = 5000
 	// nor_len     = 1000 / TICK_PERIOD
 	DEFAULT_HASH_MOD = 1
 
@@ -52,6 +53,9 @@ var (
 
 func main() {
 	proxywasm.SetVMContext(&vmContext{})
+	rand.Seed(time.Now().UnixNano())
+	// rand.Seed(1234)
+
 }
 
 type vmContext struct {
@@ -278,69 +282,72 @@ type httpContext struct {
 }
 
 func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
-	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
-	if err != nil {
-		return types.ActionContinue
-	}
-	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
-	IncrementSharedData(inboundCountKey(traceId), 1)
-	// useful log
-	// inbound, err := GetUint64SharedData(inboundCountKey((traceId)))
-	// proxywasm.LogCriticalf("OnHttpRequestHeaders, increment inbound, trace_id,%v, inbound,%d", traceId, inbound)
-
-	_, _, err = proxywasm.GetSharedData(traceId)
-	if err == nil {
-		// we've been set, get out
-		return types.ActionContinue
-	}
-
-	// we haven't been set, set us. this can be anything.
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(time.Now().UnixMilli()))
-	if err := proxywasm.SetSharedData(traceId, buf, 0); err != nil {
-		proxywasm.LogCriticalf("Couldn't set shared data: %v", err)
-		return types.ActionContinue
-	}
-
-	// incrememt request count for this tick period
-	IncrementSharedData(KEY_REQUEST_COUNT, 1)
-	// incrememt total number of inflight requests
-	IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, 1)
-
-	reqMethod, err := proxywasm.GetHttpRequestHeader(":method")
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get :method request header: %v", err)
-		return types.ActionContinue
-	}
-	reqPath, err := proxywasm.GetHttpRequestHeader(":path")
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get :path request header: %v", err)
-		return types.ActionContinue
-	}
-	reqPath = strings.Split(reqPath, "?")[0]
-
-	if tracedRequest(traceId) {
-		// we need to record start and end time
-		// proxywasm.LogCriticalf("tracing request: %s", traceId)
-		spanId, _ := proxywasm.GetHttpRequestHeader("x-b3-spanid")
-		parentSpanId, _ := proxywasm.GetHttpRequestHeader("x-b3-parentspanid")
-		if err := AddTracedRequest(reqMethod, reqPath, traceId, spanId, parentSpanId, time.Now().UnixMilli()); err != nil {
-			proxywasm.LogCriticalf("unable to add traced request: %v", err)
+	// Sampling
+	if rand.Float64() > 0.1 {
+		traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
+		if err != nil {
 			return types.ActionContinue
 		}
-		IncrementInflightCount(reqMethod, reqPath, 1)
-		// save current load to shareddata
-		//inflightStats, err := GetInflightRequestStats()
-		//if err != nil {
-		//	proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
-		//	return types.ActionContinue
-		//}
-		//saveEndpointStatsForTrace(traceId, inflightStats)
-	}
+		// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
+		IncrementSharedData(inboundCountKey(traceId), 1)
+		// useful log
+		// inbound, err := GetUint64SharedData(inboundCountKey((traceId)))
+		// proxywasm.LogCriticalf("OnHttpRequestHeaders, increment inbound, trace_id,%v, inbound,%d", traceId, inbound)
 
-	//proxywasm.AddHttpRequestHeader("x-slate-routeto", ctx.pluginContext.region)
+		_, _, err = proxywasm.GetSharedData(traceId)
+		if err == nil {
+			// we've been set, get out
+			return types.ActionContinue
+		}
 
-	// todo(adiprerepa) enforce controller policy by adding headers to route to remote cluster
+		// we haven't been set, set us. this can be anything.
+		buf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(buf, uint64(time.Now().UnixMilli()))
+		if err := proxywasm.SetSharedData(traceId, buf, 0); err != nil {
+			proxywasm.LogCriticalf("Couldn't set shared data: %v", err)
+			return types.ActionContinue
+		}
+
+		// incrememt request count for this tick period
+		IncrementSharedData(KEY_REQUEST_COUNT, 1)
+		// incrememt total number of inflight requests
+		IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, 1)
+
+		reqMethod, err := proxywasm.GetHttpRequestHeader(":method")
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get :method request header: %v", err)
+			return types.ActionContinue
+		}
+		reqPath, err := proxywasm.GetHttpRequestHeader(":path")
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get :path request header: %v", err)
+			return types.ActionContinue
+		}
+		reqPath = strings.Split(reqPath, "?")[0]
+
+		if tracedRequest(traceId) {
+			// we need to record start and end time
+			// proxywasm.LogCriticalf("tracing request: %s", traceId)
+			spanId, _ := proxywasm.GetHttpRequestHeader("x-b3-spanid")
+			parentSpanId, _ := proxywasm.GetHttpRequestHeader("x-b3-parentspanid")
+			if err := AddTracedRequest(reqMethod, reqPath, traceId, spanId, parentSpanId, time.Now().UnixMilli()); err != nil {
+				proxywasm.LogCriticalf("unable to add traced request: %v", err)
+				return types.ActionContinue
+			}
+			IncrementInflightCount(reqMethod, reqPath, 1)
+			// save current load to shareddata
+			//inflightStats, err := GetInflightRequestStats()
+			//if err != nil {
+			//	proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
+			//	return types.ActionContinue
+			//}
+			//saveEndpointStatsForTrace(traceId, inflightStats)
+		}
+
+		//proxywasm.AddHttpRequestHeader("x-slate-routeto", ctx.pluginContext.region)
+
+		// todo(adiprerepa) enforce controller policy by adding headers to route to remote cluster
+	} // end of if random(0, 1) > 0.5
 
 	return types.ActionContinue
 }
