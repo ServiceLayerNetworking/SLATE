@@ -4,9 +4,13 @@
 
 
 ## Update deployments except for slate-controller deployment
-kubectl get deployments -n default -o json | \
- jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "0.1"}, "limits": {"cpu": "5"}}' | \
-   kubectl apply -f -
+## It can be used even if the corresponding fields do not exist in the yaml config.
+## Remaining functions can't be used when the fields do not exist in yaml.
+apply_resource_field(){
+    kubectl get deployments -n default -o json | \
+     jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "0.1"}, "limits": {"cpu": "1"}}' | \
+       kubectl apply -f -
+}
 
 remove_cpu_limit() {
   local namespace="$1"
@@ -145,7 +149,8 @@ update_cpu_request() {
 
 # Usage:
 #update_cpu_and_memory default slate-controller
-update_cpu default slate-controller
+#update_cpu default slate-controller
 # remove_cpu_limit default slate-controller
 #remove_mem default slate-controller
 
+apply_resource_field
