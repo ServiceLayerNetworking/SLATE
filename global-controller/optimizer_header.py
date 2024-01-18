@@ -19,6 +19,8 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
 from sklearn.metrics import r2_score
 import span as sp
+import pprint
+import hashlib
 
 
 random.seed(1234)
@@ -26,11 +28,21 @@ random.seed(1234)
 timestamp_list = list()
 source_node_name = "SOURCE"
 destination_node_name = "DESTINATION"
-NONE_CID = -1
+NONE_CID = "XXXX"
 NONE_TYPE = "-1"
 source_node_fullname = f'{source_node_name}{cfg.DELIMITER}{NONE_CID}{cfg.DELIMITER}end'
 destination_node_fullname = f'{destination_node_name}{cfg.DELIMITER}{NONE_CID}{cfg.DELIMITER}end'
 
+
+# node_color = ["#FFBF00", "#ff6375", "#6973fa", "#AFE1AF"]# yellow, pink, blue, green
+node_color_dict = dict()
+node_color_dict["XXXX"] = "gray"
+node_color_dict['-1'] = "#FFBF00"
+node_color_dict['us-west-1'] = "#FFBF00"
+node_color_dict['us-east-1'] = "#ff6375"
+
+edge_color_list = ["red", "blue", "green", "yellow"]
+# edge_color_taken = dict()
 
 def calculate_depth(graph, node):
     if node not in graph or not graph[node]:
@@ -413,8 +425,12 @@ def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table):
             svc_name_list.append(svc_name)
             method_list.append(method)
             url_list.append(url)
-            src_cid_list.append(int(var_name[0].split(cfg.DELIMITER)[1]))
-            dst_cid_list.append(int(var_name[1].split(cfg.DELIMITER)[1]))
+            # src_cid = int(var_name[0].split(cfg.DELIMITER)[1])
+            # dst_cid = int(var_name[1].split(cfg.DELIMITER)[1])
+            src_cid = var_name[0].split(cfg.DELIMITER)[1]
+            dst_cid = var_name[1].split(cfg.DELIMITER)[1]
+            src_cid_list.append(src_cid)
+            dst_cid_list.append(dst_cid)
         else:
             print(f'Wrong var_name type: {type(var_name)}. It must be tuple')
             assert False
@@ -517,7 +533,7 @@ def fill_observation_in_compute_df(compute_df, callgraph_table):
     
 
 def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict):
-    print(f'compute_arc_var_name: {compute_arc_var_name}')
+    # print(f'compute_arc_var_name: {compute_arc_var_name}')
     columns = get_compute_df_column(ep_str_callgraph_table)
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
     fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table)
@@ -693,20 +709,6 @@ def get_network_edge_style(src_cid, dst_cid):
     else:
         return "dashed"
     
-def get_node_color(cid):
-    if cid == NONE_CID:
-        return "gray"
-    # yellow, pink, blue, green
-    node_color = ["#FFBF00", "#ff6375", "#6973fa", "#AFE1AF"]
-    if type(cid) != type(1):
-        print(f'Wrong type of cid: {type(cid)}, {cid}')
-    return node_color[cid]
-
-    
-def get_callgraph_edge_color(key):
-    edge_color_dict = {"A": "red", "B": "blue", "C": "green", "D": "yellow"}
-    return edge_color_dict[key]
-
 
 def plot_dict_detail(target_dict, cg, g_):
     node_pw = "1"
@@ -716,7 +718,6 @@ def plot_dict_detail(target_dict, cg, g_):
     fn="times bold italic"
     edge_arrowsize="0.5"
     edge_minlen="1"
-    node_color = ["#FFBF00", "#ff6375", "#6973fa", "#AFE1AF"] # yellow, pink, blue, green
     name_cut = 6
     for elem in target_dict:
         src = elem[0]
@@ -727,8 +728,8 @@ def plot_dict_detail(target_dict, cg, g_):
         dst_svc = dst.split(cfg.DELIMITER)[0]
         dst_cid = int(dst.split(cfg.DELIMITER)[1])
         dst_node_type = dst.split(cfg.DELIMITER)[2]
-        g_.node(name=src, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=node_color[src_cid], penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
-        g_.node(name=dst, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=node_color[dst_cid], penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+        g_.node(name=src, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=node_color_dict[src_cid], penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+        g_.node(name=dst, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=node_color_dict[dst_cid], penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
         if get_edge_type(src_node_type, dst_node_type) == "source":
             edge_color = "black"
         elif get_edge_type(src_node_type, dst_node_type) == "compute":
@@ -745,7 +746,8 @@ def plot_full_arc(compute_arc, network_arc, callgraph):
     g_ = graphviz.Digraph()
     plot_dict_detail(compute_arc, callgraph, g_)
     plot_dict_detail(network_arc, callgraph, g_)
-    g_.render(f'{cfg.OUTPUT_DIR}/temp1', view = True)
+    # g_.render(f'{cfg.OUTPUT_DIR}/temp1', view = True)
+    g_.render(f'{cfg.OUTPUT_DIR}/temp1')
     # output: call_graph.pdf
     g_
     
@@ -763,15 +765,20 @@ def plot_dict_wo_compute_edge(target_dict, g_):
         src = elem[0]
         dst = elem[1]
         src_svc = src.split(cfg.DELIMITER)[0]
-        src_cid = int(src.split(cfg.DELIMITER)[1])
-        # src_node_type = src.split(cfg.DELIMITER)[2]
         dst_svc = dst.split(cfg.DELIMITER)[0]
-        dst_cid = int(dst.split(cfg.DELIMITER)[1])
+        # src_node_type = src.split(cfg.DELIMITER)[2]
         # dst_node_type = dst.split(cfg.DELIMITER)[2]
+        # src_cid = int(src.split(cfg.DELIMITER)[1])
+        # dst_cid = int(dst.split(cfg.DELIMITER)[1])
+        src_cid = src.split(cfg.DELIMITER)[1]
+        dst_cid = dst.split(cfg.DELIMITER)[1]
         src_node = src_svc+str(src_cid)
         dst_node = dst_svc+str(dst_cid)
-        src_node_color = get_node_color(src_cid)
-        dst_node_color = get_node_color(dst_cid)
+        src_node_color = node_color_dict[src_cid]
+        dst_node_color = node_color_dict[dst_cid]
+        print(src_node_color)
+        print(dst_node_color)
+        
         edge_color = "white" # transparent
         # src_node
         g_.node(name=src_node, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=src_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
@@ -781,13 +788,13 @@ def plot_dict_wo_compute_edge(target_dict, g_):
         # g_.edge(src_node, dst_node, color=edge_color, penwidth=edge_pw, style="filled", fontsize=edge_fs, fontcolor="black", arrowsize=edge_arrowsize, minlen=edge_minlen)
         
 
-def plot_call_graph_path(callgraph, target_key, unique_service, g_):
+def plot_call_graph_path(callgraph, target_cg_key, unique_service, g_):
     edge_pw = "0.5"
     edge_fs_0 = "10"
     edge_arrowsize="0.5"
     edge_minlen="1"
-    for key in callgraph:
-        for src_svc, children in callgraph[key].items():
+    for cg_key in callgraph:
+        for src_svc, children in callgraph[cg_key].items():
             for dst_svc in children:
                 cluster_pair = get_cluster_pair(unique_service)
                 for c_pair in cluster_pair:
@@ -796,13 +803,16 @@ def plot_call_graph_path(callgraph, target_key, unique_service, g_):
                     src_node = src_svc+str(src_cid)
                     dst_node = dst_svc+str(dst_cid)
                     if src_svc in unique_service[src_cid] and dst_svc in unique_service[dst_cid]:
-                        if key == target_key:
-                            edge_color = get_callgraph_edge_color(key)
+                        if cg_key == target_cg_key:
+                            edge_color = get_callgraph_edge_color(cg_key)
                         else:
                             edge_color = "white"
                         g_.edge(src_node, dst_node, color = edge_color, penwidth=edge_pw, style="filled", fontsize=edge_fs_0, fontcolor="black", arrowsize=edge_arrowsize, minlen=edge_minlen)
-    
-    
+
+def get_callgraph_edge_color(cg_key):
+    idx = hashlib.md5(b"cg_key")%len(edge_color_list)
+    return edge_color_list(idx)
+
 def plot_arc_var_for_callgraph(network_arc, unique_service, callgraph, key):
     g_ = graphviz.Digraph()
     plot_dict_wo_compute_edge(network_arc, g_)
@@ -831,8 +841,8 @@ def plot_callgraph_request_flow(percent_df, network_arc):
         dst_svc = row["dst"]
         edge_color = get_network_edge_color(src_cid, dst_cid)
         edge_style = get_network_edge_style(src_cid, dst_cid)
-        src_node_color = get_node_color(src_cid)
-        dst_node_color = get_node_color(dst_cid)
+        src_node_color = node_color_dict[src_cid]
+        dst_node_color = node_color_dict[dst_cid]
         src_node_name = src_svc+str(src_cid)
         dst_node_name = dst_svc+str(dst_cid)
         # src_node
@@ -869,8 +879,8 @@ def plot_merged_request_flow(concat_df, workload, network_arc):
         dst_svc = row["dst"]
         edge_color = get_network_edge_color(src_cid, dst_cid)
         edge_style = get_network_edge_style(src_cid, dst_cid)
-        src_node_color = get_node_color(src_cid)
-        dst_node_color = get_node_color(dst_cid)
+        src_node_color = node_color_dict[src_cid]
+        dst_node_color = node_color_dict[dst_cid]
         src_node_name = src_svc+str(src_cid)
         dst_node_name = dst_svc+str(dst_cid)
         # src_node
@@ -957,15 +967,17 @@ def translate_to_percentage(df_req_flow):
     for index, row in df_req_flow.iterrows():
         src_svc = row["From"].split(cfg.DELIMITER)[0]
         dst_svc = row["To"].split(cfg.DELIMITER)[0]
-        src_cid = int(row["From"].split(cfg.DELIMITER)[1])
-        dst_cid = int(row["To"].split(cfg.DELIMITER)[1])
+        # src_cid = int(row["From"].split(cfg.DELIMITER)[1])
+        # dst_cid = int(row["To"].split(cfg.DELIMITER)[1])
+        src_cid = row["From"].split(cfg.DELIMITER)[1]
+        dst_cid = row["To"].split(cfg.DELIMITER)[1]
         src_node_type = row["From"].split(cfg.DELIMITER)[2]
         dst_node_type = row["To"].split(cfg.DELIMITER)[2]
         if src_svc == source_node_name or dst_svc == destination_node_name or (src_node_type == "end" and dst_node_type == "start"):
-            if src_svc != source_node_name:
-                src_cid = int(src_cid)
-            if dst_svc != destination_node_name:
-                dst_cid = int(dst_cid)
+            # if src_svc != source_node_name:
+            #     src_cid = int(src_cid)
+            # if dst_svc != destination_node_name:
+            #     dst_cid = int(dst_cid)
             src_and_dst_index.append((src_svc, src_cid, dst_svc))
             src_list.append(src_svc)
             dst_list.append(dst_svc)
@@ -1125,6 +1137,7 @@ def svc_to_cid(svc_order, unique_service):
                 svc_to_placement[idx].append(cid)
     return svc_to_placement
 
+
 def find_root_node(cg):
     temp = dict()
     root_node = list()
@@ -1140,7 +1153,9 @@ def find_root_node(cg):
         assert False
     if len(root_node) > 1:
         print(f'ERROR: too many root node in callgraph')
+        print(cg)
         assert False
+    # print(cg)
     return root_node[0]
 
     

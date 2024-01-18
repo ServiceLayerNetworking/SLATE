@@ -342,7 +342,12 @@ def single_trace_to_endpoint_str_callgraph(single_trace):
                 callgraph[parent_ep_str].append(child_ep_str)
     for parent_ep_str in callgraph:
         callgraph[parent_ep_str].sort()
-    return callgraph
+    tot_num_node_in_topology = 0
+    for parent_ep_str in callgraph:
+        tot_num_node_in_topology += 1
+        for child_ep_str in callgraph[parent_ep_str]:
+            tot_num_node_in_topology += 1
+    return callgraph, tot_num_node_in_topology
 
 def get_endpoint_to_cg_key_map(traces_):
     endpoint_to_cg_key = dict()
@@ -413,7 +418,7 @@ def traces_to_endpoint_str_callgraph_table(traces):
     for cid in traces:
         for tid in traces[cid]:
             single_trace = traces[cid][tid]
-            ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
+            ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(single_trace)
             cg_key = get_callgraph_key(ep_str_cg)
             # print(f'cg_key: {cg_key}')
             if cg_key not in endpoint_callgraph_table:
@@ -474,7 +479,7 @@ def get_callgraph_key(cg):
     root_node = opt_func.find_root_node(cg)
     cg_key = list()
     bfs_callgraph(root_node, cg_key, cg)
-    print(f'cg_key: {cg_key}')
+    # print(f'cg_key: {cg_key}')
     cg_key_str = sp.ep_del.join(cg_key)
     # for elem in cg_key:
     #     cg_key_str += elem + ","
@@ -502,20 +507,21 @@ def calc_exclusive_time(single_trace):
                         # sequential execution
                         exclude_child_rt = child_span_list[i].rt + child_span_list[j].rt
         parent_span.xt = parent_span.rt - exclude_child_rt
-        print(f"Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
+        # print(f"Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
         if parent_span.xt < 0.0:
-            print(f"ERROR: parent_span,{parent_span.svc_name}, span_id,{parent_span.span_id} exclusive time cannot be negative value: {parent_span.xt}")
-            print(f"ERROR: st,{parent_span.st}, et,{parent_span.et}, rt,{parent_span.rt}, xt,{parent_span.xt}")
-            assert False
-        assert parent_span.xt >= 0.0
-        
+            # print(f"ERROR: parent_span,{parent_span.svc_name}, span_id,{parent_span.span_id} exclusive time cannot be negative value: {parent_span.xt}")
+            # print(f"ERROR: st,{parent_span.st}, et,{parent_span.et}, rt,{parent_span.rt}, xt,{parent_span.xt}")
+            # print("trace")
+            # for span in single_trace:
+            #     print(span)
+            return False
         ###########################################
         # if parent_span.svc_name == FRONTEND_svc:
         #     parent_span.xt = parent_span.rt
         # else:
         #     parent_span.xt = 0
         ###########################################
-
+    return True
 
 def print_traces(traces_):
     for cid in traces_:
@@ -565,7 +571,7 @@ def set_depth_of_span(cg, parent_svc, children, depth_d, prev_dep):
 
 
 def analyze_critical_path_time(single_trace):
-    print(f"Critical Path Analysis")
+    # print(f"Critical Path Analysis")
     for span in single_trace:
         sorted_children = sorted(span.child_spans, key=lambda x: x.et, reverse=True)
         if len(span.critical_child_spans) != 0:
@@ -581,7 +587,10 @@ def analyze_critical_path_time(single_trace):
                 total_critical_children_time += child_span.rt
                 cur_end_time = child_span.st
         span.ct = span.rt - total_critical_children_time
-        assert span.ct >= 0.0
+        # assert span.ct >= 0.0
+        if span.ct < 0.0:
+            return False
+    return True
 
 
 def trace_to_df(traces_):
@@ -605,25 +614,39 @@ def trace_to_df(traces_):
 def get_placement_from_trace(traces):
     placement = dict()
     for cid in traces:
+        if cid not in placement:
+            placement[cid] = set()
         for tid, single_trace in traces[cid].items():
             for span in single_trace:
-                placement[cid] = span.svc_name
+                placement[cid].add(span.svc_name)
     return placement
 
 
 def stitch_time(traces):
+    ret_traces = dict()
     for cid in traces:
         for tid in traces[cid]:
-            stitch_trace(traces[cid][tid])
+            ret = stitch_trace(traces[cid][tid])
+            if ret == True:
+                if cid not in ret_traces:
+                    ret_traces[cid] = dict()
+                ret_traces[cid][tid] = traces[cid][tid]
     # df = trace_to_df(traces)
     # print_all_trace(traces)
-    return traces
+    
+    return ret_traces
 
 
 def stitch_trace(trace):
-    ep_str_cg = single_trace_to_endpoint_str_callgraph(trace)
+    ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(trace)
+    # print(f"tot_num_node_in_topology: {tot_num_node_in_topology}")
     root_ep_str = opt_func.find_root_node(ep_str_cg)
-    print(f"root_ep: {root_ep_str}")
+    # print(f"root_ep: {root_ep_str}")
+    # pprint(f"ep_str_cg: {ep_str_cg}")
+    # exit()
     change_to_relative_time(trace)
-    calc_exclusive_time(trace)
-    analyze_critical_path_time(trace)
+    xt_ret = calc_exclusive_time(trace)
+    ct_ret = analyze_critical_path_time(trace)
+    if xt_ret == False or ct_ret == False:
+        return False
+    return True

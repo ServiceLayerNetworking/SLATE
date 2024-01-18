@@ -69,16 +69,14 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     for cid in endpoint_level_rps:
         for svc_name in endpoint_level_rps[cid]:
             for ep in endpoint_level_rps[cid][svc_name]:
-                    print(f'asdf cid: {cid}, svc_name: {svc_name}, ep: {ep}')
-                    print(f'asdf {endpoint_level_rps[cid][svc_name][ep]}')
-
-    
+                    print(f'cid: {cid}, svc_name: {svc_name}, ep: {ep}')
+                    print(f'{endpoint_level_rps[cid][svc_name][ep]}')
     root_ep = dict()
     for cg_key in ep_str_callgraph_table:
         root_ep[cg_key] = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
     for cg_key in root_ep:
-        print(f'asdf root_span: {root_ep[cg_key]}')
-    
+        print(f'root_span: {root_ep[cg_key]}')
+            
     def get_root_node_rps(endpoint_level_rps, root_ep):
         root_node_rps = dict()
         for cid in endpoint_level_rps:
@@ -177,13 +175,13 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     depth_dict = dict()
     for cg_key in ep_str_callgraph_table:
         depth_dict[cg_key] = opt_func.get_depth_in_graph(ep_str_callgraph_table[cg_key])
-    print("depth_dict")
-    print(depth_dict)
+    # print("depth_dict")
+    # print(depth_dict)
     # key: (parent_svc,child_svc), value: callsize of the link (= depth+1)
     callsize_dict = dict()
     for cg_key in ep_str_callgraph_table:
         callsize_dict[cg_key] = opt_func.get_callsize_dict(ep_str_callgraph_table[cg_key], depth_dict[cg_key])
-    print(f'callsize_dict: {callsize_dict}')
+    # print(f'callsize_dict: {callsize_dict}')
 
     # In[31]:
     
@@ -360,15 +358,17 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     min_egress_cost_list = list()
     max_egress_cost_list = list()
     flattened_callsize_dict = {inner_key: value for outer_key, inner_dict in callsize_dict.items() for inner_key, value in inner_dict.items()}
-    print(f'callsize_dict: {callsize_dict}')
-    print(f'flattened_callsize_dict: {flattened_callsize_dict}')
+    # print(f'callsize_dict: {callsize_dict}')
+    # print(f'flattened_callsize_dict: {flattened_callsize_dict}')
     for var_name in network_arc_var_name:
         # print(var_name)
         if type(var_name) == tuple:
             src = var_name[0].split(cfg.DELIMITER)[0]
             dst = var_name[1].split(cfg.DELIMITER)[0]
-            src_cid = int(var_name[0].split(cfg.DELIMITER)[1])
-            dst_cid = int(var_name[1].split(cfg.DELIMITER)[1])
+            # src_cid = int(var_name[0].split(cfg.DELIMITER)[1])
+            # dst_cid = int(var_name[1].split(cfg.DELIMITER)[1])
+            src_cid = var_name[0].split(cfg.DELIMITER)[1]
+            dst_cid = var_name[1].split(cfg.DELIMITER)[1]
         else:
             print("var_name MUST be tuple datatype")
             assert False
@@ -910,7 +910,6 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         percentage_df.to_csv(f'percentage_df.csv')
         opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)
         exit()
-
 
 
         # In[52]:
