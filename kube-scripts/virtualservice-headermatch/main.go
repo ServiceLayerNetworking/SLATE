@@ -190,7 +190,7 @@ func main() {
 		if err != nil {
 			log.Printf("Failed to create virtualservice: %s", err)
 		} else {
-			fmt.Printf("Created DR/VS for %s\n", svc)
+			fmt.Printf("Created VS for %s\n", svc)
 		}
 	}
 	fmt.Printf("Done\n")

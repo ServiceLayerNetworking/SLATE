@@ -18,25 +18,6 @@ spec:
     hosts:
     - "*"
 ---
-apiVersion: networking.istio.io/v1alpha3
-kind: VirtualService
-metadata:
-  name: hotelreservation
-spec:
-  hosts:
-  - "*"
-  gateways:
-  - hotelreservation-gateway
-  http:
-  - match:
-    - uri:
-        prefix: "/"
-    route:
-    - destination:
-        host: frontend
-        port:
-          number: 5000
----          
 #########################################################################
 ###
 # This config creates subsets based on clusters for the frontend,
@@ -92,10 +73,7 @@ spec:
         subset: west
         port:
           number: 5000
-  - match:
-    - uri:
-        prefix: "/"
-    route:
+  - route:
     - destination:
         host: frontend
         port:
@@ -144,10 +122,10 @@ data:
         "typed_config": {
           "@type": "type.googleapis.com/envoy.config.trace.v3.ZipkinConfig",
           "collector_cluster": "zipkin",
-          "collector_endpoint": "/api/v1/spans/custom",
+          "collector_endpoint": "/api/v2/spans",
           "collector_endpoint_version": "HTTP_JSON",
           "trace_id_128bit": true,
-          "shared_span_context": false
+          "shared_span_context": true
         }
       }
     }
