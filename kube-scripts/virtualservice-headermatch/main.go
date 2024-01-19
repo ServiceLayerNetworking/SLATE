@@ -147,23 +147,23 @@ func main() {
 					},
 				},
 			})
-			vs.Spec.Tcp = append(vs.Spec.Tcp, &v1alpha32.TCPRoute{
-				Match: []*v1alpha32.L4MatchAttributes{
-					{
-						SourceLabels: map[string]string{
-							"region": region,
-						},
-					},
-				},
-				Route: []*v1alpha32.RouteDestination{
-					{
-						Destination: &v1alpha32.Destination{
-							Host:   svc,
-							Subset: region,
-						},
-					},
-				},
-			})
+			//vs.Spec.Tcp = append(vs.Spec.Tcp, &v1alpha32.TCPRoute{
+			//	Match: []*v1alpha32.L4MatchAttributes{
+			//		{
+			//			SourceLabels: map[string]string{
+			//				"region": region,
+			//			},
+			//		},
+			//	},
+			//	Route: []*v1alpha32.RouteDestination{
+			//		{
+			//			Destination: &v1alpha32.Destination{
+			//				Host:   svc,
+			//				Subset: region,
+			//			},
+			//		},
+			//	},
+			//})
 		}
 		// final catchall route
 		vs.Spec.Http = append(vs.Spec.Http, &v1alpha32.HTTPRoute{
@@ -176,16 +176,16 @@ func main() {
 				},
 			},
 		})
-		vs.Spec.Tcp = append(vs.Spec.Tcp, &v1alpha32.TCPRoute{
-			Route: []*v1alpha32.RouteDestination{
-				{
-					Destination: &v1alpha32.Destination{
-						Host:   svc,
-						Subset: "us-west-1",
-					},
-				},
-			},
-		})
+		//vs.Spec.Tcp = append(vs.Spec.Tcp, &v1alpha32.TCPRoute{
+		//	Route: []*v1alpha32.RouteDestination{
+		//		{
+		//			Destination: &v1alpha32.Destination{
+		//				Host:   svc,
+		//				Subset: "us-west-1",
+		//			},
+		//		},
+		//	},
+		//})
 		_, err = vsClient.Create(context.Background(), vs, v1.CreateOptions{})
 		if err != nil {
 			log.Printf("Failed to create virtualservice: %s", err)
