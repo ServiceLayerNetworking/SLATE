@@ -634,32 +634,36 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
 
     # In[45]:
 
+    print("endpoint_level_rps")
     print(endpoint_level_rps)
     # print(endpoint_level_inflight_req)
     ## Constraint 1: SOURCE
     if cfg.LOAD_IN:
         total_coming = 0
         for cg_key in sp_callgraph_table:
+            root_span = opt_func.find_root_node(sp_callgraph_table[cg_key])
+            print(f'cg_key: {cg_key}')
             for cid in placement:
-                root_span = opt_func.find_root_node(sp_callgraph_table[cg_key])
-                print(f'endpoint_level_rps[{cid}][{root_span.svc_name}][{root_span.endpoint_str}]: {endpoint_level_rps[cid][root_span.svc_name][root_span.endpoint_str]}')
-                incoming = endpoint_level_rps[cid][root_span.svc_name][root_span.endpoint_str]
-                # incoming += endpoint_level_inflight_req[cid][root_span.svc_name][root_span.endpoint_str]
-                print(f"incoming: {incoming}")
-                total_coming += incoming
-                
-                
-                # ingress_gw_start_node = f'{svc}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
-                node_name = f'{root_span.endpoint_str}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
-                print(f'node_name: {node_name}')
-                lh = gp.quicksum(aggregated_load.select('*', node_name))
-                rh = incoming
-                gurobi_model.addConstr((lh == rh), name="cluster_"+str(cid)+"_load_in_"+str(root_span.endpoint_str))
-                if cfg.DISPLAY:
-                    print(lh)
-                    print("==")
-                    print(rh)
-                    print("-"*80)
+                if root_span.svc_name in placement[cid]:
+                    print(f'endpoint_level_rps[{cid}][{root_span.svc_name}]')
+                    print(f'[{root_span.endpoint_str}]: {endpoint_level_rps[cid][root_span.svc_name][root_span.endpoint_str]}')
+                    incoming = endpoint_level_rps[cid][root_span.svc_name][root_span.endpoint_str]
+                    # incoming += endpoint_level_inflight_req[cid][root_span.svc_name][root_span.endpoint_str]
+                    print(f"incoming: {incoming}")
+                    total_coming += incoming
+                    
+                    
+                    # ingress_gw_start_node = f'{svc}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
+                    node_name = f'{root_span.endpoint_str}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
+                    print(f'node_name: {node_name}')
+                    lh = gp.quicksum(aggregated_load.select('*', node_name))
+                    rh = incoming
+                    gurobi_model.addConstr((lh == rh), name="cluster_"+str(cid)+"_load_in_"+str(root_span.endpoint_str))
+                    if cfg.DISPLAY:
+                        print(lh)
+                        print("==")
+                        print(rh)
+                        print("-"*80)
         
         print("*"*80)
         print(aggregated_load.select(opt_func.source_node_fullname, '*'))
@@ -732,11 +736,15 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     # For non-leaf node and end node, incoming to end node == sum of outgoing
     for cg_key in ep_str_callgraph_table:
         for parent_ep in ep_str_callgraph_table[cg_key]:
-            for child_ep in ep_str_callgraph_table[cg_key][parent_ep]:
-                # non-leaf node will only have child
-                for parent_cid in endpoint_to_placement[parent_ep]:
+            children_ep = ep_str_callgraph_table[cg_key][parent_ep]
+            print(f'parent_ep: {parent_ep}')
+            # non-leaf node will only have child
+            for parent_cid in endpoint_to_placement[parent_ep]:
+                for child_ep in children_ep:
+                # for child_ep in ep_str_callgraph_table[cg_key][parent_ep]:
+                    print(f'child_ep: {child_ep}')
                     end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
-                    print(f'end_node: {end_node}')
+                    print(f'non-leaf end_node: {end_node}')
                     outgoing_sum = 0
                     for child_cid in endpoint_to_placement[child_ep]:
                         child_start_node = opt_func.get_start_node_name(child_ep, child_cid)

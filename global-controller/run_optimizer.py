@@ -188,7 +188,10 @@ def fit_linear_regression(data, y_col_name, svc_name):
         if row['Coefficient'] < 0:
             print(row)
             print(f"ERROR: row['Coefficient'] < 0: {row['Coefficient']}")
-            assert False
+            ##########################
+            row['Coefficient'] = 1
+            ##########################
+            # assert False
         coef[row['Feature']] = row['Coefficient']
         
     
@@ -202,7 +205,7 @@ def fit_linear_regression(data, y_col_name, svc_name):
         else:
             key_for_coef.append(key)
     a = coef[key_for_coef[0]]
-    x_list = [0, 100]
+    x_list = [0, 30]
     y_list = list()
     for x in x_list:
         y_list.append(a*x+b)
@@ -287,7 +290,7 @@ def gen_endpoint_level_rps(all_endpoints):
             for ep in all_endpoints[cid][svc_name]:
                 ########################################################
                 # ep_rps[cid][svc_name][ep] = random.randint(10, 50)
-                if cid == 0:
+                if cid == "us-east-1":
                     ep_rps[cid][svc_name][ep] = 10
                 else:
                     ep_rps[cid][svc_name][ep] = 100
@@ -346,7 +349,12 @@ def trace_string_file_to_trace_data_structure(trace_string_file_path):
             method = ep.split("@")[1]
             path = ep.split("@")[2]
             rps_dict[ep] = rps
-            
+        
+        ##################################################
+        # serviceName = row["svc_name"]
+        # if serviceName.find("-us-") != -1:
+        #     serviceName = serviceName.split("-us-")[0]
+        ##################################################
         span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], row["trace_id"], row["span_id"], row["parent_span_id"], st=float(row["st"]), et=float(row["et"]), callsize=int(row["call_size"]), rps_dict=num_inflight_dict, num_inflight_dict=num_inflight_dict)
         list_of_span.append(span)
         # print(str(span))
@@ -401,9 +409,11 @@ def training_phase():
     '''Option 2: Read trace string file'''
     ts = time.time()
     
-    filename = "./profiled_data/slate_trace_string_reserve_only_.slatelog.csv"
-    filename = "./profiled_data/slate_trace_string_recommend_only_.slatelog.csv"
-    # filename = "./profiled_data/slate_trace_string_user_only_.slatelog.csv"
+    #filename = "./profiled_data/slate_trace_string_reserve_only_.slatelog.csv"
+    #filename = "./profiled_data/slate_trace_string_recommend_only_.slatelog.csv"
+    #filename = "./profiled_data/slate_trace_string_user_only_.slatelog.csv"
+    # filename = "trace_string.csv"
+    filename = "trace_string_metrics_app.csv"
     
     
     complete_traces = trace_string_file_to_trace_data_structure(filename)
@@ -459,5 +469,5 @@ def training_phase():
 if __name__ == "__main__":
 
     training_phase()
-    exit()
+    # exit()
     optimizer_entrypoint()
