@@ -332,7 +332,12 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		// proxywasm.LogCriticalf("tracing request: %s", traceId)
 		spanId, _ := proxywasm.GetHttpRequestHeader("x-b3-spanid")
 		parentSpanId, _ := proxywasm.GetHttpRequestHeader("x-b3-parentspanid")
-		if err := AddTracedRequest(reqMethod, reqPath, traceId, spanId, parentSpanId, time.Now().UnixMilli()); err != nil {
+		bSizeStr, err := proxywasm.GetHttpRequestHeader("Content-Length")
+		if err != nil {
+			bSizeStr = "0"
+		}
+		bodySize, _ := strconv.Atoi(bSizeStr)
+		if err := AddTracedRequest(reqMethod, reqPath, traceId, spanId, parentSpanId, time.Now().UnixMilli(), bodySize); err != nil {
 			proxywasm.LogCriticalf("unable to add traced request: %v", err)
 			return types.ActionContinue
 		}
@@ -586,7 +591,7 @@ func ParseThresholds(rawThresh string) (thresholds []RpsThreshold) {
 
 // AddTracedRequest adds a traceId to the set of traceIds we are tracking (this is collected every Tick and sent
 // to the controller), and set attributes in shared data about the traceId.
-func AddTracedRequest(method, path, traceId, spanId, parentSpanId string, startTime int64) error {
+func AddTracedRequest(method, path, traceId, spanId, parentSpanId string, startTime int64, bodySize int) error {
 	// add traceId to the set of requests we are tracing.
 	tracedRequestsRaw, cas, err := proxywasm.GetSharedData(KEY_TRACED_REQUESTS)
 	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
@@ -632,6 +637,12 @@ func AddTracedRequest(method, path, traceId, spanId, parentSpanId string, startT
 	if err := proxywasm.SetSharedData(startTimeKey(traceId), startTimeBytes, 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v startTime: %v %v", traceId, startTime, err)
 		return err
+	}
+
+	bodySizeBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(bodySizeBytes, uint64(bodySize))
+	if err := proxywasm.SetSharedData(bodySizeKey(traceId), bodySizeBytes, 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data for traceId %v bodySize: %v %v", traceId, bodySize, err)
 	}
 
 	// Adding load to shareddata when we receive the request

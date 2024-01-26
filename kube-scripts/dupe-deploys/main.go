@@ -22,7 +22,7 @@ func main() {
 	exclude := flag.Bool("exclude", false, "exclude the deployments specified in -deployments instead of including them")
 	ns := flag.String("namespace", "default", "namespace to check")
 	justswitchimage := flag.Bool("justswitchimage", false, "just switch the image of all specified deployments, don't create new deployments")
-	excludeconsul := flag.Bool("excludeconsul", true, "remove consul clusterIP from allowed outbound traffic proxied")
+	excludeconsul := flag.Bool("excludeconsul", false, "remove consul clusterIP from allowed outbound traffic proxied")
 	sharedspancontext := flag.Bool("sharedspancontext", true, "use shared span context bootstrap")
 	flag.Parse()
 
@@ -145,6 +145,9 @@ func main() {
 			}
 
 			if *sharedspancontext {
+				if newDeployment.Spec.Template.Annotations == nil {
+					newDeployment.Spec.Template.Annotations = map[string]string{}
+				}
 				newDeployment.Spec.Template.Annotations["sidecar.istio.io/bootstrapOverride"] = "shared-span-bootstrap-config"
 			}
 
