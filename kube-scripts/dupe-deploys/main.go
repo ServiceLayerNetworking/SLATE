@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	v13 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"strings"
 
 	v12 "k8s.io/api/apps/v1"
@@ -92,7 +94,10 @@ func main() {
 			if *sharedspancontext {
 				originalDeployment.Spec.Template.Annotations["sidecar.istio.io/bootstrapOverride"] = "shared-span-bootstrap-config"
 			}
-			fmt.Printf("new annotations: %v\n", originalDeployment.Annotations)
+			originalDeployment.Spec.Template.Spec.Containers[0].Resources.Limits = map[v13.ResourceName]resource.Quantity{
+				v13.ResourceCPU: resource.MustParse("5"),
+			}
+			//fmt.Printf("new annotations: %v\n", originalDeployment.Annotations)
 			_, err = deploymentsClient.Update(context.TODO(), originalDeployment, v1.UpdateOptions{})
 			if err != nil {
 				fmt.Printf("couldn't update deployment %s: %v.\n", originalDeployment.Name, err)
@@ -132,7 +137,11 @@ func main() {
 			labels["region"] = region
 			newDeployment.Spec.Template.SetLabels(labels)
 			if *excludeconsul {
-				newDeployment.Annotations = map[string]string{"traffic.sidecar.istio.io/excludeOutboundIPRanges": consulClusterIP + "/32"}
+				if newDeployment.Spec.Template.Annotations == nil {
+					newDeployment.Spec.Template.Annotations = map[string]string{"traffic.sidecar.istio.io/excludeOutboundIPRanges": consulClusterIP + "/32"}
+				} else {
+					newDeployment.Spec.Template.Annotations["traffic.sidecar.istio.io/excludeOutboundIPRanges"] = consulClusterIP + "/32"
+				}
 			}
 
 			if *sharedspancontext {
