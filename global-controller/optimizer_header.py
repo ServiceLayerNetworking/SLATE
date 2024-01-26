@@ -25,6 +25,8 @@ import hashlib
 
 random.seed(1234)
 
+name_cut = 10
+
 timestamp_list = list()
 source_node_name = "SOURCE"
 destination_node_name = "DESTINATION"
@@ -718,7 +720,6 @@ def plot_dict_detail(target_dict, cg, g_):
     fn="times bold italic"
     edge_arrowsize="0.5"
     edge_minlen="1"
-    name_cut = 6
     for elem in target_dict:
         src = elem[0]
         dst = elem[1]
@@ -760,7 +761,6 @@ def plot_dict_wo_compute_edge(target_dict, g_):
     fn="times bold italic"
     edge_arrowsize="0.5"
     edge_minlen="1"
-    name_cut = 6
     for elem in target_dict:
         src = elem[0]
         dst = elem[1]
@@ -831,7 +831,6 @@ def plot_callgraph_request_flow(percent_df, network_arc):
     fn="times bold italic"
     edge_arrowsize="0.5"
     edge_minlen="1"
-    name_cut = 6
     for index, row in percent_df.iterrows():
         if row["flow"] <= 0 or row["weight"] <= 0:
             continue
@@ -867,7 +866,6 @@ def plot_merged_request_flow(concat_df, workload, network_arc):
     fn="times bold italic"
     edge_arrowsize="0.5"
     edge_minlen="1"
-    name_cut = 6
     weight = dict()
     num_req = dict()
     for index, row in concat_df.iterrows():

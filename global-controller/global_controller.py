@@ -189,11 +189,13 @@ def parse_stats_into_spans(body, cluster_id, service):
         # app.logger.debug(f"len(ss): {len(ss)}")
         ## NOTE: THIS SHOUD BE UPDATED WHEN member fields in span class is updated.
         if len(ss) != 11:
-            app.logger.error(f"ERROR, len(ss) != 11, {len(ss)}, {ss}")
+            app.logger.error(f"ERROR, len(ss) != 11, (len(ss):{len(ss)}, ss:{ss})")
             # assert False
             continue
         region = ss[0]
         serviceName = ss[1]
+        if serviceName.find("-us-") != -1:
+            serviceName = serviceName.split("-us-")[0]
         method = ss[2]
         path = ss[3]
         traceId = ss[4]
@@ -202,6 +204,10 @@ def parse_stats_into_spans(body, cluster_id, service):
         startTime = int(ss[7])
         endTime = int(ss[8])
         bodySize = int(ss[9])
+        if serviceName.find("metrics-handler") != -1:
+            bodySize = 5000
+        else:
+            bodySize = 50
         # 'GET@/hotels,0,1|POST@/reservation,2,0|GET@/recommendations,2,1|'
         endpointInflightStats = ss[10].split("|")
         if endpointInflightStats[-1] == "":
@@ -218,7 +224,7 @@ def parse_stats_into_spans(body, cluster_id, service):
             rps_dict[str(endpoint)] = rps
             inflight_dict[str(endpoint)] = inflight
         spans.append(sp.Span(method, path, serviceName, region, traceId, spanId, parentSpanId, startTime, endTime, bodySize, rps_dict=rps_dict, num_inflight_dict=inflight_dict))
-        app.logger.info(f"{cfg.log_prefix} new span parsed")
+        app.logger.info(f"{cfg.log_prefix} new span parsed. serviceName: {serviceName}, bodySize: {bodySize}")
     return spans
 
 
@@ -234,11 +240,9 @@ def parse_rps_stats(cid, svc_name, inflight_stats):
 
 def write_trace_str_to_file():
     with stats_mutex:
-        # app.logger.info("asdf")
-        # for span_str in trace_str:
-        #     app.logger.info(f"asdf {span_str}")
-        with open(cfg.init_time+"-trace_string.csv", "w") as file:
-            file.write("update is " + cfg.get_cur_time() + "\n")
+        # with open(cfg.init_time+"-trace_string.csv", "w") as file:
+        with open("trace_string.csv", "w") as file:
+            # file.write("update is " + cfg.get_cur_time() + "\n")
             for span_str in trace_str:
                 file.write(span_str+"\n")
         trace_str.clear()
