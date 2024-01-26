@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"sort"
 	"strconv"
@@ -52,6 +53,9 @@ var (
 
 func main() {
 	proxywasm.SetVMContext(&vmContext{})
+	rand.Seed(time.Now().UnixNano())
+	// rand.Seed(1234)
+
 }
 
 type vmContext struct {
@@ -278,14 +282,18 @@ type httpContext struct {
 }
 
 func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
+	// Sampling
+	// if rand.Float64() > 0.1 {
+
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
 		return types.ActionContinue
 	}
 	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
+	proxywasm.LogCriticalf("OnHttpRequestHeaders, trace_id,%v, inboundCountKey, %v", traceId, inboundCountKey(traceId))
 	IncrementSharedData(inboundCountKey(traceId), 1)
 	// useful log
-	// inbound, err := GetUint64SharedData(inboundCountKey((traceId)))
+	// inbound, err := GetUint64SharedData(inboundCountKey(traceId))
 	// proxywasm.LogCriticalf("OnHttpRequestHeaders, increment inbound, trace_id,%v, inbound,%d", traceId, inbound)
 
 	_, _, err = proxywasm.GetSharedData(traceId)
@@ -330,17 +338,19 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		}
 		IncrementInflightCount(reqMethod, reqPath, 1)
 		// save current load to shareddata
-		//inflightStats, err := GetInflightRequestStats()
-		//if err != nil {
-		//	proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
-		//	return types.ActionContinue
-		//}
-		//saveEndpointStatsForTrace(traceId, inflightStats)
+		inflightStats, err := GetInflightRequestStats()
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
+			return types.ActionContinue
+		}
+		saveEndpointStatsForTrace(traceId, inflightStats)
 	}
 
 	//proxywasm.AddHttpRequestHeader("x-slate-routeto", ctx.pluginContext.region)
 
 	// todo(adiprerepa) enforce controller policy by adding headers to route to remote cluster
+
+	//} // end of if random(0, 1) > 0.5
 
 	return types.ActionContinue
 }
@@ -360,6 +370,34 @@ func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.
 	}
 	return types.ActionContinue
 }
+
+// ////////////////////////////////////////////////////////////////
+// Override types.DefaultHttpContext.
+func (ctx *httpContext) OnHttpResponseBody(bodySize int, endOfStream bool) types.Action {
+	if !endOfStream {
+		// Wait until we see the entire body to replace.
+		return types.ActionPause
+	}
+
+	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
+	bodySizeBytes := make([]byte, 8)
+	originalBody, err := proxywasm.GetHttpResponseBody(0, bodySize)
+	binary.LittleEndian.PutUint64(bodySizeBytes, uint64(len(originalBody)))
+	// binary.LittleEndian.PutUint64(bodySizeBytes, uint64(bodySize))
+	if err := proxywasm.SetSharedData(bodySizeKey(traceId), bodySizeBytes, 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data for traceId %v bodySize: %v %v", traceId, bodySize, err)
+	}
+	if err != nil {
+		proxywasm.LogErrorf("failed to get response body: %v", err)
+		return types.ActionContinue
+	}
+	proxywasm.LogCriticalf("OnHttpResponseBody, response body size: %s", originalBody)
+	proxywasm.LogCriticalf("OnHttpResponseBody, response body size: %v", bodySizeBytes)
+
+	return types.ActionContinue
+}
+
+//////////////////////////////////////////////////////////////////
 
 // OnHttpStreamDone is called when the stream is about to close.
 // We use this to record the end time of the traced request.
