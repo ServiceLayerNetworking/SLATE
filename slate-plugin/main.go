@@ -109,6 +109,9 @@ func (*vmContext) OnVMStart(vmConfigurationSize int) types.OnVMStartStatus {
 	return true
 }
 
+var region string
+var serviceName string
+
 type pluginContext struct {
 	types.DefaultPluginContext
 
@@ -123,21 +126,23 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 		proxywasm.LogCriticalf("unable to set tick period: %v", err)
 		return types.OnPluginStartStatusFailed
 	}
-	service := os.Getenv("ISTIO_META_WORKLOAD_NAME")
-	if service == "" {
-		service = "SLATE_UNKNOWN_SVC"
+	svc := os.Getenv("ISTIO_META_WORKLOAD_NAME")
+	if svc == "" {
+		svc = "SLATE_UNKNOWN_SVC"
 	}
 	pod := os.Getenv("HOSTNAME")
 	if pod == "" {
 		pod = "SLATE_UNKNOWN_POD"
 	}
-	region := os.Getenv("ISTIO_META_REGION")
-	if region == "" {
-		region = "SLATE_UNKNOWN_REGION"
+	regionName := os.Getenv("ISTIO_META_REGION")
+	if regionName == "" {
+		regionName = "SLATE_UNKNOWN_REGION"
 	}
 	p.podName = pod
-	p.serviceName = service
-	p.region = region
+	p.serviceName = svc
+	p.region = regionName
+	region = regionName
+	serviceName = svc
 	return types.OnPluginStartStatusOK
 }
 
@@ -350,6 +355,31 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		saveEndpointStatsForTrace(traceId, inflightStats)
 	}
 
+	// get endpoint distribution
+	endpointDistribution, _, err := proxywasm.GetSharedData(endpointDistributionKey(reqMethod, reqPath))
+	if err != nil {
+		// no rules available yet.
+		return types.ActionContinue
+	}
+	coin := rand.Float64()
+	total := 0.0
+	distLines := strings.Split(string(endpointDistribution), "\n")
+	for _, line := range distLines {
+		lineS := strings.Split(line, " ")
+		targetRegion := lineS[0]
+		pct, err := strconv.ParseFloat(lineS[1], 64)
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't parse endpoint distribution line: %v", err)
+			return types.ActionContinue
+		}
+		total += pct
+		if coin <= total {
+			// proxywasm.LogCriticalf("OnHttpRequestHeaders, coin,%f, total,%f, targetRegion,%s", coin, total, targetRegion)
+			proxywasm.AddHttpRequestHeader("x-slate-routeto", targetRegion)
+			return types.ActionContinue
+		}
+	}
+
 	//proxywasm.AddHttpRequestHeader("x-slate-routeto", ctx.pluginContext.region)
 
 	// todo(adiprerepa) enforce controller policy by adding headers to route to remote cluster
@@ -494,24 +524,53 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 		return
 	}
 	bodyLines := strings.Split(string(respBody), "\n")
-	if bodyLines[0] != "1" {
-		// nothing changed
-		return
+	/*
+		metrics-fake-ingress@GET@/start, us-west-1, us-west-1, 0.6
+		metrics-fake-ingress@GET@/start, us-west-1, us-east-1, 0.4
+		metrics-fake-ingress@POST@/start, us-west-1, us-west-1, 0.9
+		metrics-fake-ingress@POST@/start, us-west-1, us-east-1, 0.1
+	*/
+	// method@path -> region -> pct
+	distrs := map[string]map[string]string{}
+	for _, line := range bodyLines {
+		if line == "" {
+			continue
+		}
+		lineSplit := strings.Split(line, ",")
+		if len(lineSplit) != 4 {
+			proxywasm.LogCriticalf("received invalid http call response, line: %s", line)
+			continue
+		}
+		if lineSplit[1] != region {
+			// disclude
+			continue
+		}
+		svcMethodPath := strings.Split(lineSplit[0], "@")
+		if len(svcMethodPath) != 3 {
+			proxywasm.LogCriticalf("received invalid http call response, line: %s", line)
+			continue
+		}
+		// assume we only get responses for our service
+		//if svcMethodPath[0] != serviceName {
+		//	// disclude
+		//	continue
+		//}
+		endpointKey := svcMethodPath[1] + "@" + svcMethodPath[2]
+		if _, ok := distrs[endpointKey]; !ok {
+			distrs[endpointKey] = map[string]string{}
+		}
+		distrs[endpointKey][lineSplit[2]] = lineSplit[3]
 	}
-	// every line is in the following format, need to parse it into a struct
-	// :method GET,:path /foo |cluster1:90,cluster2:10
-	//for _, line := range bodyLines {
-	//	if line == "" {
-	//		continue
-	//	}
-	//	parts := strings.Split(line, "|")
-	//	if len(parts) != 2 {
-	//		proxywasm.LogCriticalf("invalid line in response body: %s", line)
-	//		continue
-	//	}
-	//	headerMatches := strings.Split(parts[0], ",")
-	//
-	//}
+	for methodPath, distr := range distrs {
+		distStr := ""
+		for region, pct := range distr {
+			distStr += fmt.Sprintf("%s %s\n", region, pct)
+		}
+		mp := strings.Split(methodPath, "@")
+		if err := proxywasm.SetSharedData(endpointDistributionKey(mp[0], mp[1]), []byte(distStr), 0); err != nil {
+			proxywasm.LogCriticalf("unable to set shared data for endpoint distribution %v: %v", methodPath, err)
+		}
+	}
 }
 
 // IncrementSharedData increments the value of the shared data at the given key. The data is
@@ -960,6 +1019,10 @@ func endpointCountKey(method string, path string) string {
 
 func endpointInflightStatsKey(traceId string) string {
 	return traceId + "-endpointInflightStats"
+}
+
+func endpointDistributionKey(method, path string) string {
+	return method + "@" + path + "-distribution"
 }
 
 // (gangmuk): need to double check to confirm it is correct.
