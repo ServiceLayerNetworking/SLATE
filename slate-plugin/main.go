@@ -201,15 +201,15 @@ func (p *pluginContext) OnTick() {
 	}
 
 	inflightStats := ""
-	//inflightStatsMap, err := GetInflightRequestStats()
-	//if err != nil {
-	//	proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
-	//	return
-	//}
-	//for k, v := range inflightStatsMap {
-	//	inflightStats += strings.Join([]string{k, strconv.Itoa(int(v.Total)), strconv.Itoa(int(v.Inflight))}, ",")
-	//	inflightStats += "\n"
-	//}
+	inflightStatsMap, err := GetInflightRequestStats()
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
+		return
+	}
+	for k, v := range inflightStatsMap {
+		inflightStats += strings.Join([]string{k, strconv.Itoa(int(v.Total)), strconv.Itoa(int(v.Inflight))}, ",")
+		inflightStats += "\n"
+	}
 
 	requestStats, err := GetTracedRequestStats()
 	if err != nil {
@@ -284,7 +284,6 @@ type httpContext struct {
 func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	// Sampling
 	// if rand.Float64() > 0.1 {
-
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
 		return types.ActionContinue
