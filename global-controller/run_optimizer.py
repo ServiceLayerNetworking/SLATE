@@ -149,7 +149,9 @@ def optimizer_entrypoint():
     pprint("objective")
     pprint(objective)
     
-    percentage_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, sp_callgraph_table, ep_str_callgraph_table, traffic_segmentation, objective)
+    percentage_df = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, sp_callgraph_table, ep_str_callgraph_table, traffic_segmentation, objective)
+    print("get get")
+    percentage_df.to_csv(f"percentage_df.csv")
     return cluster_pcts
 
 
@@ -209,13 +211,17 @@ def fit_linear_regression(data, y_col_name, svc_name):
     y_list = list()
     for x in x_list:
         y_list.append(a*x+b)
-    plt.plot(X, y, 'bo', alpha=0.4)
-    plt.plot(x_list, y_list, color='red', linewidth=2)
-    plt.xlabel('inflight_req')
-    plt.ylabel('exclusive time (ms)')
-    plt.title(svc_name)
-    plt.savefig(f"latency_{request_type}_{svc_name}.pdf")
-    plt.show()
+    # plt.plot(X, y, 'bo', alpha=0.4)
+    # plt.plot(x_list, y_list, color='red', linewidth=2)
+    # plt.xlabel('inflight_req')
+    # plt.ylabel('exclusive time (ms)')
+    # plt.title(svc_name)
+    # plt.savefig(f"latency_{request_type}_{svc_name}.pdf")
+    # plt.show()
+    
+    for svc_name in coef_dict:
+        for ep_str in coef_dict[svc_name]:
+            print(f'coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
     
     return coef
 
@@ -413,7 +419,8 @@ def training_phase():
     #filename = "./profiled_data/slate_trace_string_recommend_only_.slatelog.csv"
     #filename = "./profiled_data/slate_trace_string_user_only_.slatelog.csv"
     # filename = "trace_string.csv"
-    filename = "trace_string_metrics_app.csv"
+    # filename = "trace_string_metrics_app.csv"
+    filename = "trace_string.csv"
     
     
     complete_traces = trace_string_file_to_trace_data_structure(filename)

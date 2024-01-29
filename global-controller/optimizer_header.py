@@ -954,8 +954,10 @@ def get_start_node_name(svc_name, cid):
 
 
 def translate_to_percentage(df_req_flow):
-    src_list = list()
-    dst_list = list()
+    src_endpoint_list = list()
+    dst_endpoint_list = list()
+    src_svc_list = list()
+    dst_svc_list = list()
     src_cid_list = list()
     dst_cid_list = list()
     flow_list = list()
@@ -963,34 +965,38 @@ def translate_to_percentage(df_req_flow):
     edge_dict = dict()
     src_and_dst_index = list()
     for index, row in df_req_flow.iterrows():
-        src_svc = row["From"].split(cfg.DELIMITER)[0]
-        dst_svc = row["To"].split(cfg.DELIMITER)[0]
+        src_endpoint = row["From"].split(cfg.DELIMITER)[0]
+        dst_endpoint = row["To"].split(cfg.DELIMITER)[0]
         # src_cid = int(row["From"].split(cfg.DELIMITER)[1])
         # dst_cid = int(row["To"].split(cfg.DELIMITER)[1])
         src_cid = row["From"].split(cfg.DELIMITER)[1]
         dst_cid = row["To"].split(cfg.DELIMITER)[1]
         src_node_type = row["From"].split(cfg.DELIMITER)[2]
         dst_node_type = row["To"].split(cfg.DELIMITER)[2]
-        if src_svc == source_node_name or dst_svc == destination_node_name or (src_node_type == "end" and dst_node_type == "start"):
-            # if src_svc != source_node_name:
+        if src_endpoint == source_node_name or dst_endpoint == destination_node_name or (src_node_type == "end" and dst_node_type == "start"):
+            # if src_endpoint != source_node_name:
             #     src_cid = int(src_cid)
-            # if dst_svc != destination_node_name:
+            # if dst_endpoint != destination_node_name:
             #     dst_cid = int(dst_cid)
-            src_and_dst_index.append((src_svc, src_cid, dst_svc))
-            src_list.append(src_svc)
-            dst_list.append(dst_svc)
+            src_and_dst_index.append((src_endpoint, src_cid, dst_endpoint))
+            src_endpoint_list.append(src_endpoint)
+            dst_endpoint_list.append(dst_endpoint)
+            src_svc_list.append(src_endpoint.split(sp.ep_del)[0])
+            dst_svc_list.append(dst_endpoint.split(sp.ep_del)[0])
             src_cid_list.append(src_cid)
             dst_cid_list.append(dst_cid)
             flow_list.append(int(math.ceil(row["Flow"])))
-            edge_name = src_svc+","+dst_svc
+            edge_name = src_endpoint+","+dst_endpoint
             edge_name_list.append(edge_name)
             if edge_name not in edge_dict:
                 edge_dict[edge_name] = list()
             edge_dict[edge_name].append([src_cid,dst_cid,row["Flow"]])
     percentage_df = pd.DataFrame(
         data={
-            "src": src_list,
-            "dst": dst_list, 
+            "src_svc": src_svc_list,
+            "dst_svc": dst_svc_list,
+            "src_endpoint": src_endpoint_list,
+            "dst_endpoint": dst_endpoint_list, 
             "src_cid": src_cid_list,
             "dst_cid": dst_cid_list,
             "flow": flow_list,
