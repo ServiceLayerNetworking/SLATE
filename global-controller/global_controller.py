@@ -49,9 +49,10 @@ sp_callgraph_table = {}
 all_endpoints = {}
 placement = {}
 coef_dict = {}
-profiling = True
+profiling = False
+train_done = False
 trace_str = list()
-
+percentage_df = pd.DataFrame()
 
 '''
 cluster_to_cid and cid_to_cluster should be deprecated
@@ -168,21 +169,9 @@ def is_span_existed_in_trace(traces_, span_):
 def parse_stats_into_spans(body, cluster_id, service):
     spans = []
     lines = body.split("\n")
-    '''
-     ['us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '4a1afd4e0565e973d6bfd803432ae314', '31efa4c6f2197ac7', 'd6bfd803432ae314', '1704910272445', '1704910272447', '0', 'POST@/profile.Profile/GetProfiles,1,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '2857529ac30263da51709ea9b6c9c578', '022d10421302e0f6', '51709ea9b6c9c578', '1704910272723', '1704910272725', '0', 'POST@/profile.Profile/GetProfiles,2,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '3e7eb51dcdeeae6b1456481977f216fc', 'c23cfe5e72207f6a', '1456481977f216fc', '1704910272943', '1704910272945', '0', 'POST@/profile.Profile/GetProfiles,3,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '1d99a31fa2261f7d62e52212c362bfda', 'b124fe1f6fc5c726', '62e52212c362bfda', '1704910273122', '1704910273124', '0', 'POST@/profile.Profile/GetProfiles,4,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', 'a7eed018a3853824b2bd871b66e07e1d', '4a73e25f4d0526c1', 'b2bd871b66e07e1d', '1704910273304', '1704910273306', '0', 'POST@/profile.Profile/GetProfiles,5,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '9e6ffa80728847844c827938e1fd09c8', '5dc9301134652860', '4c827938e1fd09c8', '1704910273487', '1704910273489', '0', 'POST@/profile.Profile/GetProfiles,6,1|us-west-1', 'profile-us-west-1', 'POST', '/profile.Profile/GetProfiles', '7f1a217d64410611b44abf639652e341', 'f7fe7d2e60f46317', 'b44abf639652e341', '1704910273656', '1704910273657', '0', 'POST@/profile.Profile/GetProfiles,7,1|']
-    '''
     service_level_rps = int(lines[0])
     inflightStats = lines[1]
     requestStats = lines[3:]
-    # app.logger.debug('='*30)
-    # app.logger.debug(f'lines: {lines}')
-    # app.logger.debug('='*30)
-    # app.logger.debug(f'service_level_rps: {service_level_rps}')
-    # app.logger.debug('='*30)
-    # app.logger.debug(f'inflightStats: {inflightStats}')
-    # app.logger.debug('='*30)
-    # app.logger.debug(f'requestStats: {requestStats}')
-    # app.logger.debug('='*30)
     for span_stat in requestStats:
         ss = span_stat.split(" ")
         # app.logger.debug(f"ss: {ss}")
@@ -225,7 +214,7 @@ def parse_stats_into_spans(body, cluster_id, service):
             inflight_dict[str(endpoint)] = inflight
         spans.append(sp.Span(method, path, serviceName, region, traceId, spanId, parentSpanId, startTime, endTime, bodySize, rps_dict=rps_dict, num_inflight_dict=inflight_dict))
         app.logger.info(f"{cfg.log_prefix} new span parsed. serviceName: {serviceName}, bodySize: {bodySize}")
-    return spans
+    return spans, service_level_rps, inflightStats, requestStats
 
 
 def parse_inflight_stats(cid, svc_name, inflight_stats):
@@ -281,13 +270,16 @@ def handleProxyLoad():
     # print("{svc} in {region}:\n{body}".format(svc=svc, region=region, body=body))
     if profiling:
         # TODO: In the end of the profiling phase, all the traces have to be written into a file.
-        spans = parse_stats_into_spans(body, region, svc)
+        spans, service_level_rps, inflightStats, requestStats = parse_stats_into_spans(body, region, svc)
+        app.logger.debug('='*30)
+        app.logger.debug(f'service_level_rps: {service_level_rps}')
+        app.logger.debug('='*30)
+        app.logger.debug(f'inflightStats: {inflightStats}')
+        app.logger.debug('='*30)
+        app.logger.debug(f'requestStats: {requestStats}')
+        app.logger.debug('='*30)
         app.logger.debug(f"{cfg.log_prefix} len(spans): {len(spans)}")
         if len(spans) > 0:
-            # app.logger.info(f"{cfg.log_prefix} ==================================")
-            # for span in spans:
-            #     app.logger.info(f"{span}")
-            # app.logger.info(f"{cfg.log_prefix} ==================================")
             with stats_mutex:
                 for span in spans:
                     if is_span_existed_in_trace(all_traces, span):
@@ -295,7 +287,6 @@ def handleProxyLoad():
                     else:
                         # NOTE: Trace could be incomplete. It should be filtered in postprocessing phase.
                         trace_str.append(str(span))
-                        # app.logger.info(f"{cfg.log_prefix} span added to all_trace {span.cluster_id} {span.trace_id}, {span.span_id}, {span.svc_name}")
     else:
         ''' generate fake load stat '''
         # endpoint_level_inflight = gen_endpoint_level_inflight(all_endpoints)
@@ -304,6 +295,24 @@ def handleProxyLoad():
         ''' parse actual load stat '''
         endpoint_level_inflight = parse_inflight_stats(cluster_id, svc_name, inflight_stats)
         endpoint_level_rps = parse_rps_stats(cluster_id, svc_name, rps_stats)
+        
+        ''' response to wasm with routing rule '''
+        ingress_gw_df = percentage_df[percentage_df['src_svc']==]
+        for src_cid in range(cfg.NUM_CLUSTER):
+            for dst_cid in range(cfg.NUM_CLUSTER):
+                row = ingress_gw_df[(ingress_gw_df['src_cid']==src_cid) & (ingress_gw_df['dst_cid']==dst_cid)]
+                if len(row) == 1:
+                    cluster_pcts[src_cid][dst_cid] = str(round(row['weight'].tolist()[0], 2))
+                elif len(row) == 0:
+                    # empty means no routing from this src to this dst
+                    cluster_pcts[src_cid][dst_cid] = str(0)
+                else:
+                    # It should not happen
+                    print(f"{cfg.log_prefix} [ERROR] length of row can't be greater than 1.")
+                    print(f"{cfg.log_prefix} row: {row}")
+                    assert len(row) <= 1
+        
+        
     return ""
 
 # def optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_level_inflight, endpoint_level_rps, placement, coef_dict, all_endpoints, endpoint_to_cg_key):
@@ -311,24 +320,8 @@ def handleProxyLoad():
 def optimizer_entrypoint():
     traffic_segmentation = 1
     objective = "avg_latency" # avg_latency, end_to_end_latency, multi_objective, egress_cost
-    percentage_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, sp_callgraph_table, ep_str_callgraph_table, traffic_segmentation, objective)
-    # ingress_gw_df = percentage_df[percentage_df['src']=='ingress_gw']
-    # for src_cid in range(cfg.NUM_CLUSTER):
-    #     for dst_cid in range(cfg.NUM_CLUSTER):
-    #         row = ingress_gw_df[(ingress_gw_df['src_cid']==src_cid) & (ingress_gw_df['dst_cid']==dst_cid)]
-    #         if len(row) == 1:
-    #             cluster_pcts[src_cid][dst_cid] = str(round(row['weight'].tolist()[0], 2))
-    #         elif len(row) == 0:
-    #             # empty means no routing from this src to this dst
-    #             cluster_pcts[src_cid][dst_cid] = str(0)
-    #         else:
-    #             # It should not happen
-    #             print(f"{cfg.log_prefix} [ERROR] length of row can't be greater than 1.")
-    #             print(f"{cfg.log_prefix} row: {row}")
-    #             assert len(row) <= 1
-                
-    return cluster_pcts
-
+    percentage_df = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, sp_callgraph_table, ep_str_callgraph_table, traffic_segmentation, objective)
+    
 
 # Sample data
 def fit_linear_regression(data, y_col_name):
@@ -531,9 +524,9 @@ if __name__ == "__main__":
         # cluster_pcts = local_routing_rule()
         scheduler.add_job(func=write_trace_str_to_file, trigger="interval", seconds=5)
     else:
-        training_phase()
-        '''Entry point of optimizer'''
-        # optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_level_inflight, endpoint_level_rps, placement, coef_dict, all_endpoints, endpoint_to_cg_key)
+        if train_done == False:
+            training_phase()
+            train_done = True
         scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
         
     scheduler.start()

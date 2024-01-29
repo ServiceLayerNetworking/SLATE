@@ -888,6 +888,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
             if v.IISLB: print(f'\t{v.varname} ≥ {v.LB}')
             if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
         print("OPTIMIZER, INFEASIBLE MODEL")
+        return None
     else:
         print(f"{cfg.log_prefix} ooooooooooooooooooooooo")
         print(f"{cfg.log_prefix} oooo SOLVED MODEL! oooo")
@@ -913,11 +914,8 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         display(request_flow)
         percentage_df = dict()
         percentage_df = opt_func.translate_to_percentage(request_flow)
-        print(f"percentage_df")
-        display(percentage_df)
-        percentage_df.to_csv(f'percentage_df.csv')
-        opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)
-        exit()
+        # opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)
+        return percentage_df
 
 
         # In[52]:
