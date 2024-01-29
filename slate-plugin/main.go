@@ -376,6 +376,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		if coin <= total {
 			// proxywasm.LogCriticalf("OnHttpRequestHeaders, coin,%f, total,%f, targetRegion,%s", coin, total, targetRegion)
 			proxywasm.AddHttpRequestHeader("x-slate-routeto", targetRegion)
+			proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routeto, %s", targetRegion)
 			return types.ActionContinue
 		}
 	}
@@ -391,6 +392,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 
 // bodySize will be used as call size (request size)
 func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.Action {
+	return types.ActionContinue
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
 		return types.ActionContinue
@@ -412,6 +414,7 @@ func (ctx *httpContext) OnHttpResponseBody(bodySize int, endOfStream bool) types
 		// Wait until we see the entire body to replace.
 		return types.ActionPause
 	}
+	return types.ActionContinue
 
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	bodySizeBytes := make([]byte, 8)
