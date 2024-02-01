@@ -29,7 +29,7 @@ const (
 	// this is in millis
 	AGGREGATE_REQUEST_LATENCY = "slate_last_second_latency_avg"
 	// (gangmuk): changed to 2 seconds to capture more inflights.
-	TICK_PERIOD = 2000
+	TICK_PERIOD = 1000
 	// nor_len     = 1000 / TICK_PERIOD
 	DEFAULT_HASH_MOD = 1
 
@@ -213,7 +213,7 @@ func (p *pluginContext) OnTick() {
 	}
 	for k, v := range inflightStatsMap {
 		inflightStats += strings.Join([]string{k, strconv.Itoa(int(v.Total)), strconv.Itoa(int(v.Inflight))}, ",")
-		inflightStats += "\n"
+		inflightStats += "|"
 	}
 
 	requestStats, err := GetTracedRequestStats()

@@ -20,8 +20,12 @@ import os
 from IPython.display import display
 import itertools
 from pprint import pprint
+from global_controller import app
+import span as sp
 
 random.seed(1234)
+
+opt_prefix = "[OPTIMIZER]"
 
 '''
 For interactive run with jupyternotebook, comment out following lines "COMMENT_OUT_FOR_JUPYTER".
@@ -49,7 +53,7 @@ endpoint_level_rps[cid][svc_name][ep] = rps
 
 root_node_max_rps[root_node_endpoint] = rps
 
-all_endpoints[cid][svc_name][ep] = endpoint
+all_endpoints[cid][svc_name] = endpoint
 
 placement[cid] = span.svc_name
 
@@ -61,35 +65,49 @@ traffic_segmentation = True/False
 
 objective = "avg_latency"/"end_to_end_latency"/"egress_cost"/"multi_objective"
 '''
-def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, all_endpoints, endpoint_to_cg_key, sp_callgraph_table, ep_str_callgraph_table, traffic_segmentation, objective):
+def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, all_endpoints, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective):
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
         print(f"{cfg.log_prefix} mkdir {cfg.OUTPUT_DIR}")
-    
+    app.logger.info(f"{opt_prefix} endpoint_level_rps: {endpoint_level_rps}")
     for cid in endpoint_level_rps:
         for svc_name in endpoint_level_rps[cid]:
             for ep in endpoint_level_rps[cid][svc_name]:
-                    print(f'cid: {cid}, svc_name: {svc_name}, ep: {ep}')
-                    print(f'{endpoint_level_rps[cid][svc_name][ep]}')
+                app.logger.debug(f'{opt_prefix} cid: {cid}, svc_name: {svc_name}, ep: {ep}, {endpoint_level_rps[cid][svc_name][ep]}')
+                print(f'{opt_prefix} cid: {cid}, svc_name: {svc_name}, ep: {ep}, {endpoint_level_rps[cid][svc_name][ep]}')
     root_ep = dict()
     for cg_key in ep_str_callgraph_table:
         root_ep[cg_key] = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
-    for cg_key in root_ep:
-        print(f'root_span: {root_ep[cg_key]}')
+    # e.g., root_ep[cg_key]: 'metrics-fake-ingress@GET@/start'
+    app.logger.info(f"{opt_prefix} root_ep: {root_ep}")
             
     def get_root_node_rps(endpoint_level_rps, root_ep):
         root_node_rps = dict()
-        for cid in endpoint_level_rps:
-            if cid not in root_node_rps:
-                root_node_rps[cid] = dict()
-            for svc_name in endpoint_level_rps[cid]:
-                for ep in endpoint_level_rps[cid][svc_name]:
-                    for cg_key in root_ep:
+        for cg_key in root_ep:
+            for cid in endpoint_level_rps:
+                if cid not in root_node_rps:
+                    root_node_rps[cid] = dict()
+                for svc_name in endpoint_level_rps[cid]:
+                    for ep in endpoint_level_rps[cid][svc_name]:
                         if ep == root_ep[cg_key]:
                             root_node_rps[cid][ep] = endpoint_level_rps[cid][svc_name][ep]
+                            app.logger.info(f'{opt_prefix} root_span: {root_ep[cg_key]}, rps: {root_node_rps[cid][ep]}')
         return root_node_rps
     
+    
     root_node_rps = get_root_node_rps(endpoint_level_rps, root_ep)
+    no_rps = True
+    for cid in root_node_rps:
+        for ep in root_node_rps[cid]:
+            if root_node_rps[cid][ep] != 0:
+                print(f'{opt_prefix} root_node_rps[{cid}][{ep}] is 0')
+                no_rps = False
+                break
+        if no_rps == False:
+            break
+    if no_rps == True:
+        app.logger.info(f'{opt_prefix} Skip run_optimizer. (reason: all root_node_rps is 0)')
+        return None
 
     def collapse_cid_in_endpoint_level_rps(endpoint_level_rps):
         collapsed_endpoint_level_rps = dict()
@@ -100,34 +118,39 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                         collapsed_endpoint_level_rps[svc_name] = dict()
                     if ep not in collapsed_endpoint_level_rps[svc_name]:
                         collapsed_endpoint_level_rps[svc_name][ep] = 0
+                    # try:
                     collapsed_endpoint_level_rps[svc_name][ep] += endpoint_level_rps[cid][svc_name][ep]
+                    # except Exception as e:
+                        # app.logger.info(f'{opt_prefix} collapsed_endpoint_level_rps[{svc_name}][{ep}]: {type(collapsed_endpoint_level_rps[svc_name][ep])}')
+                        
+                        # app.logger.info(f'{opt_prefix} endpoint_level_rps[{cid}][{svc_name}][{ep}]: {type(endpoint_level_rps[cid][svc_name][ep])}')
+                        # app.logger.error(f'{opt_prefix} Exception: {e}')
         return collapsed_endpoint_level_rps
     
     collapsed_endpoint_level_rps = collapse_cid_in_endpoint_level_rps(endpoint_level_rps)
-    
+    app.logger.info(f'{opt_prefix} collapsed_endpoint_level_rps: {collapsed_endpoint_level_rps}')
     # This is used in flow_conservation-nonleaf_endnode constraint
     request_in_out_weight = dict()
-    for cg_key in sp_callgraph_table:
+    for cg_key in ep_str_callgraph_table:
         if cg_key not in request_in_out_weight:
             request_in_out_weight[cg_key] = dict()
-        span_cg = sp_callgraph_table[cg_key]
-        for parent_span in span_cg:
-            parent_ep_str = str(parent_span.endpoint)
-            if parent_ep_str not in request_in_out_weight[cg_key]:
-                request_in_out_weight[cg_key][parent_ep_str] = dict()
-            for child_span in span_cg[parent_span]:
-                child_ep_str = str(child_span.endpoint)
-                if child_ep_str not in request_in_out_weight[cg_key][parent_ep_str]:
-                    request_in_out_weight[cg_key][parent_ep_str][child_ep_str] = dict()
-                in_ = collapsed_endpoint_level_rps[parent_span.svc_name][parent_ep_str]
-                out_ = collapsed_endpoint_level_rps[child_span.svc_name][child_ep_str]
-                ###################################################################
-                # TODO
-                # request_in_out_weight[cg_key][parent_ep_str][child_ep_str] = in_/out_
-                request_in_out_weight[cg_key][parent_ep_str][child_ep_str] = 1
-                ###################################################################
-    # pprint(request_in_out_weight)
-    
+        for parent_ep in ep_str_callgraph_table[cg_key]:
+            if parent_ep not in request_in_out_weight[cg_key]:
+                request_in_out_weight[cg_key][parent_ep] = dict()
+            for child_ep in ep_str_callgraph_table[cg_key][parent_ep]:
+                if child_ep not in request_in_out_weight[cg_key][parent_ep]:
+                    request_in_out_weight[cg_key][parent_ep][child_ep] = dict()
+                parent_svc_name = parent_ep.split(sp.ep_del)[0]
+                child_svc_name = child_ep.split(sp.ep_del)[0]
+                app.logger.info(f'parent_svc_name: {parent_svc_name}, parent_ep: {parent_ep}, {collapsed_endpoint_level_rps[parent_svc_name]}')
+                app.logger.info(f'child_svc_name: {child_svc_name}, child_ep: {child_ep}, {collapsed_endpoint_level_rps[child_svc_name]}')
+                
+                in_ = collapsed_endpoint_level_rps[parent_svc_name][parent_ep]
+                out_ = collapsed_endpoint_level_rps[child_svc_name][child_ep]
+                # TODO: request_in_out_weight[cg_key][parent_ep][child_ep] = in_/out_
+                request_in_out_weight[cg_key][parent_ep][child_ep] = 1
+                app.logger.info(f'parent_ep: {parent_ep}, child_ep: {child_ep}, in_: {in_}, out_: {out_}, request_in_out_weight: {request_in_out_weight[cg_key][parent_ep][child_ep]}')
+    app.logger.info(f'request_in_out_weight: {request_in_out_weight}')
     ##############################################
     # TODO: Problem: how should we the endpoint to each call graph? Otherwise, by simply using the endpoint, we are not able to find root endpoint of the call graph.
     # norm_inout_weight = dict()
@@ -317,7 +340,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
             for child_ep_str in ep_str_callgraph_table[cg_key][parent_ep_str]:
                 for p_cid in endpoint_to_placement[parent_ep_str]:
                     for c_cid in endpoint_to_placement[child_ep_str]:
-                        print(f'parent_ep_str: {parent_ep_str}, p_cid: {p_cid}, child_ep_str: {child_ep_str}, c_cid: {c_cid}')
+                        # print(f'parent_ep_str: {parent_ep_str}, p_cid: {p_cid}, child_ep_str: {child_ep_str}, c_cid: {c_cid}')
                         var_name = opt_func.get_network_arc_var_name(parent_ep_str, child_ep_str, p_cid, c_cid)
                         if var_name not in network_arc_var_name:
                             network_arc_var_name.append(var_name)
@@ -438,21 +461,21 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     total_egress_sum = network_egress_cost_sum
     gurobi_model.update()
     
-    print("network_latency_sum")
-    print(network_latency_sum)
-    print()
-    print("compute_latency_sum")
-    print(compute_latency_sum)
-    print()
-    print("total_latency_sum")
-    print(total_latency_sum)
-    print()
-    print("network_egress_cost_sum")
-    print(network_egress_cost_sum)
-    print()
-    print("total_egress_sum")
-    print(total_egress_sum)
-    print()
+    # print("network_latency_sum")
+    # print(network_latency_sum)
+    # print()
+    # print("compute_latency_sum")
+    # print(compute_latency_sum)
+    # print()
+    # print("total_latency_sum")
+    # print(total_latency_sum)
+    # print()
+    # print("network_egress_cost_sum")
+    # print(network_egress_cost_sum)
+    # print()
+    # print("total_egress_sum")
+    # print(total_egress_sum)
+    # print()
 
     
     if objective == "end_to_end_latency":
@@ -634,14 +657,16 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
 
     # In[45]:
 
-    print("endpoint_level_rps")
-    print(endpoint_level_rps)
+    for cid in endpoint_level_rps:
+        for svc_name in endpoint_level_rps[cid]:
+            for ep in endpoint_level_rps[cid][svc_name]:
+                print(f'endpoint_level_rps: {cid}, {svc_name}, {ep}, {endpoint_level_rps[cid][svc_name][ep]}')
     # print(endpoint_level_inflight_req)
     ## Constraint 1: SOURCE
     if cfg.LOAD_IN:
         total_coming = 0
-        for cg_key in sp_callgraph_table:
-            root_span = opt_func.find_root_node(sp_callgraph_table[cg_key])
+        for cg_key in ep_str_callgraph_table:
+            root_span = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
             print(f'cg_key: {cg_key}')
             for cid in placement:
                 if root_span.svc_name in placement[cid]:
@@ -753,17 +778,19 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                         # lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_svc][child_svc]
                     # else:
                     #     lh = gp.quicksum(aggregated_load.select('*', end_node))*merged_in_out_weight[parent_svc][child_svc]
-                    try:
-                        lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
-                        rh = outgoing_sum
-                        gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
-                        print(lh)
-                        print('==')
-                        print(rh)
-                        print("-"*80)
-                    except Exception as e:
-                        print(f'Error: {e}')
-                        assert False
+                    
+                    # try:
+                    app.logger.info(f'request_in_out_weight: {request_in_out_weight}')
+                    lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
+                    rh = outgoing_sum
+                    gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
+                    print(lh)
+                    print('==')
+                    print(rh)
+                    print("-"*80)
+                    # except Exception as e:
+                    #     print(f'Error: {e}')
+                    #     assert False
     gurobi_model.update()
 
     # In[48]:
@@ -873,9 +900,9 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
 
 
     if gurobi_model.Status != GRB.OPTIMAL:
-        print(f"{cfg.log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
-        print(f"{cfg.log_prefix} XXXX INFEASIBLE MODEL! XXXX")
-        print(f"{cfg.log_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        app.logger.info(f"{opt_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        app.logger.info(f"{opt_prefix} XXXX INFEASIBLE MODEL! XXXX")
+        app.logger.info(f"{opt_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
         if cfg.DISPLAY:
             display(df_constr)
         
@@ -887,12 +914,12 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         for v in gurobi_model.getVars():
             if v.IISLB: print(f'\t{v.varname} ≥ {v.LB}')
             if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
-        print("OPTIMIZER, INFEASIBLE MODEL")
+        app.logger.info(f'{opt_prefix} FAIL: INFEASIBLE MODEL')
         return None
     else:
-        print(f"{cfg.log_prefix} ooooooooooooooooooooooo")
-        print(f"{cfg.log_prefix} oooo SOLVED MODEL! oooo")
-        print(f"{cfg.log_prefix} ooooooooooooooooooooooo")
+        app.logger.info(f"{opt_prefix} ooooooooooooooooooooooo")
+        app.logger.info(f"{opt_prefix} oooo SOLVED MODEL! oooo")
+        app.logger.info(f"{opt_prefix} ooooooooooooooooooooooo")
 
         ## Print out the result
         optimize_end_time = time.time()
@@ -915,6 +942,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         percentage_df = dict()
         percentage_df = opt_func.translate_to_percentage(request_flow)
         # opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)
+        app.logger.info(f'{opt_prefix} Successful run.')
         return percentage_df
 
 

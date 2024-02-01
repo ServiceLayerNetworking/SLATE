@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Deployment name
+DEPLOYMENT_NAME="slate-controller"
+#grep_keyword=$1
+
+# Get the list of pod names
+POD_NAMES=$(kubectl get pods -l app=$DEPLOYMENT_NAME --no-headers -o custom-columns=":metadata.name")
+
+# Check if we got any pod names
+if [ -z "$POD_NAMES" ]; then
+    echo "No pods found for deployment $DEPLOYMENT_NAME"
+    exit 1
+fi
+
+# Iterate over each pod and follow logs
+for POD_NAME in $POD_NAMES; do
+    echo "Following logs for pod: $POD_NAME"
+    #kubectl logs -f $POD_NAME | grep ${grep_keyword}
+    kubectl logs -f $POD_NAME
+done
+

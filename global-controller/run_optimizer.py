@@ -23,7 +23,7 @@ endpoint_level_inflight = {}
 endpoint_level_rps = {}
 endpoint_to_cg_key = {}
 ep_str_callgraph_table = {}
-sp_callgraph_table = {}
+# sp_callgraph_table = {}
 all_endpoints = {}
 placement = {}
 coef_dict = {}
@@ -115,7 +115,7 @@ def optimizer_entrypoint():
     global placement
     global all_endpoints
     global endpoint_to_cg_key
-    global sp_callgraph_table
+    # global sp_callgraph_table
     global ep_str_callgraph_table
     # global traffic_segmentation
     # global objective
@@ -140,8 +140,8 @@ def optimizer_entrypoint():
     pprint(all_endpoints)
     pprint("endpoint_to_cg_key")
     pprint(endpoint_to_cg_key)
-    pprint("sp_callgraph_table")
-    pprint(sp_callgraph_table)
+    # pprint("sp_callgraph_table")
+    # pprint(sp_callgraph_table)
     pprint("ep_str_callgraph_table")
     pprint(ep_str_callgraph_table)
     pprint("traffic_segmentation")
@@ -149,7 +149,7 @@ def optimizer_entrypoint():
     pprint("objective")
     pprint(objective)
     
-    percentage_df = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, sp_callgraph_table, ep_str_callgraph_table, traffic_segmentation, objective)
+    percentage_df = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective)
     print("get get")
     percentage_df.to_csv(f"percentage_df.csv")
     return cluster_pcts
@@ -433,18 +433,18 @@ def training_phase():
     
     
     '''Create useful data structures from the traces'''
-    sp_callgraph_table = tst.traces_to_span_callgraph_table(stitched_traces)
+    # sp_callgraph_table = tst.traces_to_span_callgraph_table(stitched_traces)
     endpoint_to_cg_key = tst.get_endpoint_to_cg_key_map(stitched_traces)
     ep_str_callgraph_table = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
-    print("ep_str_callgraph_table")
-    print(f"num different callgraph: {len(ep_str_callgraph_table)}")
+    # print("ep_str_callgraph_table")
+    # print(f"num different callgraph: {len(ep_str_callgraph_table)}")
     for cg_key in ep_str_callgraph_table:
         print(f"{cg_key}: {ep_str_callgraph_table[cg_key]}")
     all_endpoints = tst.get_all_endpoints(stitched_traces)
     for cid in all_endpoints:
         for svc_name in all_endpoints[cid]:
             print(f"all_endpoints[{cid}][{svc_name}]: {all_endpoints[cid][svc_name]}")
-    tst.file_write_callgraph_table(sp_callgraph_table)
+    # tst.file_write_callgraph_table(sp_callgraph_table)
     placement = tst.get_placement_from_trace(stitched_traces)
     for cid in placement:
         print(f"placement[{cid}]: {placement[cid]}")
