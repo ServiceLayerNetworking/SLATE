@@ -357,8 +357,10 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 
 	// get endpoint distribution
 	endpointDistribution, _, err := proxywasm.GetSharedData(endpointDistributionKey(reqMethod, reqPath))
+	proxywasm.LogCriticalf("OnHttpRequestHeaders, endpoint distribution for %s %s: %s", reqMethod, reqPath, endpointDistribution)
 	if err != nil {
 		// no rules available yet.
+		proxywasm.LogCriticalf("No rules available for endpoint %s %s", reqMethod, reqPath)
 		return types.ActionContinue
 	}
 	coin := rand.Float64()
@@ -376,8 +378,10 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		if coin <= total {
 			// proxywasm.LogCriticalf("OnHttpRequestHeaders, coin,%f, total,%f, targetRegion,%s", coin, total, targetRegion)
 			proxywasm.AddHttpRequestHeader("x-slate-routeto", targetRegion)
-			proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routeto, %s", targetRegion)
+			proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routeto set to %s (%.2f%% chance)", targetRegion, pct*100)
 			return types.ActionContinue
+		} else {
+
 		}
 	}
 
@@ -543,6 +547,9 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 		if len(lineSplit) != 4 {
 			proxywasm.LogCriticalf("received invalid http call response, line: %s", line)
 			continue
+		}
+		for i, lineItem := range lineSplit {
+			lineSplit[i] = strings.TrimSpace(lineItem)
 		}
 		if lineSplit[1] != region {
 			// disclude
