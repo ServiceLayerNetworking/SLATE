@@ -561,10 +561,10 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 			continue
 		}
 		// assume we only get responses for our service
-		//if svcMethodPath[0] != serviceName {
-		//	// disclude
-		//	continue
-		//}
+		if svcMethodPath[0] != serviceName {
+			// disclude
+			continue
+		}
 		endpointKey := svcMethodPath[1] + "@" + svcMethodPath[2]
 		if _, ok := distrs[endpointKey]; !ok {
 			distrs[endpointKey] = map[string]string{}
