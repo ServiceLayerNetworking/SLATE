@@ -309,20 +309,29 @@ def handleProxyLoad():
         metrics-fake-ingress@POST@/start, us-east-1, us-west-1, 0.8
         metrics-fake-ingress@POST@/start, us-east-1, us-east-1, 0.2
         '''
-        if percentage_df:
+        if percentage_df.empty:
+            csv_string = "" # rollback to local routing
+            app.logger.info(f"{cfg.log_prefix} handleProxyLoad df {region} {svc} is empty. rollback to local routing")
+        else:
+            app.logger.info(f"{cfg.log_prefix} handleProxyLoad df {region} {svc} percentage_df is NOT empty!")
             temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc)]
             temp_df = temp_df.loc[(temp_df['src_cid'] == region)]
-            temp_df = temp_df.drop(columns=['index_col', 'src_svc', "dst_svc", 'flow', 'total'])
-            csv_string = temp_df.to_csv(header=False, index=False)
-            
+            app.logger.info(f"{cfg.log_prefix} handleProxyLoad df after filtering, temp_df: {temp_df}")
             if len(temp_df) == 0:
-                return None # rollback to local routing
-            
-        else:
-            csv_string = "" # rollback to local routing
-    app.logger.debug(f'csv_string for {svc} in {region}:')
-    app.logger.debug(csv_string)
-    return csv_string
+                app.logger.info(f"{cfg.log_prefix} handleProxyLoad df empty percentage_df for {region}, {svc} is empty. rollback to local routing")
+                csv_string = ""
+            else:
+                # temp_df = temp_df.drop(columns=['index_col', 'src_svc', "dst_svc", 'flow', 'total'])
+                temp_df = temp_df.drop(columns=['src_svc', "dst_svc", 'flow', 'total'])
+                temp_df.to_csv(f'percentage_df-{svc}-{region}.csv')
+                csv_string = temp_df.to_csv(header=False, index=False)
+                app.logger.info(f"{cfg.log_prefix} handleProxyLoad df finally! temp_df for {region}, {svc}, percentage_df-{svc}-{region}.csv")
+                with open(f'csv_string-{svc}-{region}.txt', 'w') as f:
+                    f.write(csv_string)
+                    
+        app.logger.info(f'csv_string for {svc} in {region}:')
+        app.logger.info(csv_string)
+        return csv_string
 
 # def optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_level_inflight, endpoint_level_rps, placement, coef_dict, all_endpoints, endpoint_to_cg_key):
 ## All variables are global variables
@@ -375,11 +384,13 @@ def optimizer_entrypoint():
     app.logger.debug(objective)
     
     percentage_df = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective)
-    if percentage_df == None:
-        app.logger.debug(f"{cfg.log_prefix} [OPTIMIZER] ERROR: run_optimizer FAILS.")
+    if percentage_df.empty:
+        app.logger.info(f"{cfg.log_prefix} [OPTIMIZER] ERROR: run_optimizer FAILS.")
         return
-    app.logger.debug(f"{cfg.log_prefix} [OPTIMIZER] run_optimizer is done.")
-    percentage_df.to_csv(f"percentage_df_new.csv")
+    app.logger.info(f"{cfg.log_prefix} [OPTIMIZER] Successful run_optimizer")
+    app.logger.info(f"[OPTIMIZER] percentage_df: {percentage_df}")
+    percentage_df.to_csv(f"percentage_df.csv")
+    app.logger.info(f"[OPTIMIZER] percentage_df is written.")
     
 
 # Sample data

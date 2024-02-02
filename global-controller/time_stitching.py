@@ -485,7 +485,7 @@ def find_root_span(cg):
 
 def get_callgraph_key(cg):
     root_node = opt_func.find_root_node(cg)
-    app.logger.info(f"[TIME_ST] get_callgraph_key root_node: {root_node}")
+    # app.logger.info(f"[TIME_ST] get_callgraph_key root_node: {root_node}")
     cg_key = list()
     bfs_callgraph(root_node, cg_key, cg)
     # print(f'cg_key: {cg_key}')

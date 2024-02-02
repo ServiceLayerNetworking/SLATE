@@ -1020,6 +1020,7 @@ def translate_to_percentage(df_req_flow):
         except Exception as e:
             weight_list.append(0)
     percentage_df["weight"] = weight_list
+    # percentage_df = percentage_df.reset_index(drop=True)
     return percentage_df
 
 
