@@ -1,0 +1,5 @@
+
+slate_controller_pod=$(kubectl get pods -l app=slate-controller -o custom-columns=:metadata.name)
+kubectl cp /users/gangmuk/projects/SLATE/global-controller/trace_string.csv ${slate_controller_pod}:/app/trace_string.csv
+
+echo 'kubectl cp /users/gangmuk/projects/SLATE/global-controller/trace_string.csv ${slate_controller_pod}:/app/trace_string.csv'

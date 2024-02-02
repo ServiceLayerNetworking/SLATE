@@ -16,7 +16,8 @@
 #     df = pd.read_csv(trace_file)
 #     return len(df["cluster_id"].unique())
 
-ep_del = "@"
+between_ep = "|" # svc@method@url|svc@method@url
+ep_del = "@" # svc@method@url
 
 
 def are_they_same_endpoint(span1, span2):

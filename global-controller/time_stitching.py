@@ -11,6 +11,8 @@ from IPython.display import display
 from collections import deque
 import os
 from pprint import pprint
+from global_controller import app
+
 
 # pd.set_option('display.max_rows', None)
 pd.set_option('display.max_colwidth', None)
@@ -256,9 +258,13 @@ def remove_incomplete_trace_in_bookinfo(traces_):
 
 def change_to_relative_time(single_trace):
     try:
-        sp_cg = single_trace_to_span_callgraph(single_trace)
-        root_span = opt_func.find_root_node(sp_cg)
-        base_t = root_span.st
+        # sp_cg = single_trace_to_span_callgraph(single_trace)
+        ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(single_trace)
+        root_ep = opt_func.find_root_node(ep_str_cg)
+        base_t = 0
+        for span in single_trace:
+            if span.endpoint_str == root_ep:
+                base_t = span.st
     except Exception as error:
         print(error)
         assert False
@@ -318,17 +324,17 @@ one call graph maps to one trace
 callgraph = {A_span: [B_span, C_span], B_span:[D_span], C_span:[], D_span:[]}
 '''
 
-def single_trace_to_span_callgraph(single_trace):
-    callgraph = dict()
-    for parent_span in single_trace:
-        if parent_span not in callgraph:
-            callgraph[parent_span] = list()
-        for child_span in single_trace:
-            if child_span.parent_span_id == parent_span.span_id:
-                callgraph[parent_span].append(child_span)
-    for parent_span in callgraph:
-        callgraph[parent_span] = sorted(callgraph[parent_span], key=lambda x: (x.svc_name, x.method, x.url))
-    return callgraph
+# def single_trace_to_span_callgraph(single_trace):
+#     callgraph = dict()
+#     for parent_span in single_trace:
+#         if parent_span not in callgraph:
+#             callgraph[parent_span] = list()
+#         for child_span in single_trace:
+#             if child_span.parent_span_id == parent_span.span_id:
+#                 callgraph[parent_span].append(child_span)
+#     for parent_span in callgraph:
+#         callgraph[parent_span] = sorted(callgraph[parent_span], key=lambda x: (x.svc_name, x.method, x.url))
+#     return callgraph
 
 def single_trace_to_endpoint_str_callgraph(single_trace):
     callgraph = dict()
@@ -353,8 +359,8 @@ def get_endpoint_to_cg_key_map(traces_):
     endpoint_to_cg_key = dict()
     for cid in traces_:
         for tid, single_trace in traces_[cid].items():
-            sp_cg = single_trace_to_span_callgraph(single_trace)
-            cg_key = get_callgraph_key(sp_cg)
+            ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(single_trace)
+            cg_key = get_callgraph_key(ep_str_cg)
             for span in single_trace:
                 if span.endpoint_str not in endpoint_to_cg_key:
                     endpoint_to_cg_key[span.endpoint_str] = set()
@@ -367,25 +373,25 @@ def get_endpoint_to_cg_key_map(traces_):
         endpoint_to_cg_key[ep_str] = list(endpoint_to_cg_key[ep_str])[0]
     return endpoint_to_cg_key
 
-def find_root_span_in_trace(single_trace):
-    span_cg = single_trace_to_span_callgraph(single_trace)
-    root_span = opt_func.find_root_node(span_cg)
-    temp = dict()
-    root_node = list()
-    for ep1 in cg:
-        temp[ep1] = "True"
-        for ep2 in cg:
-            if ep1 in cg[ep2]:
-                temp[ep1] = "False"
-        if temp[ep1] == "True":
-            root_node.append(ep1)
-    if len(root_node) == 0:
-        print(f'ERROR: cannot find root node in callgraph')
-        assert False
-    if len(root_node) > 1:
-        print(f'ERROR: too many root node in callgraph')
-        assert False
-    return root_node[0]
+# def find_root_span_in_trace(single_trace):
+#     span_cg = single_trace_to_span_callgraph(single_trace)
+#     root_span = opt_func.find_root_node(span_cg)
+#     temp = dict()
+#     root_node = list()
+#     for ep1 in cg:
+#         temp[ep1] = "True"
+#         for ep2 in cg:
+#             if ep1 in cg[ep2]:
+#                 temp[ep1] = "False"
+#         if temp[ep1] == "True":
+#             root_node.append(ep1)
+#     if len(root_node) == 0:
+#         print(f'ERROR: cannot find root node in callgraph')
+#         assert False
+#     if len(root_node) > 1:
+#         print(f'ERROR: too many root node in callgraph')
+#         assert False
+#     return root_node[0]
 
 def get_all_endpoints(traces):
     all_endpoints = dict()
@@ -400,18 +406,18 @@ def get_all_endpoints(traces):
                 all_endpoints[cid][span.svc_name].add(span.endpoint_str)
     return all_endpoints
 
-def traces_to_span_callgraph_table(traces):
-    span_callgraph_table = dict()
-    for cid in traces:
-        for tid in traces[cid]:
-            single_trace = traces[cid][tid]
-            span_cg = single_trace_to_span_callgraph(single_trace)
-            cg_key = get_callgraph_key(span_cg)
-            if cg_key not in span_callgraph_table:
-                print(f"new callgraph key: {cg_key} in cluster {cid}")
-                # NOTE: It is currently overwriting for the existing cg_key
-                span_callgraph_table[cg_key] = span_cg
-    return span_callgraph_table
+# def traces_to_span_callgraph_table(traces):
+#     span_callgraph_table = dict()
+#     for cid in traces:
+#         for tid in traces[cid]:
+#             single_trace = traces[cid][tid]
+#             span_cg = single_trace_to_span_callgraph(single_trace)
+#             cg_key = get_callgraph_key(span_cg)
+#             if cg_key not in span_callgraph_table:
+#                 app.logger.info(f"new callgraph key: {cg_key} in cluster {cid}")
+#                 # NOTE: It is currently overwriting for the existing cg_key
+#                 span_callgraph_table[cg_key] = span_cg
+#     return span_callgraph_table
 
 def traces_to_endpoint_str_callgraph_table(traces):
     endpoint_callgraph_table = dict()
@@ -447,18 +453,20 @@ def bfs_callgraph(start_node, cg_key, ep_cg):
         cur_node = queue.popleft()
         if cur_node not in visited:
             visited.add(cur_node)
-            if type(cur_node) == type("asdf"):
+            if type(cur_node) == type("string"):
                 # print(f"cur_node: {cur_node}")
                 # print(cg_key)
-                cg_key.append(cur_node.split(sp.ep_del)[0])
-                cg_key.append(cur_node.split(sp.ep_del)[1])
-                cg_key.append(cur_node.split(sp.ep_del)[2])
-            elif type(cur_node) == sp.Span:
-                cg_key.append(cur_node.svc_name)
-                cg_key.append(cur_node.method)
-                cg_key.append(cur_node.url)
+                # cg_key.append(cur_node.split(sp.ep_del)[0])
+                # cg_key.append(cur_node.split(sp.ep_del)[1])
+                # cg_key.append(cur_node.split(sp.ep_del)[2])
+                cg_key.append(cur_node)
+                # app.logger.info(f"[TIME_ST] cur_node: {cur_node}")
+            # elif type(cur_node) == sp.Span:
+            #     cg_key.append(cur_node.svc_name)
+            #     cg_key.append(cur_node.method)
+            #     cg_key.append(cur_node.url)
             else:
-                print(f"ERROR: invalid type of cur_node: {type(cur_node)}")
+                app.logger.error(f"ERROR: invalid type of cur_node: {type(cur_node)}")
                 assert False
             for child_ep in ep_cg[cur_node]:
                 if child_ep not in visited:
@@ -477,10 +485,13 @@ def find_root_span(cg):
 
 def get_callgraph_key(cg):
     root_node = opt_func.find_root_node(cg)
+    # app.logger.info(f"[TIME_ST] get_callgraph_key root_node: {root_node}")
     cg_key = list()
     bfs_callgraph(root_node, cg_key, cg)
     # print(f'cg_key: {cg_key}')
-    cg_key_str = sp.ep_del.join(cg_key)
+    # app.logger.info(f"[TIME_ST] cg_key: {cg_key}")
+    cg_key_str = sp.between_ep.join(cg_key)
+    app.logger.info(f"[TIME_ST] cg_key_str: {cg_key_str}")
     # for elem in cg_key:
     #     cg_key_str += elem + ","
     return cg_key_str
