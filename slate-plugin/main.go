@@ -294,7 +294,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		return types.ActionContinue
 	}
 	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
-	proxywasm.LogCriticalf("OnHttpRequestHeaders, trace_id,%v, inboundCountKey, %v", traceId, inboundCountKey(traceId))
+	//proxywasm.LogCriticalf("OnHttpRequestHeaders, trace_id,%v, inboundCountKey, %v", traceId, inboundCountKey(traceId))
 	IncrementSharedData(inboundCountKey(traceId), 1)
 	// useful log
 	// inbound, err := GetUint64SharedData(inboundCountKey(traceId))
@@ -357,7 +357,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 
 	// get endpoint distribution
 	endpointDistribution, _, err := proxywasm.GetSharedData(endpointDistributionKey(reqMethod, reqPath))
-	proxywasm.LogCriticalf("OnHttpRequestHeaders, endpoint distribution for %s %s: %s", reqMethod, reqPath, endpointDistribution)
+	//proxywasm.LogCriticalf("OnHttpRequestHeaders, endpoint distribution for %s %s: %s", reqMethod, reqPath, endpointDistribution)
 	if err != nil {
 		// no rules available yet.
 		proxywasm.LogCriticalf("No rules available for endpoint %s %s", reqMethod, reqPath)
@@ -571,12 +571,14 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 		}
 		distrs[endpointKey][lineSplit[2]] = lineSplit[3]
 	}
+	proxywasm.LogCriticalf("pushed rules:\n%v", distrs)
 	for methodPath, distr := range distrs {
 		distStr := ""
 		for region, pct := range distr {
 			distStr += fmt.Sprintf("%s %s\n", region, pct)
 		}
 		mp := strings.Split(methodPath, "@")
+		//proxywasm.LogCriticalf("setting ENDPOINT DIST %v: %v", endpointDistributionKey(mp[0], mp[1]), distStr)
 		if err := proxywasm.SetSharedData(endpointDistributionKey(mp[0], mp[1]), []byte(distStr), 0); err != nil {
 			proxywasm.LogCriticalf("unable to set shared data for endpoint distribution %v: %v", methodPath, err)
 		}
