@@ -12,6 +12,7 @@ from sklearn.preprocessing import StandardScaler
 import time
 import math
 import matplotlib.pyplot as plt
+import global_controller as gc
 
 latency_func = {}
 is_trained_flag = False
@@ -156,7 +157,7 @@ def optimizer_entrypoint():
 
 
 # Sample data
-def fit_linear_regression(data, y_col_name, svc_name):
+def fit_linear_regression(data, y_col_name, svc_name, cid):
     df = pd.DataFrame(data)
 
     # Separate features and target
@@ -215,7 +216,7 @@ def fit_linear_regression(data, y_col_name, svc_name):
     # plt.plot(x_list, y_list, color='red', linewidth=2)
     # plt.xlabel('inflight_req')
     # plt.ylabel('exclusive time (ms)')
-    # plt.title(svc_name)
+    # plt.title(svc_name + " " + cid)
     # plt.savefig(f"latency_{request_type}_{svc_name}.pdf")
     # plt.show()
     
@@ -252,7 +253,7 @@ def train_latency_function_with_trace(traces):
                     if y_col not in data:
                         data[y_col] = list()
                     data[y_col].append(row["xt"])
-                coef_dict[svc_name][ep_str] = fit_linear_regression(data, y_col, svc_name)
+                coef_dict[svc_name][ep_str] = fit_linear_regression(data, y_col, svc_name, cid)
                 
                 
                 # NOTE: overwriting for debugging
@@ -424,6 +425,10 @@ def training_phase():
     
     
     complete_traces = trace_string_file_to_trace_data_structure(filename)
+    all_traces = trace_string_file_to_trace_data_structure(filename)    
+    print(f'len(all_traces): {len(all_traces)}')
+    complete_traces = gc.check_and_move_to_complete_trace(all_traces)
+    print(f'len(complete_traces): {len(complete_traces)}')
     
     print(f"FILE ==> DATA STRUCTURE: {int(time.time()-ts)} seconds")
     

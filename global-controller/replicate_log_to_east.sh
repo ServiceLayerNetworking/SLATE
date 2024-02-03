@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Original and temporary file names
-ORIGINAL_FILE="trace_string.csv"
+# ORIGINAL_FILE="trace_string.csv"
+ORIGINAL_FILE=$1
 MODIFIED_FILE="temp.csv"
 MERGED_FILE="merged.csv"
 

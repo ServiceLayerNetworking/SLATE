@@ -280,6 +280,10 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     #         # (gurobi_model, regression model, x, y)
     #         pred_constr = add_predictor_constr(gurobi_model, row["latency_function_"+key], m_feats, compute_latency[key][index])
     
+    
+    constraint_file = open("constraint.log", "w")
+    
+    
     '''
     Manually setting the latency function constraint
     
@@ -306,9 +310,14 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                 print(f'dependent_arc_name: {dependent_arc_name}')
                 rh += compute_load[dependent_arc_name] * c
         rh += coefs['intercept']
-        print(f"index: {index}")
-        print(f"lh: {lh}")
-        print(f"rh: {rh}")
+        # print(f"index: {index}")
+        # print(f"lh: {lh}")
+        # print(f"rh: {rh}")
+        constraint_file.write(f"{lh}\n")
+        constraint_file.write("==\n")
+        constraint_file.write(f"{rh}\n")
+        constraint_file.write("-"*80)
+        constraint_file.write("\n")
         gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
     gurobi_model.update()
 
@@ -583,6 +592,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
             for comb in end_to_end_path_var[key]:
                 # end_to_end_path_list.append(end_to_end_path_var[key][comb])
                 gurobi_model.addConstr(end_to_end_path_var[key][comb] <= max_end_to_end_latency, name=f'maxconstr_{key}_{comb}')
+                constraint_file.write(f'end_to_end_path_var[{key}][{comb}] <= max_end_to_end_latency({max_end_to_end_latency})\n')
                 # print(f'end_to_end_path_var[{key}][{comb}]: {end_to_end_path_var[key][comb]}')
                 # print(f'<=')
                 # print(f'max_end_to_end_latency')
@@ -684,11 +694,15 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                     lh = gp.quicksum(aggregated_load.select('*', node_name))
                     rh = incoming
                     gurobi_model.addConstr((lh == rh), name="cluster_"+str(cid)+"_load_in_"+str(root_ep))
-                    # if cfg.DISPLAY:
-                    #     app.logger.debug(lh)
-                    #     app.logger.debug("==")
-                    #     app.logger.debug(rh)
-                    #     app.logger.debug("-"*80)
+                    constraint_file.write(f'{lh}\n')
+                    constraint_file.write("==\n")
+                    constraint_file.write(f'{rh}\n')
+                    constraint_file.write("-"*80)
+                    constraint_file.write("\n")
+                    # app.logger.debug(lh)
+                    # app.logger.debug("==")
+                    # app.logger.debug(rh)
+                    # app.logger.debug("-"*80)
         
         # app.logger.debug("*"*80)
         # app.logger.debug(aggregated_load.select(opt_func.source_node_fullname, '*'))
@@ -731,10 +745,16 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                 lh = gp.quicksum(aggregated_load.select('*', start_node))
                 rh = gp.quicksum(aggregated_load.select(start_node, '*'))
                 gurobi_model.addConstr((lh == rh), name="flow_conservation-start_node-"+ep_str)
+                constraint_file.write(f'{lh}\n')
+                constraint_file.write("==\n")
+                constraint_file.write(f'{rh}\n')
+                constraint_file.write("-"*80)
+                constraint_file.write("\n")
                 # app.logger.debug(lh)
                 # app.logger.debug("==")
                 # app.logger.debug(rh)
                 # app.logger.debug("-"*50)
+                
     gurobi_model.update()
     
     # In[47]:
@@ -785,6 +805,11 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                     lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
                     rh = outgoing_sum
                     gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
+                    constraint_file.write(f'{lh}\n')
+                    constraint_file.write("==\n")
+                    constraint_file.write(f'{rh}\n')
+                    constraint_file.write("-"*80)
+                    constraint_file.write("\n")
                     # app.logger.debug(lh)
                     # app.logger.debug('==')
                     # app.logger.debug(rh)
