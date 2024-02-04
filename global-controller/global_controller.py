@@ -57,12 +57,11 @@ train_done = False
 benchmark_name = ""
 total_num_services = 0
 trace_string_file="trace_string.csv"
-'''
-cluster_to_cid and cid_to_cluster should be deprecated
-cluster_id is given as a number. e.g., 0, 1, 2, ...
-'''
-# cluster_to_cid = {"us-west": 0, "us-east": 1}
-# cid_to_cluster = {0: "us-west", 1: "us-east"}
+# x_feature = "num_inflight_dict"
+x_feature = "rps_dict"
+target_y = "xt"
+
+
 stats_mutex = Lock()
 cluster_pcts = {}
 
@@ -435,6 +434,8 @@ def fit_linear_regression(data, y_col_name):
     for colname in df.columns:
         if colname != y_col_name:
             x_colnames.append(colname)
+    app.logger.info(f"x_colnames: {x_colnames}")
+    app.logger.info(f"y_col_name: {y_col_name}")
     X = df[x_colnames]
     y = df[y_col_name]
     
@@ -485,13 +486,13 @@ def train_latency_function_with_trace(traces):
                 data = dict()
                 y_col = "latency"
                 for index, row in ep_df.iterrows():
-                    for key, val in row["num_inflight_dict"].items():
+                    for key, val in row[x_feature].items():
                         if key not in data:
                             data[key] = list()
                         data[key].append(val)
                     if y_col not in data:
                         data[y_col] = list()
-                    data[y_col].append(row["xt"])
+                    data[y_col].append(row[target_y])
                 
                 # app.logger.debug(f"data: {data}")
                 # app.logger.debug()

@@ -26,6 +26,7 @@ import span as sp
 random.seed(1234)
 
 opt_prefix = "[OPTIMIZER]"
+output_dir = "optimizer_output"
 
 '''
 For interactive run with jupyternotebook, comment out following lines "COMMENT_OUT_FOR_JUPYTER".
@@ -213,7 +214,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
     compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict)
     display(compute_df)
-    compute_df.to_csv('compute_df.csv')
+    compute_df.to_csv(f'{output_dir}/compute_df.csv')
     if traffic_segmentation == False:
         original_compute_df = opt_func.create_compute_df(placement, original_callgraph, callsize_dict, original_NUM_REQUESTS, original_MAX_LOAD)
         # display(original_compute_df)
@@ -281,7 +282,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     #         pred_constr = add_predictor_constr(gurobi_model, row["latency_function_"+key], m_feats, compute_latency[key][index])
     
     
-    constraint_file = open("constraint.log", "w")
+    constraint_file = open(f'{output_dir}/constraint.log', 'w')
     
     
     '''
@@ -431,7 +432,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     network_df["min_egress_cost"] = min_egress_cost_list
     network_df["max_egress_cost"] = max_egress_cost_list
 
-    network_df.to_csv('network_df.csv')
+    network_df.to_csv(f'{output_dir}/network_df.csv')
 
     # In[44]:
 
@@ -907,11 +908,8 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     df_constr = pd.DataFrame(constrInfo)
     df_constr.columns=['Constraint Name','Constraint equation', 'Sense','RHS']
     num_constr = len(df_constr)
-    if cfg.OUTPUT_WRITE:
-        df_var.to_csv(cfg.OUTPUT_DIR+"/variable.csv")
-        df_constr.to_csv(cfg.OUTPUT_DIR+"/constraint.csv")
-    df_var.to_csv("variable.csv")
-    df_constr.to_csv("constraint.csv")
+    df_var.to_csv(f'{output_dir}/variable.csv')
+    df_constr.to_csv(f'{output_dir}/constraint.csv')
     # with pd.option_context('display.max_colwidth', None):
     #     with pd.option_context('display.max_rows', None):
     #         print("df_var")
@@ -963,7 +961,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
             if aggregated_load[arc].x > 1e-6:
                 temp = pd.DataFrame({"From": [arc[0]], "To": [arc[1]], "Flow": [aggregated_load[arc].x]})
                 request_flow = pd.concat([request_flow, temp], ignore_index=True)
-        request_flow.to_csv('request_flow.csv')
+        request_flow.to_csv(f'{output_dir}/request_flow.csv')
         display(request_flow)
         percentage_df = opt_func.translate_to_percentage(request_flow)
         # opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)
