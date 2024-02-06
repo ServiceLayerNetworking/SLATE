@@ -115,8 +115,10 @@ var serviceName string
 type pluginContext struct {
 	types.DefaultPluginContext
 
-	podName       string
-	serviceName   string
+	podName          string
+	serviceName      string
+	svcWithoutRegion string
+
 	region        string
 	rpsThresholds []RpsThreshold
 }
@@ -293,6 +295,56 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	if err != nil {
 		return types.ActionContinue
 	}
+
+	reqMethod, err := proxywasm.GetHttpRequestHeader(":method")
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get :method request header: %v", err)
+		return types.ActionContinue
+	}
+	reqPath, err := proxywasm.GetHttpRequestHeader(":path")
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get :path request header: %v", err)
+		return types.ActionContinue
+	}
+	reqPath = strings.Split(reqPath, "?")[0]
+	reqAuthority, err := proxywasm.GetHttpRequestHeader(":authority")
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get :authority request header: %v", err)
+		return types.ActionContinue
+	}
+	dst := strings.Split(reqAuthority, ":")[0]
+	if !strings.HasPrefix(ctx.pluginContext.serviceName, dst) {
+		// the request is originating from this sidecar to another service
+		// perform routing magic
+		// get endpoint distribution
+		endpointDistribution, _, err := proxywasm.GetSharedData(endpointDistributionKey(reqMethod, reqPath))
+		//proxywasm.LogCriticalf("OnHttpRequestHeaders, endpoint distribution for %s %s: %s", reqMethod, reqPath, endpointDistribution)
+		if err != nil {
+			// no rules available yet.
+			proxywasm.LogCriticalf("No rules available for endpoint %s %s", reqMethod, reqPath)
+		} else {
+			coin := rand.Float64()
+			total := 0.0
+			distLines := strings.Split(string(endpointDistribution), "\n")
+			for _, line := range distLines {
+				lineS := strings.Split(line, " ")
+				targetRegion := lineS[0]
+				pct, err := strconv.ParseFloat(lineS[1], 64)
+				if err != nil {
+					proxywasm.LogCriticalf("Couldn't parse endpoint distribution line: %v", err)
+					return types.ActionContinue
+				}
+				total += pct
+				if coin <= total {
+					// proxywasm.LogCriticalf("OnHttpRequestHeaders, coin,%f, total,%f, targetRegion,%s", coin, total, targetRegion)
+					proxywasm.AddHttpRequestHeader("x-slate-routeto", targetRegion)
+					proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routeto set to %s (%.2f%% chance)", targetRegion, pct*100)
+					break
+				}
+			}
+		}
+	}
+
 	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
 	//proxywasm.LogCriticalf("OnHttpRequestHeaders, trace_id,%v, inboundCountKey, %v", traceId, inboundCountKey(traceId))
 	IncrementSharedData(inboundCountKey(traceId), 1)
@@ -319,18 +371,6 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	// incrememt total number of inflight requests
 	IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, 1)
 
-	reqMethod, err := proxywasm.GetHttpRequestHeader(":method")
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get :method request header: %v", err)
-		return types.ActionContinue
-	}
-	reqPath, err := proxywasm.GetHttpRequestHeader(":path")
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get :path request header: %v", err)
-		return types.ActionContinue
-	}
-	reqPath = strings.Split(reqPath, "?")[0]
-
 	if tracedRequest(traceId) {
 		// we need to record start and end time
 		// proxywasm.LogCriticalf("tracing request: %s", traceId)
@@ -354,43 +394,6 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		}
 		saveEndpointStatsForTrace(traceId, inflightStats)
 	}
-
-	// get endpoint distribution
-	endpointDistribution, _, err := proxywasm.GetSharedData(endpointDistributionKey(reqMethod, reqPath))
-	//proxywasm.LogCriticalf("OnHttpRequestHeaders, endpoint distribution for %s %s: %s", reqMethod, reqPath, endpointDistribution)
-	if err != nil {
-		// no rules available yet.
-		proxywasm.LogCriticalf("No rules available for endpoint %s %s", reqMethod, reqPath)
-		return types.ActionContinue
-	}
-	coin := rand.Float64()
-	total := 0.0
-	distLines := strings.Split(string(endpointDistribution), "\n")
-	for _, line := range distLines {
-		lineS := strings.Split(line, " ")
-		targetRegion := lineS[0]
-		pct, err := strconv.ParseFloat(lineS[1], 64)
-		if err != nil {
-			proxywasm.LogCriticalf("Couldn't parse endpoint distribution line: %v", err)
-			return types.ActionContinue
-		}
-		total += pct
-		if coin <= total {
-			// proxywasm.LogCriticalf("OnHttpRequestHeaders, coin,%f, total,%f, targetRegion,%s", coin, total, targetRegion)
-			proxywasm.AddHttpRequestHeader("x-slate-routeto", targetRegion)
-			proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routeto set to %s (%.2f%% chance)", targetRegion, pct*100)
-			return types.ActionContinue
-		} else {
-
-		}
-	}
-
-	//proxywasm.AddHttpRequestHeader("x-slate-routeto", ctx.pluginContext.region)
-
-	// todo(adiprerepa) enforce controller policy by adding headers to route to remote cluster
-
-	//} // end of if random(0, 1) > 0.5
-
 	return types.ActionContinue
 }
 
