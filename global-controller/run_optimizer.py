@@ -12,6 +12,7 @@ from sklearn.preprocessing import StandardScaler
 import time
 import math
 import matplotlib.pyplot as plt
+import global_controller as gc
 
 latency_func = {}
 is_trained_flag = False
@@ -29,7 +30,9 @@ placement = {}
 coef_dict = {}
 profiling = True
 trace_str = list()
-
+# x_feature = "num_inflight_dict"
+x_feature = "rps_dict"
+target_y = "xt"
 
 '''
 cluster_to_cid and cid_to_cluster should be deprecated
@@ -156,7 +159,7 @@ def optimizer_entrypoint():
 
 
 # Sample data
-def fit_linear_regression(data, y_col_name, svc_name):
+def fit_linear_regression(data, y_col_name, svc_name, cid):
     df = pd.DataFrame(data)
 
     # Separate features and target
@@ -211,13 +214,13 @@ def fit_linear_regression(data, y_col_name, svc_name):
     y_list = list()
     for x in x_list:
         y_list.append(a*x+b)
-    # plt.plot(X, y, 'bo', alpha=0.4)
-    # plt.plot(x_list, y_list, color='red', linewidth=2)
-    # plt.xlabel('inflight_req')
-    # plt.ylabel('exclusive time (ms)')
-    # plt.title(svc_name)
-    # plt.savefig(f"latency_{request_type}_{svc_name}.pdf")
-    # plt.show()
+    plt.plot(X, y, 'bo', alpha=0.4)
+    plt.plot(x_list, y_list, color='red', linewidth=2)
+    plt.xlabel('inflight_req')
+    plt.ylabel('exclusive time (ms)')
+    plt.title(svc_name + " " + cid)
+    plt.savefig(f"latency_{request_type}_{svc_name}.pdf")
+    plt.show()
     
     for svc_name in coef_dict:
         for ep_str in coef_dict[svc_name]:
@@ -245,14 +248,14 @@ def train_latency_function_with_trace(traces):
                 data = dict()
                 y_col = "latency"
                 for index, row in ep_df.iterrows():
-                    for key, val in row["num_inflight_dict"].items():
+                    for key, val in row[x_feature].items():
                         if key not in data:
                             data[key] = list()
                         data[key].append(val)
                     if y_col not in data:
                         data[y_col] = list()
-                    data[y_col].append(row["xt"])
-                coef_dict[svc_name][ep_str] = fit_linear_regression(data, y_col, svc_name)
+                    data[y_col].append(row[target_y])
+                coef_dict[svc_name][ep_str] = fit_linear_regression(data, y_col, svc_name, cid)
                 
                 
                 # NOTE: overwriting for debugging
@@ -424,6 +427,10 @@ def training_phase():
     
     
     complete_traces = trace_string_file_to_trace_data_structure(filename)
+    all_traces = trace_string_file_to_trace_data_structure(filename)    
+    print(f'len(all_traces): {len(all_traces)}')
+    complete_traces = gc.check_and_move_to_complete_trace(all_traces)
+    print(f'len(complete_traces): {len(complete_traces)}')
     
     print(f"FILE ==> DATA STRUCTURE: {int(time.time()-ts)} seconds")
     

@@ -22,8 +22,7 @@ import math
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
-
-# app.logger.setLevel(logging.INFO)
+app.logger.setLevel(logging.INFO)
 # werklog = logging.getLogger('werkzeug')
 # werklog.setLevel(logging.DEBUG)
 # app.logger.setLevel(logging.INFO)
@@ -51,19 +50,18 @@ ep_str_callgraph_table = {}
 all_endpoints = {}
 placement = {}
 coef_dict = {}
-trace_str = list()
+trace_str_list = list()
 percentage_df = None
 mode = ""
 train_done = False
 benchmark_name = ""
 total_num_services = 0
+trace_string_file="trace_string.csv"
+# x_feature = "num_inflight_dict"
+x_feature = "rps_dict"
+target_y = "xt"
 
-'''
-cluster_to_cid and cid_to_cluster should be deprecated
-cluster_id is given as a number. e.g., 0, 1, 2, ...
-'''
-# cluster_to_cid = {"us-west": 0, "us-east": 1}
-# cid_to_cluster = {0: "us-west", 1: "us-east"}
+
 stats_mutex = Lock()
 cluster_pcts = {}
 
@@ -160,16 +158,18 @@ def parse_stats_into_spans(body, given_svc_name):
 
 def write_trace_str_to_file():
     global mode
-    if mode != "profile":
-        return
-    with stats_mutex:
-        # with open(cfg.init_time+"-trace_string.csv", "w") as file:
-        with open("trace_string.csv", "w") as file:
-            # file.write("update is " + cfg.get_cur_time() + "\n")
-            for span_str in trace_str:
-                file.write(span_str+"\n")
-        trace_str.clear()
-    app.logger.debug(f"{cfg.log_prefix} write_trace_str_to_file happened.")
+    global trace_string_file
+    global trace_str_list
+    if mode == "profile":
+        if len(trace_str_list) > 0:
+            with stats_mutex:
+                # with open(cfg.init_time+"-trace_string.csv", "w") as file:
+                with open(trace_string_file, "w") as file:
+                    # file.write("update is " + cfg.get_cur_time() + "\n")
+                    for span_str in trace_str_list:
+                        file.write(span_str+"\n")
+                # trace_str_list.clear()
+            app.logger.debug(f"{cfg.log_prefix} write_trace_str_to_file happened.")
     
 
 '''
@@ -202,22 +202,35 @@ def handleProxyLoad():
     global endpoint_level_rps
     global endpoint_level_inflight
     global percentage_df
+    global trace_str_list
     
-    # body = request.get_json(force=True)
     svc = request.headers.get('x-slate-servicename')
     if svc.find("-us-") != -1:
             svc = svc.split("-us-")[0]
-    region = request.headers.get('x-slate-region')
     if svc == "slate-controller":
         app.logger.debug(f"{cfg.log_prefix} WARNING: skip slate-controller in handleproxy")
         return ""
+    
+    region = request.headers.get('x-slate-region')
     if region == "SLATE_UNKNOWN_REGION":
         app.logger.debug(f"{cfg.log_prefix} WARNING: skip SLATE_UNKNOWN_REGION in handleproxy")
         return ""
+    
     body = request.get_data().decode('utf-8')
     # app.logger.debug("{svc} in {region}:\n{body}".format(svc=svc, region=region, body=body))
         
     app.logger.info(f"{cfg.log_prefix} handleProxyLoad, svc: {svc}, region: {region}")
+    
+    if region not in endpoint_level_rps:
+        endpoint_level_rps[region] = dict()
+    if region not in endpoint_level_inflight:
+        endpoint_level_inflight[region] = dict()
+    if svc not in endpoint_level_rps[region]:
+        endpoint_level_rps[region][svc] = dict()
+        app.logger.info(f"Init endpoint_level_rps[{region}][{svc}]")
+    if svc not in endpoint_level_inflight[region]:
+        endpoint_level_inflight[region][svc] = dict()
+        app.logger.info(f"Init endpoint_level_inflight[{region}][{svc}]")
     
     inflightStats = parse_inflight_stats(body)
     if inflightStats == "":
@@ -225,16 +238,16 @@ def handleProxyLoad():
             endpoint_level_rps[region][svc][ep] = 0
         for ep in endpoint_level_inflight[region][svc]:
             endpoint_level_inflight[region][svc][ep] = 0
-        app.logger.info(f"{cfg.log_prefix} {svc} inflightStats is empty")
-        app.logger.info(f"{cfg.log_prefix} Init entire inflight and rps to 0")
-        return ""
+        # app.logger.info(f"{cfg.log_prefix} {svc} inflightStats is empty")
+        # app.logger.info(f"{cfg.log_prefix} Init entire inflight and rps to 0")
+        # return ""
     
     # inflightStats: GET@/start,4,1|POST@/start,4,1|
-    app.logger.info(f"{cfg.log_prefix} inflightStats: {inflightStats}")
+    app.logger.debug(f"{cfg.log_prefix} inflightStats: {inflightStats}")
     active_endpoint_stats = inflightStats.split("|")[:-1]
     for ep_stats in active_endpoint_stats:
         # ep_stats: GET@/start,4,1
-        app.logger.info(f"{cfg.log_prefix} ep_stats: {ep_stats}")
+        app.logger.debug(f"{cfg.log_prefix} ep_stats: {ep_stats}")
         ep = svc + sp.ep_del + ep_stats.split(",")[0]
         # ep: metrics-handler@GET@/start
         assert len(ep.split(sp.ep_del)) == 3
@@ -244,24 +257,22 @@ def handleProxyLoad():
         endpoint_level_inflight[region][svc][ep] = ontick_inflight
             
     for ep in endpoint_level_rps[region][svc]:
-        app.logger.info(f"{cfg.log_prefix} handleProxyLoad, endpoint_level_rps: {region}, {svc}, {ep}, {endpoint_level_rps[region][svc][ep]}")
+        app.logger.debug(f"{cfg.log_prefix} handleProxyLoad, endpoint_level_rps: {region}, {svc}, {ep}, {endpoint_level_rps[region][svc][ep]}")
     for ep in endpoint_level_inflight[region][svc]:
-        app.logger.info(f"{cfg.log_prefix} handleProxyLoad, endpoint_level_inflight: {region}, {svc}, {ep}, {endpoint_level_inflight[region][svc][ep]}")
+        app.logger.debug(f"{cfg.log_prefix} handleProxyLoad, endpoint_level_inflight: {region}, {svc}, {ep}, {endpoint_level_inflight[region][svc][ep]}")
         
     if mode == "profile":
         # TODO: In the end of the profile phase, all the traces have to be written into a file.
-        
-            
         spans = parse_stats_into_spans(body, svc)
         # app.logger.debug(f"{cfg.log_prefix} service_level_rps: {service_level_rps}")
         app.logger.debug(f"{cfg.log_prefix} inflightStats: {inflightStats}")
         # It is necessary to initialize rps and inflight for each endpoint since it is not guaranteed that all endpoints are in the stats. In the current ontick, it shouldn't use previous rps or inflight. If there is stats for endpoint A, it doesn't mean that there is stats for endpoint B. 
-        all_ep_for_rps_so_far = endpoint_level_rps[region][svc]
-        for ep in all_ep_for_rps_so_far:
-            endpoint_level_rps[region][svc][ep] = 0
-        all_ep_for_inflight_so_far = endpoint_level_inflight[region][svc]
-        for ep in all_ep_for_inflight_so_far:
-            endpoint_level_inflight[region][svc][ep] = 0
+        # all_ep_for_rps_so_far = endpoint_level_rps[region][svc]
+        # for ep in all_ep_for_rps_so_far:
+        #     endpoint_level_rps[region][svc][ep] = 0
+        # all_ep_for_inflight_so_far = endpoint_level_inflight[region][svc]
+        # for ep in all_ep_for_inflight_so_far:
+        #     endpoint_level_inflight[region][svc][ep] = 0
             
         # This code is for debugging purpose. for performance, comment it out.
         # for i in len(all_ep_for_rps_so_far):
@@ -277,8 +288,8 @@ def handleProxyLoad():
                         # metrics-app: #spans = 3
                         # matmul-app: #spans = 2
                         # hotelreservation: #spans = ?
-                        trace_str.append(str(span))
-        return ""
+                        trace_str_list.append(str(span))
+        csv_string = ""
     else:
         ''' generate fake load stat '''
         # endpoint_level_inflight = gen_endpoint_level_inflight(all_endpoints)
@@ -314,24 +325,34 @@ def handleProxyLoad():
             app.logger.info(f"{cfg.log_prefix} handleProxyLoad df {region} {svc} is empty. rollback to local routing")
         else:
             app.logger.info(f"{cfg.log_prefix} handleProxyLoad df {region} {svc} percentage_df is NOT empty!")
-            temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc)]
-            temp_df = temp_df.loc[(temp_df['src_cid'] == region)]
-            app.logger.info(f"{cfg.log_prefix} handleProxyLoad df after filtering, temp_df: {temp_df}")
+            temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
+            # temp_df = temp_df.loc[(temp_df['src_cid'] == region)]
+            # app.logger.info(f"{cfg.log_prefix} handleProxyLoad df after filtering, temp_df: {temp_df}")
             if len(temp_df) == 0:
-                app.logger.info(f"{cfg.log_prefix} handleProxyLoad df empty percentage_df for {region}, {svc} is empty. rollback to local routing")
+                app.logger.error(f"{cfg.log_prefix} ERROR: handleProxyLoad df percentage_df becomes empty after filtering. {region}, {svc}. rollback to local routing")
                 csv_string = ""
             else:
-                # temp_df = temp_df.drop(columns=['index_col', 'src_svc', "dst_svc", 'flow', 'total'])
-                temp_df = temp_df.drop(columns=['src_svc', "dst_svc", 'flow', 'total'])
+                '''
+                metrics-handler@GET@/detectAnomalies,us-west-1,us-west-1,0.6923076923076923
+                metrics-handler@GET@/detectAnomalies,us-west-1,us-east-1,0.3076923076923077
+                
+                metrics-fake-ingress-us-west-1@GET@/start, us-west-1, us-west-1, 0.1
+                metrics-fake-ingress-us-west-1@GET@/start, us-west-1, us-east-1, 0.9
+                metrics-fake-ingress-us-west-1@POST@/start, us-west-1, us-west-1, 0.9
+                metrics-fake-ingress-us-west-1@POST@/start, us-west-1, us-east-1, 0.1
+                '''
+                temp_df = temp_df.drop(columns=['src_svc', "dst_svc", "dst_endpoint", 'flow', 'total'])
+                temp_df = temp_df.reset_index(drop=True)
+                for index, row in temp_df.iterrows():
+                    temp_df.at[index, 'src_endpoint'] = str(row['src_endpoint']) + '-' + str(row['src_cid'])
                 temp_df.to_csv(f'percentage_df-{svc}-{region}.csv')
                 csv_string = temp_df.to_csv(header=False, index=False)
-                app.logger.info(f"{cfg.log_prefix} handleProxyLoad df finally! temp_df for {region}, {svc}, percentage_df-{svc}-{region}.csv")
-                with open(f'csv_string-{svc}-{region}.txt', 'w') as f:
-                    f.write(csv_string)
-                    
-        app.logger.info(f'csv_string for {svc} in {region}:')
-        app.logger.info(csv_string)
-        return csv_string
+                app.logger.info(f"{cfg.log_prefix} handleProxyLoad new percentage_df! percentage_df-{svc}-{region}.csv")
+    with open(f'csv_string-{svc}-{region}.txt', 'w') as f:
+        f.write(csv_string)
+    app.logger.info(f'csv_string updated for {svc} in {region}:')
+    app.logger.info(csv_string)
+    return csv_string
 
 # def optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_level_inflight, endpoint_level_rps, placement, coef_dict, all_endpoints, endpoint_to_cg_key):
 ## All variables are global variables
@@ -383,6 +404,17 @@ def optimizer_entrypoint():
     app.logger.debug("objective")
     app.logger.debug(objective)
     
+    with open("optimizier_input.txt", "w") as f:
+        f.write(f"coef_dict: {coef_dict}\n")
+        f.write(f"endpoint_level_inflight: {endpoint_level_inflight}\n")
+        f.write(f"endpoint_level_rps: {endpoint_level_rps}\n")
+        f.write(f"placement: {placement}\n")
+        f.write(f"all_endpoints: {all_endpoints}\n")
+        f.write(f"endpoint_to_cg_key: {endpoint_to_cg_key}\n")
+        f.write(f"ep_str_callgraph_table: {ep_str_callgraph_table}\n")
+        f.write(f"traffic_segmentation: {traffic_segmentation}\n")
+        f.write(f"objective: {objective}\n")
+    
     percentage_df = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective)
     if percentage_df.empty:
         app.logger.info(f"{cfg.log_prefix} [OPTIMIZER] ERROR: run_optimizer FAILS.")
@@ -402,6 +434,8 @@ def fit_linear_regression(data, y_col_name):
     for colname in df.columns:
         if colname != y_col_name:
             x_colnames.append(colname)
+    app.logger.info(f"x_colnames: {x_colnames}")
+    app.logger.info(f"y_col_name: {y_col_name}")
     X = df[x_colnames]
     y = df[y_col_name]
     
@@ -452,13 +486,13 @@ def train_latency_function_with_trace(traces):
                 data = dict()
                 y_col = "latency"
                 for index, row in ep_df.iterrows():
-                    for key, val in row["num_inflight_dict"].items():
+                    for key, val in row[x_feature].items():
                         if key not in data:
                             data[key] = list()
                         data[key].append(val)
                     if y_col not in data:
                         data[y_col] = list()
-                    data[y_col].append(row["xt"])
+                    data[y_col].append(row[target_y])
                 
                 # app.logger.debug(f"data: {data}")
                 # app.logger.debug()
@@ -511,38 +545,9 @@ def gen_endpoint_level_rps(all_endpoints):
                 ########################################################
     return ep_rps
 
-# def trace_string_file_to_trace_data_structure(trace_string_file_path):
-#     df = pd.read_csv(trace_string_file_path)
-#     sliced_df = df.iloc[:, 10:]
-#     list_of_span = list()
-#     for (index1, row1), (index2, row2) in zip(df.iterrows(), sliced_df.iterrows()):
-#         num_inflight_dict = dict()
-#         rps_dict = dict()
-#         app.logger.debug(f'row1: {row1}')
-#         for _, v_list in row2.items():
-#             app.logger.debug(f'v_list: {v_list}')
-#             for v in v_list.split("@"):
-#                 elem = v.split("#")
-#                 endpoint = elem[0]
-#                 rps = int(float(elem[1]))
-#                 inflight = int(float(elem[2]))
-#                 num_inflight_dict[endpoint] = inflight
-#                 rps_dict[endpoint] = rps
-                
-#         span = sp.Span(row1["method"], row1["path"], row1["svc_name"], int(row1["region"]), row1["traceId"], row1["spanId"], row1["parentSpanId"], st=float(row1["startTime"]), et=float(row1["endTime"]), callsize=int(row1["bodySize"]), rps_dict=num_inflight_dict, num_inflight_dict=num_inflight_dict)
-#         list_of_span.append(span)
-        
-#     # Convert list of span to traces data structure
-#     traces = dict()
-#     for span in list_of_span:
-#         if span.cluster_id not in traces:
-#             traces[span.cluster_id] = dict()
-#         if span.trace_id not in traces[span.cluster_id]:
-#             traces[span.cluster_id][span.trace_id] = list()
-#         traces[span.cluster_id][span.trace_id].append(span)
-#     return traces
 
-def trace_string_file_to_trace_data_structure(trace_string_file_path):
+def parse_trace_string_file_to_trace_data_structure(trace_string_file_path):
+    global trace_string_file
     col = ["cluster_id","svc_name","method","path","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size","inflight_dict","rps_dict"]
     df = pd.read_csv(trace_string_file_path, names=col, header=None)
     # span_df = df.iloc[:, :-2] # inflight_dict, rps_dict
@@ -685,6 +690,8 @@ def training_phase():
     global ep_str_callgraph_table
     global mode
     global train_done
+    global trace_string_file
+    
     if mode != "runtime":
         app.logger.debug(f"{cfg.log_prefix} Skip training. mode: {mode}")
         return
@@ -693,7 +700,6 @@ def training_phase():
         app.logger.debug(f"{cfg.log_prefix} Training has been done already.")
         return
     
-    
     app.logger.debug(f"{cfg.log_prefix} Training starts.")
     
     ## Train has not been done yet.
@@ -701,15 +707,15 @@ def training_phase():
     # complete_traces = gen_trace.run(cfg.NUM_CLUSTER, num_traces=10)
     
     '''Option 2: Read trace string file'''
-    if "trace_string.csv" not in os.listdir() or os.path.getsize("trace_string.csv") == 0:
-        if "trace_string.csv" not in os.listdir():
+    if trace_string_file not in os.listdir() or os.path.getsize(trace_string_file) == 0:
+        if trace_string_file not in os.listdir():
             app.logger.debug(f"{cfg.log_prefix} ERROR: trace_string.csv is not in the current directory.")
-        if os.path.getsize("trace_string.csv") == 0:
+        if os.path.getsize(trace_string_file) == 0:
             app.logger.debug(f"{cfg.log_prefix} ERROR: trace_string.csv is empty.")        
         app.logger.debug(f"{cfg.log_prefix} Skip training.")
         return
     
-    all_traces = trace_string_file_to_trace_data_structure("trace_string.csv")
+    all_traces = parse_trace_string_file_to_trace_data_structure(trace_string_file)
     app.logger.debug(f"{cfg.log_prefix} len(all_traces): {len(all_traces)}")
     complete_traces = check_and_move_to_complete_trace(all_traces)
     app.logger.debug(f"{cfg.log_prefix} len(complete_traces): {len(complete_traces)}")
@@ -721,18 +727,21 @@ def training_phase():
     
     '''Create useful data structures from the traces'''
     # sp_callgraph_table = tst.traces_to_span_callgraph_table(stitched_traces)
+    # tst.file_write_callgraph_table(sp_callgraph_table)
     endpoint_to_cg_key = tst.get_endpoint_to_cg_key_map(stitched_traces)
     ep_str_callgraph_table = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
+    all_endpoints = tst.get_all_endpoints(stitched_traces)
+    placement = tst.get_placement_from_trace(stitched_traces)
+    
     app.logger.debug("ep_str_callgraph_table")
     app.logger.debug(f"num different callgraph: {len(ep_str_callgraph_table)}")
     for cg_key in ep_str_callgraph_table:
         app.logger.debug(f"{cg_key}: {ep_str_callgraph_table[cg_key]}")
-        
-        
-    all_endpoints = tst.get_all_endpoints(stitched_traces)
     for cid in all_endpoints:
         for svc_name in all_endpoints[cid]:
             app.logger.debug(f"all_endpoints[{cid}][{svc_name}]: {all_endpoints[cid][svc_name]}")
+    for cid in placement:
+        app.logger.debug(f"placement[{cid}]: {placement[cid]}")
             
     # Initialize endpoint_level_rps, endpoint_level_inflight
     for region in all_endpoints:
@@ -751,10 +760,6 @@ def training_phase():
                 app.logger.info(f"Init endpoint_level_rps[{region}][{svc}][{ep_str}]: {endpoint_level_rps[region][svc][ep_str]}")
                 app.logger.info(f"Init endpoint_level_inflight[{region}][{svc}][{ep_str}]: {endpoint_level_inflight[region][svc][ep_str]}")
                 
-    # tst.file_write_callgraph_table(sp_callgraph_table)
-    placement = tst.get_placement_from_trace(stitched_traces)
-    for cid in placement:
-        app.logger.debug(f"placement[{cid}]: {placement[cid]}")
     
     '''
     Train linear regression model
@@ -763,7 +768,7 @@ def training_phase():
     coef_dict = train_latency_function_with_trace(stitched_traces)
     for svc_name in coef_dict:
         for ep_str in coef_dict[svc_name]:
-            app.logger.debug(f'coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
+            app.logger.info(f'coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
     ############################################################
     ## NOTE: overwriting coefficient for debugging
     # for svc_name in coef_dict:

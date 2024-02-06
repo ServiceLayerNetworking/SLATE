@@ -26,6 +26,7 @@ import span as sp
 random.seed(1234)
 
 opt_prefix = "[OPTIMIZER]"
+output_dir = "optimizer_output"
 
 '''
 For interactive run with jupyternotebook, comment out following lines "COMMENT_OUT_FOR_JUPYTER".
@@ -213,7 +214,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
     compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict)
     display(compute_df)
-    compute_df.to_csv('compute_df.csv')
+    compute_df.to_csv(f'{output_dir}/compute_df.csv')
     if traffic_segmentation == False:
         original_compute_df = opt_func.create_compute_df(placement, original_callgraph, callsize_dict, original_NUM_REQUESTS, original_MAX_LOAD)
         # display(original_compute_df)
@@ -280,6 +281,10 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     #         # (gurobi_model, regression model, x, y)
     #         pred_constr = add_predictor_constr(gurobi_model, row["latency_function_"+key], m_feats, compute_latency[key][index])
     
+    
+    constraint_file = open(f'{output_dir}/constraint.log', 'w')
+    
+    
     '''
     Manually setting the latency function constraint
     
@@ -306,9 +311,14 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                 print(f'dependent_arc_name: {dependent_arc_name}')
                 rh += compute_load[dependent_arc_name] * c
         rh += coefs['intercept']
-        print(f"index: {index}")
-        print(f"lh: {lh}")
-        print(f"rh: {rh}")
+        # print(f"index: {index}")
+        # print(f"lh: {lh}")
+        # print(f"rh: {rh}")
+        constraint_file.write(f"{lh}\n")
+        constraint_file.write("==\n")
+        constraint_file.write(f"{rh}\n")
+        constraint_file.write("-"*80)
+        constraint_file.write("\n")
         gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
     gurobi_model.update()
 
@@ -422,7 +432,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     network_df["min_egress_cost"] = min_egress_cost_list
     network_df["max_egress_cost"] = max_egress_cost_list
 
-    network_df.to_csv('network_df.csv')
+    network_df.to_csv(f'{output_dir}/network_df.csv')
 
     # In[44]:
 
@@ -583,6 +593,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
             for comb in end_to_end_path_var[key]:
                 # end_to_end_path_list.append(end_to_end_path_var[key][comb])
                 gurobi_model.addConstr(end_to_end_path_var[key][comb] <= max_end_to_end_latency, name=f'maxconstr_{key}_{comb}')
+                constraint_file.write(f'end_to_end_path_var[{key}][{comb}] <= max_end_to_end_latency({max_end_to_end_latency})\n')
                 # print(f'end_to_end_path_var[{key}][{comb}]: {end_to_end_path_var[key][comb]}')
                 # print(f'<=')
                 # print(f'max_end_to_end_latency')
@@ -684,11 +695,15 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                     lh = gp.quicksum(aggregated_load.select('*', node_name))
                     rh = incoming
                     gurobi_model.addConstr((lh == rh), name="cluster_"+str(cid)+"_load_in_"+str(root_ep))
-                    # if cfg.DISPLAY:
-                    #     app.logger.debug(lh)
-                    #     app.logger.debug("==")
-                    #     app.logger.debug(rh)
-                    #     app.logger.debug("-"*80)
+                    constraint_file.write(f'{lh}\n')
+                    constraint_file.write("==\n")
+                    constraint_file.write(f'{rh}\n')
+                    constraint_file.write("-"*80)
+                    constraint_file.write("\n")
+                    # app.logger.debug(lh)
+                    # app.logger.debug("==")
+                    # app.logger.debug(rh)
+                    # app.logger.debug("-"*80)
         
         # app.logger.debug("*"*80)
         # app.logger.debug(aggregated_load.select(opt_func.source_node_fullname, '*'))
@@ -731,10 +746,16 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                 lh = gp.quicksum(aggregated_load.select('*', start_node))
                 rh = gp.quicksum(aggregated_load.select(start_node, '*'))
                 gurobi_model.addConstr((lh == rh), name="flow_conservation-start_node-"+ep_str)
+                constraint_file.write(f'{lh}\n')
+                constraint_file.write("==\n")
+                constraint_file.write(f'{rh}\n')
+                constraint_file.write("-"*80)
+                constraint_file.write("\n")
                 # app.logger.debug(lh)
                 # app.logger.debug("==")
                 # app.logger.debug(rh)
                 # app.logger.debug("-"*50)
+                
     gurobi_model.update()
     
     # In[47]:
@@ -785,6 +806,11 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                     lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
                     rh = outgoing_sum
                     gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
+                    constraint_file.write(f'{lh}\n')
+                    constraint_file.write("==\n")
+                    constraint_file.write(f'{rh}\n')
+                    constraint_file.write("-"*80)
+                    constraint_file.write("\n")
                     # app.logger.debug(lh)
                     # app.logger.debug('==')
                     # app.logger.debug(rh)
@@ -882,11 +908,8 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     df_constr = pd.DataFrame(constrInfo)
     df_constr.columns=['Constraint Name','Constraint equation', 'Sense','RHS']
     num_constr = len(df_constr)
-    if cfg.OUTPUT_WRITE:
-        df_var.to_csv(cfg.OUTPUT_DIR+"/variable.csv")
-        df_constr.to_csv(cfg.OUTPUT_DIR+"/constraint.csv")
-    df_var.to_csv("variable.csv")
-    df_constr.to_csv("constraint.csv")
+    df_var.to_csv(f'{output_dir}/variable.csv')
+    df_constr.to_csv(f'{output_dir}/constraint.csv')
     # with pd.option_context('display.max_colwidth', None):
     #     with pd.option_context('display.max_rows', None):
     #         print("df_var")
@@ -938,7 +961,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
             if aggregated_load[arc].x > 1e-6:
                 temp = pd.DataFrame({"From": [arc[0]], "To": [arc[1]], "Flow": [aggregated_load[arc].x]})
                 request_flow = pd.concat([request_flow, temp], ignore_index=True)
-        request_flow.to_csv('request_flow.csv')
+        request_flow.to_csv(f'{output_dir}/request_flow.csv')
         display(request_flow)
         percentage_df = opt_func.translate_to_percentage(request_flow)
         # opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)

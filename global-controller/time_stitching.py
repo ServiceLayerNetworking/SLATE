@@ -491,7 +491,7 @@ def get_callgraph_key(cg):
     # print(f'cg_key: {cg_key}')
     # app.logger.info(f"[TIME_ST] cg_key: {cg_key}")
     cg_key_str = sp.between_ep.join(cg_key)
-    app.logger.info(f"[TIME_ST] cg_key_str: {cg_key_str}")
+    # app.logger.info(f"[TIME_ST] cg_key_str: {cg_key_str}")
     # for elem in cg_key:
     #     cg_key_str += elem + ","
     return cg_key_str

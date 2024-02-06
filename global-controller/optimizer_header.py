@@ -823,7 +823,7 @@ def plot_arc_var_for_callgraph(network_arc, unique_service, callgraph, key):
     
 def plot_callgraph_request_flow(percent_df, network_arc):
     g_ = graphviz.Digraph()
-    plot_dict_wo_compute_edge(network_arc, g_)
+    # plot_dict_wo_compute_edge(network_arc, g_)
     node_pw = "1"
     edge_pw = "0.5"
     fs = "8"
@@ -836,8 +836,8 @@ def plot_callgraph_request_flow(percent_df, network_arc):
             continue
         src_cid = row["src_cid"]
         dst_cid = row["dst_cid"]
-        src_svc = row["src"]
-        dst_svc = row["dst"]
+        src_svc = row["src_svc"]
+        dst_svc = row["dst_svc"]
         edge_color = get_network_edge_color(src_cid, dst_cid)
         edge_style = get_network_edge_style(src_cid, dst_cid)
         src_node_color = node_color_dict[src_cid]
@@ -845,9 +845,9 @@ def plot_callgraph_request_flow(percent_df, network_arc):
         src_node_name = src_svc+str(src_cid)
         dst_node_name = dst_svc+str(dst_cid)
         # src_node
-        g_.node(name=src_node_name, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=src_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+        g_.node(name=src_node_name, label=src_node_name[:name_cut], shape='circle', style='filled', fillcolor=src_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
         # dst_node
-        g_.node(name=dst_node_name, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
+        g_.node(name=dst_node_name, label=dst_node_name[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
         # edge from src_node to dst_node        
         g_.edge(src_node_name, dst_node_name, label=f'{round(row["flow"],1)}({round(row["weight"], 2)})', penwidth=edge_pw, style=edge_style, fontsize=edge_fs, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
     # result_string = ''.join(cg_key_list)
