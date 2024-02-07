@@ -313,15 +313,16 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		return types.ActionContinue
 	}
 	dst := strings.Split(reqAuthority, ":")[0]
+
 	if !strings.HasPrefix(ctx.pluginContext.serviceName, dst) {
 		// the request is originating from this sidecar to another service
 		// perform routing magic
 		// get endpoint distribution
-		endpointDistribution, _, err := proxywasm.GetSharedData(endpointDistributionKey(reqMethod, reqPath))
+		endpointDistribution, _, err := proxywasm.GetSharedData(endpointDistributionKey(dst, reqMethod, reqPath))
 		//proxywasm.LogCriticalf("OnHttpRequestHeaders, endpoint distribution for %s %s: %s", reqMethod, reqPath, endpointDistribution)
 		if err != nil {
 			// no rules available yet.
-			proxywasm.LogCriticalf("No rules available for endpoint %s %s", reqMethod, reqPath)
+			proxywasm.LogCriticalf("No rules available for endpoint %s %s to %s", reqMethod, reqPath, dst)
 		} else {
 			coin := rand.Float64()
 			total := 0.0
@@ -535,10 +536,10 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 	}
 	bodyLines := strings.Split(string(respBody), "\n")
 	/*
-		metrics-fake-ingress@GET@/start, us-west-1, us-west-1, 0.6
-		metrics-fake-ingress@GET@/start, us-west-1, us-east-1, 0.4
-		metrics-fake-ingress@POST@/start, us-west-1, us-west-1, 0.9
-		metrics-fake-ingress@POST@/start, us-west-1, us-east-1, 0.1
+		metrics-fake-ingress@GET@/start, metrics-handler@GET@/detectAnomalies, us-west-1, us-west-1, 0.6
+		metrics-fake-ingress@GET@/start, metrics-handler@GET@/detectAnomalies, us-west-1, us-east-1, 0.4
+		metrics-fake-ingress@GET@/start, metrics-handler@GET@/detectAnomalies, us-east-1, us-east-1, 0.1
+		metrics-fake-ingress@GET@/start, metrics-handler@GET@/detectAnomalies, us-east-1, us-west-1, 0.9
 	*/
 	// method@path -> region -> pct
 	distrs := map[string]map[string]string{}
@@ -547,32 +548,37 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 			continue
 		}
 		lineSplit := strings.Split(line, ",")
-		if len(lineSplit) != 4 {
+		if len(lineSplit) != 5 {
 			proxywasm.LogCriticalf("received invalid http call response, line: %s", line)
 			continue
 		}
 		for i, lineItem := range lineSplit {
 			lineSplit[i] = strings.TrimSpace(lineItem)
 		}
-		if lineSplit[1] != region {
+		if lineSplit[2] != region {
 			// disclude
 			continue
 		}
-		svcMethodPath := strings.Split(lineSplit[0], "@")
-		if len(svcMethodPath) != 3 {
+		srcSvcMethodPath := strings.Split(lineSplit[0], "@")
+		if len(srcSvcMethodPath) != 3 {
+			proxywasm.LogCriticalf("received invalid http call response, line: %s", line)
+			continue
+		}
+		dstSvcMethodPath := strings.Split(lineSplit[1], "@")
+		if len(dstSvcMethodPath) != 3 {
 			proxywasm.LogCriticalf("received invalid http call response, line: %s", line)
 			continue
 		}
 		// assume we only get responses for our service
-		if svcMethodPath[0] != serviceName {
+		if !strings.HasPrefix(serviceName, srcSvcMethodPath[0]) {
 			// disclude
 			continue
 		}
-		endpointKey := svcMethodPath[1] + "@" + svcMethodPath[2]
-		if _, ok := distrs[endpointKey]; !ok {
-			distrs[endpointKey] = map[string]string{}
+		//endpointKey := dstSvcMethodPath[0] + "@" dstSvcMethodPath[1] + "@" + dstSvcMethodPath[2]
+		if _, ok := distrs[lineSplit[1]]; !ok {
+			distrs[lineSplit[1]] = map[string]string{}
 		}
-		distrs[endpointKey][lineSplit[2]] = lineSplit[3]
+		distrs[lineSplit[1]][lineSplit[3]] = lineSplit[4]
 	}
 	proxywasm.LogCriticalf("pushed rules:\n%v", distrs)
 	for methodPath, distr := range distrs {
@@ -582,7 +588,7 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 		}
 		mp := strings.Split(methodPath, "@")
 		//proxywasm.LogCriticalf("setting ENDPOINT DIST %v: %v", endpointDistributionKey(mp[0], mp[1]), distStr)
-		if err := proxywasm.SetSharedData(endpointDistributionKey(mp[0], mp[1]), []byte(distStr), 0); err != nil {
+		if err := proxywasm.SetSharedData(endpointDistributionKey(mp[0], mp[1], mp[2]), []byte(distStr), 0); err != nil {
 			proxywasm.LogCriticalf("unable to set shared data for endpoint distribution %v: %v", methodPath, err)
 		}
 	}
@@ -1036,8 +1042,8 @@ func endpointInflightStatsKey(traceId string) string {
 	return traceId + "-endpointInflightStats"
 }
 
-func endpointDistributionKey(method, path string) string {
-	return method + "@" + path + "-distribution"
+func endpointDistributionKey(svc, method, path string) string {
+	return svc + "@" + method + "@" + path + "-distribution"
 }
 
 // (gangmuk): need to double check to confirm it is correct.
