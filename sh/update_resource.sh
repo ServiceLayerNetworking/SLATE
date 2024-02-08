@@ -8,7 +8,7 @@
 ## Remaining functions can't be used when the fields do not exist in yaml.
 apply_resource_field(){
     kubectl get deployments -n default -o json | \
-     jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "0.1"}, "limits": {"cpu": "1"}}' | \
+     jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "1"}, "limits": {"cpu": "4"}}' | \
        kubectl apply -f -
 }
 
