@@ -28,6 +28,8 @@ const (
 	KEY_TRACED_REQUESTS        = "slate_traced_requests"
 	// this is in millis
 	AGGREGATE_REQUEST_LATENCY = "slate_last_second_latency_avg"
+	KEY_RPS_SHARED_QUEUE      = "slate_rps_shared_queue"
+	KEY_RPS_SHARED_QUEUE_SIZE = "slate_rps_shared_queue_size"
 	// (gangmuk): changed to 2 seconds to capture more inflights.
 	TICK_PERIOD = 1000
 	// nor_len     = 1000 / TICK_PERIOD
@@ -45,7 +47,7 @@ todo(adiprerepa)
 
 var (
 	ALL_KEYS = []string{KEY_INFLIGHT_REQ_COUNT, KEY_REQUEST_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
-		KEY_TRACED_REQUESTS, KEY_MATCH_DISTRIBUTION, KEY_INFLIGHT_ENDPOINT_LIST, KEY_ENDPOINT_RPS_LIST}
+		KEY_TRACED_REQUESTS, KEY_MATCH_DISTRIBUTION, KEY_INFLIGHT_ENDPOINT_LIST, KEY_ENDPOINT_RPS_LIST, KEY_RPS_SHARED_QUEUE, KEY_RPS_SHARED_QUEUE_SIZE}
 	cur_idx      int
 	latency_list []int64
 	ts_list      []int64
@@ -314,7 +316,8 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	}
 	dst := strings.Split(reqAuthority, ":")[0]
 
-	if !strings.HasPrefix(ctx.pluginContext.serviceName, dst) {
+	// policy enforcement
+	if !strings.HasPrefix(ctx.pluginContext.serviceName, dst) && !strings.HasPrefix(dst, "node") {
 		// the request is originating from this sidecar to another service
 		// perform routing magic
 		// get endpoint distribution
@@ -344,14 +347,11 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 				}
 			}
 		}
+		return types.ActionContinue
 	}
 
 	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
-	//proxywasm.LogCriticalf("OnHttpRequestHeaders, trace_id,%v, inboundCountKey, %v", traceId, inboundCountKey(traceId))
 	IncrementSharedData(inboundCountKey(traceId), 1)
-	// useful log
-	// inbound, err := GetUint64SharedData(inboundCountKey(traceId))
-	// proxywasm.LogCriticalf("OnHttpRequestHeaders, increment inbound, trace_id,%v, inbound,%d", traceId, inbound)
 
 	_, _, err = proxywasm.GetSharedData(traceId)
 	if err == nil {
@@ -367,10 +367,41 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		return types.ActionContinue
 	}
 
-	// incrememt request count for this tick period
+	// increment request count for this tick period
 	IncrementSharedData(KEY_REQUEST_COUNT, 1)
-	// incrememt total number of inflight requests
+	// increment total number of inflight requests
 	IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, 1)
+
+	// enqueue request in endpoint queue and total rps queue
+	var endpointQueueId uint32
+	endpointQueueId, err = proxywasm.ResolveSharedQueue("", sharedQueueKey(reqMethod, reqPath))
+	if err != nil {
+		// create queue
+		endpointQueueId, err = proxywasm.RegisterSharedQueue(sharedQueueKey(reqMethod, reqPath))
+		if err != nil {
+			// we're fucked anyway
+			proxywasm.LogCriticalf("unable to create shared queue: %v", err)
+		}
+		binary.LittleEndian.PutUint64(buf, uint64(0))
+		if err := proxywasm.SetSharedData(sharedQueueSizeKey(reqMethod, reqPath), buf, 0); err != nil {
+			proxywasm.LogCriticalf("unable to set queue size: %v", err)
+		}
+	}
+	rpsQueueId, err := proxywasm.ResolveSharedQueue("", KEY_RPS_SHARED_QUEUE)
+	curTime := time.Now().UnixMilli()
+	// convert cutTime to buf
+	binary.LittleEndian.PutUint64(buf, uint64(curTime))
+	if err := proxywasm.EnqueueSharedQueue(endpointQueueId, buf); err != nil {
+		proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to endpoint queue %v: %v", sharedQueueKey(reqMethod, reqPath), err)
+	}
+	if err := proxywasm.EnqueueSharedQueue(rpsQueueId, buf); err != nil {
+		proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to shared RPS queue: %v", err)
+	}
+	IncrementSharedData(sharedQueueSizeKey(reqMethod, reqPath), 1)
+	IncrementSharedData(KEY_RPS_SHARED_QUEUE_SIZE, 1)
+
+	//endpointRPS := SharedQueueGetRPS(sharedQueueKey(reqMethod, reqPath), sharedQueueSizeKey(reqMethod, reqPath))
+	//totalRPS := SharedQueueGetRPS(KEY_RPS_SHARED_QUEUE, KEY_RPS_SHARED_QUEUE_SIZE)
 
 	if tracedRequest(traceId) {
 		// we need to record start and end time
@@ -397,52 +428,6 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	}
 	return types.ActionContinue
 }
-
-// bodySize will be used as call size (request size)
-func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.Action {
-	return types.ActionContinue
-	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
-	if err != nil {
-		return types.ActionContinue
-	}
-	proxywasm.LogCriticalf("OnHttpRequestBody, bodysize, %d", bodySize)
-
-	bodySizeBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(bodySizeBytes, uint64(bodySize))
-	if err := proxywasm.SetSharedData(bodySizeKey(traceId), bodySizeBytes, 0); err != nil {
-		proxywasm.LogCriticalf("unable to set shared data for traceId %v bodySize: %v %v", traceId, bodySize, err)
-	}
-	return types.ActionContinue
-}
-
-// ////////////////////////////////////////////////////////////////
-// Override types.DefaultHttpContext.
-func (ctx *httpContext) OnHttpResponseBody(bodySize int, endOfStream bool) types.Action {
-	if !endOfStream {
-		// Wait until we see the entire body to replace.
-		return types.ActionPause
-	}
-	return types.ActionContinue
-
-	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
-	bodySizeBytes := make([]byte, 8)
-	originalBody, err := proxywasm.GetHttpResponseBody(0, bodySize)
-	binary.LittleEndian.PutUint64(bodySizeBytes, uint64(len(originalBody)))
-	// binary.LittleEndian.PutUint64(bodySizeBytes, uint64(bodySize))
-	if err := proxywasm.SetSharedData(bodySizeKey(traceId), bodySizeBytes, 0); err != nil {
-		proxywasm.LogCriticalf("unable to set shared data for traceId %v bodySize: %v %v", traceId, bodySize, err)
-	}
-	if err != nil {
-		proxywasm.LogErrorf("failed to get response body: %v", err)
-		return types.ActionContinue
-	}
-	proxywasm.LogCriticalf("OnHttpResponseBody, response body size: %s", originalBody)
-	proxywasm.LogCriticalf("OnHttpResponseBody, response body size: %v", bodySizeBytes)
-
-	return types.ActionContinue
-}
-
-//////////////////////////////////////////////////////////////////
 
 // OnHttpStreamDone is called when the stream is about to close.
 // We use this to record the end time of the traced request.
@@ -592,6 +577,43 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 			proxywasm.LogCriticalf("unable to set shared data for endpoint distribution %v: %v", methodPath, err)
 		}
 	}
+}
+
+func SharedQueueGetRPS(queueKey string, queueSizeKey string) uint64 {
+	queueId, err := proxywasm.ResolveSharedQueue("", queueKey)
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't resolve shared queue: %v", err)
+		return 0
+	}
+	timeMillisCutoff := time.Now().UnixMilli() - 1000
+	queueSizeBuf, _, err := proxywasm.GetSharedData(queueSizeKey)
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get shared data for queue size: %v", err)
+		return 0
+	}
+	// convert queueSize to int
+	queueSize := binary.LittleEndian.Uint64(queueSizeBuf)
+	for queueSize > 0 {
+		buf, err := proxywasm.DequeueSharedQueue(queueId)
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't dequeue shared queue: %v", err)
+			return queueSize
+		}
+		reqTimestamp := int64(binary.LittleEndian.Uint64(buf))
+		if reqTimestamp < timeMillisCutoff {
+			// we're done
+			break
+		} else {
+			queueSize--
+		}
+	}
+	// set queue size
+	queueSizeBuf = make([]byte, 8)
+	binary.LittleEndian.PutUint64(queueSizeBuf, queueSize)
+	if err := proxywasm.SetSharedData(queueSizeKey, queueSizeBuf, 0); err != nil {
+		proxywasm.LogCriticalf("unable to set queue size: %v", err)
+	}
+	return queueSize
 }
 
 // IncrementSharedData increments the value of the shared data at the given key. The data is
@@ -882,11 +904,13 @@ func GetInflightRequestStats() (map[string]EndpointStats, error) {
 		method := strings.Split(endpoint, "@")[0]
 		path := strings.Split(endpoint, "@")[1]
 		if val, ok := inflightRequestStats[endpoint]; ok {
-			val.Total = GetUint64SharedDataOrZero(endpointCountKey(method, path))
+			//val.Total = GetUint64SharedDataOrZero(endpointCountKey(method, path))
+			val.Total = SharedQueueGetRPS(sharedQueueKey(method, path), sharedQueueSizeKey(method, path))
 			inflightRequestStats[endpoint] = val
 		} else {
 			inflightRequestStats[endpoint] = EndpointStats{
-				Total: GetUint64SharedDataOrZero(endpointCountKey(method, path)),
+				//Total: GetUint64SharedDataOrZero(endpointCountKey(method, path)),
+				Total: SharedQueueGetRPS(sharedQueueKey(method, path), sharedQueueSizeKey(method, path)),
 			}
 		}
 		if err != nil {
@@ -907,6 +931,23 @@ func IncrementInflightCount(method string, path string, amount int) {
 	IncrementSharedData(inflightCountKey(method, path), int64(amount))
 	if amount > 0 {
 		IncrementSharedData(endpointCountKey(method, path), int64(amount))
+		// update shared queue
+		queueId, err := proxywasm.ResolveSharedQueue("", sharedQueueKey(method, path))
+		if err != nil {
+			// create queue
+			queueId, err = proxywasm.RegisterSharedQueue(sharedQueueKey(method, path))
+			if err != nil {
+				proxywasm.LogCriticalf("unable to create shared queue: %v", err)
+				return
+			}
+		}
+		curTime := time.Now().UnixMilli()
+		buf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(buf, uint64(curTime))
+		if err := proxywasm.EnqueueSharedQueue(queueId, buf); err != nil {
+			proxywasm.LogCriticalf("unable to enqueue shared queue: %v", err)
+			return
+		}
 	}
 
 	//if newAmt, _ := GetUint64SharedData(inflightCountKey(method, path)); newAmt == uint64(0) {
@@ -1044,6 +1085,14 @@ func endpointInflightStatsKey(traceId string) string {
 
 func endpointDistributionKey(svc, method, path string) string {
 	return svc + "@" + method + "@" + path + "-distribution"
+}
+
+func sharedQueueKey(method, path string) string {
+	return method + "@" + path
+}
+
+func sharedQueueSizeKey(method, path string) string {
+	return method + "@" + path + "-queuesize"
 }
 
 // (gangmuk): need to double check to confirm it is correct.
