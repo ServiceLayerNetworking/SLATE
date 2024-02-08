@@ -108,6 +108,9 @@ func (*vmContext) OnVMStart(vmConfigurationSize int) types.OnVMStartStatus {
 	if err := proxywasm.SetSharedData(KEY_HASH_MOD, buf, 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data: %v", err)
 	}
+	if _, err := proxywasm.RegisterSharedQueue(KEY_RPS_SHARED_QUEUE); err != nil {
+		proxywasm.LogCriticalf("unable to register shared queue: %v", err)
+	}
 	return true
 }
 
@@ -397,8 +400,14 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	if err := proxywasm.EnqueueSharedQueue(rpsQueueId, buf); err != nil {
 		proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to shared RPS queue: %v", err)
 	}
-	IncrementSharedData(sharedQueueSizeKey(reqMethod, reqPath), 1)
-	IncrementSharedData(KEY_RPS_SHARED_QUEUE_SIZE, 1)
+	if err := proxywasm.EnqueueSharedQueue(endpointQueueId, buf); err != nil {
+		proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to endpoint queue %v: %v", sharedQueueKey(reqMethod, reqPath), err)
+	}
+	if err := proxywasm.EnqueueSharedQueue(rpsQueueId, buf); err != nil {
+		proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to shared RPS queue: %v", err)
+	}
+	IncrementSharedData(sharedQueueSizeKey(reqMethod, reqPath), 2)
+	IncrementSharedData(KEY_RPS_SHARED_QUEUE_SIZE, 2)
 
 	//endpointRPS := SharedQueueGetRPS(sharedQueueKey(reqMethod, reqPath), sharedQueueSizeKey(reqMethod, reqPath))
 	//totalRPS := SharedQueueGetRPS(KEY_RPS_SHARED_QUEUE, KEY_RPS_SHARED_QUEUE_SIZE)
@@ -449,6 +458,16 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		return
 	}
 
+	reqAuth, err := proxywasm.GetHttpRequestHeader(":authority")
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get request header :authority : %v", err)
+		return
+	}
+	dst := strings.Split(reqAuth, ":")[0]
+
+	if !strings.HasPrefix(ctx.pluginContext.serviceName, dst) && !strings.HasPrefix(dst, "node") {
+		return
+	}
 	if inbound != 1 {
 		// decrement and get out
 		IncrementSharedData(inboundCountKey(traceId), -1)
@@ -582,7 +601,7 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 func SharedQueueGetRPS(queueKey string, queueSizeKey string) uint64 {
 	queueId, err := proxywasm.ResolveSharedQueue("", queueKey)
 	if err != nil {
-		proxywasm.LogCriticalf("Couldn't resolve shared queue: %v", err)
+		proxywasm.LogCriticalf("Couldn't resolve shared queue %v: %v", queueKey, err)
 		return 0
 	}
 	timeMillisCutoff := time.Now().UnixMilli() - 1000
@@ -593,23 +612,25 @@ func SharedQueueGetRPS(queueKey string, queueSizeKey string) uint64 {
 	}
 	// convert queueSize to int
 	queueSize := binary.LittleEndian.Uint64(queueSizeBuf)
+	proxywasm.LogCriticalf("queueSize: %v", queueSize)
 	for queueSize > 0 {
 		buf, err := proxywasm.DequeueSharedQueue(queueId)
+		queueSize--
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't dequeue shared queue: %v", err)
 			return queueSize
 		}
 		reqTimestamp := int64(binary.LittleEndian.Uint64(buf))
-		if reqTimestamp < timeMillisCutoff {
+		proxywasm.LogCriticalf("reqTimestamp: %v, cutoff %v", reqTimestamp, timeMillisCutoff)
+		if reqTimestamp > timeMillisCutoff {
 			// we're done
 			break
-		} else {
-			queueSize--
 		}
 	}
 	// set queue size
 	queueSizeBuf = make([]byte, 8)
 	binary.LittleEndian.PutUint64(queueSizeBuf, queueSize)
+	proxywasm.LogCriticalf("set queue size to %v", queueSize)
 	if err := proxywasm.SetSharedData(queueSizeKey, queueSizeBuf, 0); err != nil {
 		proxywasm.LogCriticalf("unable to set queue size: %v", err)
 	}
@@ -926,28 +947,29 @@ func IncrementInflightCount(method string, path string, amount int) {
 	// we have to split on space to get method and path, and then we can get the inflight/rps by using the
 	// inflightCountKey and endpointCountKey functions. This is to correlate the inflight count with the
 	// endpoint count.
+	proxywasm.LogCriticalf("adding %d to inflight count for %s %s", amount, method, path)
 	AddToSharedDataList(KEY_INFLIGHT_ENDPOINT_LIST, endpointListKey(method, path))
 	AddToSharedDataList(KEY_ENDPOINT_RPS_LIST, endpointListKey(method, path))
 	IncrementSharedData(inflightCountKey(method, path), int64(amount))
 	if amount > 0 {
 		IncrementSharedData(endpointCountKey(method, path), int64(amount))
 		// update shared queue
-		queueId, err := proxywasm.ResolveSharedQueue("", sharedQueueKey(method, path))
-		if err != nil {
-			// create queue
-			queueId, err = proxywasm.RegisterSharedQueue(sharedQueueKey(method, path))
-			if err != nil {
-				proxywasm.LogCriticalf("unable to create shared queue: %v", err)
-				return
-			}
-		}
-		curTime := time.Now().UnixMilli()
-		buf := make([]byte, 8)
-		binary.LittleEndian.PutUint64(buf, uint64(curTime))
-		if err := proxywasm.EnqueueSharedQueue(queueId, buf); err != nil {
-			proxywasm.LogCriticalf("unable to enqueue shared queue: %v", err)
-			return
-		}
+		//queueId, err := proxywasm.ResolveSharedQueue("", sharedQueueKey(method, path))
+		//if err != nil {
+		//	// create queue
+		//	queueId, err = proxywasm.RegisterSharedQueue(sharedQueueKey(method, path))
+		//	if err != nil {
+		//		proxywasm.LogCriticalf("unable to create shared queue: %v", err)
+		//		return
+		//	}
+		//}
+		//curTime := time.Now().UnixMilli()
+		//buf := make([]byte, 8)
+		//binary.LittleEndian.PutUint64(buf, uint64(curTime))
+		//if err := proxywasm.EnqueueSharedQueue(queueId, buf); err != nil {
+		//	proxywasm.LogCriticalf("unable to enqueue shared queue: %v", err)
+		//	return
+		//}
 	}
 
 	//if newAmt, _ := GetUint64SharedData(inflightCountKey(method, path)); newAmt == uint64(0) {
