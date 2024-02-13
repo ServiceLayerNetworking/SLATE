@@ -1,0 +1,26 @@
+#!/bin/bash
+
+remove_memory_field() {
+  local namespace="$1"
+  local exclude_deployments=("${@:2}")
+
+  # Get a list of all deployments in the specified namespace
+  local deployment_names=($(kubectl get deployments -n "$namespace" -o jsonpath='{.items[*].metadata.name}'))
+
+  # Loop through the deployments and update CPU requests and limits for all containers
+  for deployment in "${deployment_names[@]}"; do
+    if [[ " ${exclude_deployments[@]} " =~ " $deployment " ]]; then
+      # Skip deployments that are in the exclusion list
+      continue
+    fi
+
+    kubectl patch deployment "$deployment" -n "$namespace" --type='json' -p='[
+      {"op": "remove", "path": "/spec/template/spec/containers/0/resources/requests/memory"},
+      {"op": "remove", "path": "/spec/template/spec/containers/0/resources/limits/memory"}
+    ]'
+  done
+}
+
+
+# Usage:
+remove_memory_field default slate-controller

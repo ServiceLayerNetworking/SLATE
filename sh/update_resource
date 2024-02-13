@@ -1,0 +1,39 @@
+#!/bin/bash
+
+apply_resource_field(){
+    kubectl get deployments -n default -o json | \
+     jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "1"}}' | \
+       kubectl apply -f -
+     #jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "1"}, "limits": {"cpu": "4"}}' | \
+}
+
+update_cpu_and_memory() {
+  local namespace="$1"
+  local exclude_deployments=("${@:2}")
+  local cpu_request="1"
+  local memory_request=""
+  local cpu_limit=""
+  local memory_limit=""
+
+  # Get a list of all deployments in the specified namespace
+  local deployment_names=($(kubectl get deployments -n "$namespace" -o jsonpath='{.items[*].metadata.name}'))
+
+  # Loop through the deployments and update resource requests and limits for all containers
+  for deployment in "${deployment_names[@]}"; do
+    if [[ " ${exclude_deployments[@]} " =~ " $deployment " ]]; then
+      # Skip deployments that are in the exclusion list
+      continue
+    fi
+
+    kubectl patch deployment "$deployment" -n "$namespace" --type='json' -p='[
+      {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/cpu", "value": "'"$cpu_request"'"},
+      {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/memory", "value": "'"$memory_request"'"},
+      {"op": "replace", "path": "/spec/template/spec/containers/0/resources/limits/cpu", "value": "'"$cpu_limit"'"},
+      {"op": "replace", "path": "/spec/template/spec/containers/0/resources/limits/memory", "value": "'"$memory_limit"'"}
+    ]'
+  done
+}
+
+# Usage:
+#update_cpu_and_memory default slate-controller
+apply_resource_field
