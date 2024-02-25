@@ -21,6 +21,10 @@ from sklearn.metrics import r2_score
 import span as sp
 import pprint
 import hashlib
+import logging
+
+logging.config.dictConfig(cfg.LOGGING_CONFIG)
+logger = logging.getLogger(__name__)
 
 
 random.seed(1234)

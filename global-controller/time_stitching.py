@@ -12,7 +12,10 @@ from collections import deque
 import os
 from pprint import pprint
 from global_controller import app
+import logging
 
+logging.config.dictConfig(cfg.LOGGING_CONFIG)
+logger = logging.getLogger(__name__)
 
 # pd.set_option('display.max_rows', None)
 pd.set_option('display.max_colwidth', None)
@@ -414,7 +417,7 @@ def get_all_endpoints(traces):
 #             span_cg = single_trace_to_span_callgraph(single_trace)
 #             cg_key = get_callgraph_key(span_cg)
 #             if cg_key not in span_callgraph_table:
-#                 app.logger.info(f"new callgraph key: {cg_key} in cluster {cid}")
+#                 logger.info(f"new callgraph key: {cg_key} in cluster {cid}")
 #                 # NOTE: It is currently overwriting for the existing cg_key
 #                 span_callgraph_table[cg_key] = span_cg
 #     return span_callgraph_table
@@ -460,13 +463,13 @@ def bfs_callgraph(start_node, cg_key, ep_cg):
                 # cg_key.append(cur_node.split(sp.ep_del)[1])
                 # cg_key.append(cur_node.split(sp.ep_del)[2])
                 cg_key.append(cur_node)
-                # app.logger.info(f"[TIME_ST] cur_node: {cur_node}")
+                # logger.info(f"[TIME_ST] cur_node: {cur_node}")
             # elif type(cur_node) == sp.Span:
             #     cg_key.append(cur_node.svc_name)
             #     cg_key.append(cur_node.method)
             #     cg_key.append(cur_node.url)
             else:
-                app.logger.error(f"ERROR: invalid type of cur_node: {type(cur_node)}")
+                logger.error(f"ERROR: invalid type of cur_node: {type(cur_node)}")
                 assert False
             for child_ep in ep_cg[cur_node]:
                 if child_ep not in visited:
@@ -485,13 +488,13 @@ def find_root_span(cg):
 
 def get_callgraph_key(cg):
     root_node = opt_func.find_root_node(cg)
-    # app.logger.info(f"[TIME_ST] get_callgraph_key root_node: {root_node}")
+    # logger.info(f"[TIME_ST] get_callgraph_key root_node: {root_node}")
     cg_key = list()
     bfs_callgraph(root_node, cg_key, cg)
     # print(f'cg_key: {cg_key}')
-    # app.logger.info(f"[TIME_ST] cg_key: {cg_key}")
+    # logger.info(f"[TIME_ST] cg_key: {cg_key}")
     cg_key_str = sp.between_ep.join(cg_key)
-    # app.logger.info(f"[TIME_ST] cg_key_str: {cg_key_str}")
+    # logger.info(f"[TIME_ST] cg_key_str: {cg_key_str}")
     # for elem in cg_key:
     #     cg_key_str += elem + ","
     return cg_key_str

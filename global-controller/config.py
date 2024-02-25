@@ -4,7 +4,33 @@ import os
 def get_cur_time():
     return datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S")
 
-log_prefix="[SLATE]"
+# log_prefix="[SLATE]"
+log_prefix=""
+
+LOGGING_CONFIG = {
+    'version': 1,
+    'disable_existing_loggers': True,
+    'formatters': {
+        'standard': {
+            # 'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            'format': '%(name)s - %(funcName)s - %(message)s',
+        },
+    },
+    'handlers': {
+        'default': {
+            'level': 'INFO',
+            'formatter': 'standard',
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        '': {  # root logger
+            'handlers': ['default'],
+            'level': 'INFO',
+            'propagate': True
+        }
+    }
+}
 
 #######################
 ## Global controller ##

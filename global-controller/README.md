@@ -1,3 +1,14 @@
+
+# Docker error
+```bash
+ERROR: permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: Get "http://%2Fvar%2Frun%2Fdocker.sock/_ping": dial unix /var/run/docker.sock: connect: permission denied
+permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: Post "http://%2Fvar%2Frun%2Fdocker.sock/v1.24/images/ghcr.io/adiprerepa/slate-controller-py/push?tag=latest": dial unix /var/run/docker.sock: connect: permission denied
+```
+Run
+```bash
+sudo chmod 666 /var/run/docker.sock
+```
+
 # Global controller
 
 Global controller has two modes. One is `profile` and the other is `runtime`.
