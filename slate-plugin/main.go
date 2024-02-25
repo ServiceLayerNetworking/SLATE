@@ -328,7 +328,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		//proxywasm.LogCriticalf("OnHttpRequestHeaders, endpoint distribution for %s %s: %s", reqMethod, reqPath, endpointDistribution)
 		if err != nil {
 			// no rules available yet.
-			proxywasm.LogCriticalf("No rules available for endpoint %s %s to %s", reqMethod, reqPath, dst)
+			//proxywasm.LogCriticalf("No rules available for endpoint %s %s to %s", reqMethod, reqPath, dst)
 		} else {
 			coin := rand.Float64()
 			total := 0.0
@@ -613,13 +613,13 @@ func SharedQueueGetRPS(queueKey string, queueSizeKey string) uint64 {
 	}
 	// convert queueSize to int
 	queueSize := binary.LittleEndian.Uint64(queueSizeBuf)
-	proxywasm.LogCriticalf("queueSize: %v", queueSize)
+	//proxywasm.LogCriticalf("queueSize: %v", queueSize)
 	for queueSize > 0 {
 		buf, err := proxywasm.DequeueSharedQueue(queueId)
 		queueSize--
 		queueSizeBuf = make([]byte, 8)
 		binary.LittleEndian.PutUint64(queueSizeBuf, queueSize)
-		proxywasm.LogCriticalf("[DEQUE EVENT] set queue size to %v", queueSize)
+		//proxywasm.LogCriticalf("[DEQUE EVENT] set queue size to %v", queueSize)
 		if err := proxywasm.SetSharedData(queueSizeKey, queueSizeBuf, cas); err != nil {
 			if errors.Is(err, types.ErrorStatusCasMismatch) {
 				// try again
@@ -638,7 +638,7 @@ func SharedQueueGetRPS(queueKey string, queueSizeKey string) uint64 {
 			return queueSize
 		}
 		reqTimestamp := int64(binary.LittleEndian.Uint64(buf))
-		proxywasm.LogCriticalf("reqTimestamp: %v, cutoff %v", reqTimestamp, timeMillisCutoff)
+		//proxywasm.LogCriticalf("reqTimestamp: %v, cutoff %v", reqTimestamp, timeMillisCutoff)
 		queueSizeBuf, cas, _ = proxywasm.GetSharedData(queueSizeKey)
 		queueSize = binary.LittleEndian.Uint64(queueSizeBuf)
 		if reqTimestamp > timeMillisCutoff {
@@ -649,7 +649,7 @@ func SharedQueueGetRPS(queueKey string, queueSizeKey string) uint64 {
 	// set queue size
 	queueSizeBuf = make([]byte, 8)
 	binary.LittleEndian.PutUint64(queueSizeBuf, queueSize)
-	proxywasm.LogCriticalf("set queue size to %v", queueSize)
+	//proxywasm.LogCriticalf("set queue size to %v", queueSize)
 	if err := proxywasm.SetSharedData(queueSizeKey, queueSizeBuf, cas); err != nil {
 		queueSizeBuf, _, _ = proxywasm.GetSharedData(queueSizeKey)
 		queueSize2 := binary.LittleEndian.Uint64(queueSizeBuf)
@@ -969,7 +969,7 @@ func IncrementInflightCount(method string, path string, amount int) {
 	// we have to split on space to get method and path, and then we can get the inflight/rps by using the
 	// inflightCountKey and endpointCountKey functions. This is to correlate the inflight count with the
 	// endpoint count.
-	proxywasm.LogCriticalf("adding %d to inflight count for %s %s", amount, method, path)
+	//proxywasm.LogCriticalf("adding %d to inflight count for %s %s", amount, method, path)
 	AddToSharedDataList(KEY_INFLIGHT_ENDPOINT_LIST, endpointListKey(method, path))
 	AddToSharedDataList(KEY_ENDPOINT_RPS_LIST, endpointListKey(method, path))
 	IncrementSharedData(inflightCountKey(method, path), int64(amount))
