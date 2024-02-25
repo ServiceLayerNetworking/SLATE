@@ -605,7 +605,8 @@ func SharedQueueGetRPS(queueKey string, queueSizeKey string) uint64 {
 		return 0
 	}
 	timeMillisCutoff := time.Now().UnixMilli() - 1000
-	queueSizeBuf, _, err := proxywasm.GetSharedData(queueSizeKey)
+	var cas uint32
+	queueSizeBuf, cas, err := proxywasm.GetSharedData(queueSizeKey)
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get shared data for queue size: %v", err)
 		return 0
@@ -616,12 +617,30 @@ func SharedQueueGetRPS(queueKey string, queueSizeKey string) uint64 {
 	for queueSize > 0 {
 		buf, err := proxywasm.DequeueSharedQueue(queueId)
 		queueSize--
+		queueSizeBuf = make([]byte, 8)
+		binary.LittleEndian.PutUint64(queueSizeBuf, queueSize)
+		proxywasm.LogCriticalf("[DEQUE EVENT] set queue size to %v", queueSize)
+		if err := proxywasm.SetSharedData(queueSizeKey, queueSizeBuf, cas); err != nil {
+			if errors.Is(err, types.ErrorStatusCasMismatch) {
+				// try again
+				queueSizeBuf, cas, _ = proxywasm.GetSharedData(queueSizeKey)
+				queueSize = binary.LittleEndian.Uint64(queueSizeBuf)
+				queueSize--
+				binary.LittleEndian.PutUint64(queueSizeBuf, queueSize)
+				if err := proxywasm.SetSharedData(queueSizeKey, queueSizeBuf, cas); err != nil {
+					proxywasm.LogCriticalf("WE'RE FUCKED EITHER WAY: unable to set queue size: %v", err)
+				}
+			}
+			proxywasm.LogCriticalf("unable to set queue size: %v", err)
+		}
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't dequeue shared queue: %v", err)
 			return queueSize
 		}
 		reqTimestamp := int64(binary.LittleEndian.Uint64(buf))
 		proxywasm.LogCriticalf("reqTimestamp: %v, cutoff %v", reqTimestamp, timeMillisCutoff)
+		queueSizeBuf, cas, _ = proxywasm.GetSharedData(queueSizeKey)
+		queueSize = binary.LittleEndian.Uint64(queueSizeBuf)
 		if reqTimestamp > timeMillisCutoff {
 			// we're done
 			break
@@ -631,8 +650,11 @@ func SharedQueueGetRPS(queueKey string, queueSizeKey string) uint64 {
 	queueSizeBuf = make([]byte, 8)
 	binary.LittleEndian.PutUint64(queueSizeBuf, queueSize)
 	proxywasm.LogCriticalf("set queue size to %v", queueSize)
-	if err := proxywasm.SetSharedData(queueSizeKey, queueSizeBuf, 0); err != nil {
-		proxywasm.LogCriticalf("unable to set queue size: %v", err)
+	if err := proxywasm.SetSharedData(queueSizeKey, queueSizeBuf, cas); err != nil {
+		queueSizeBuf, _, _ = proxywasm.GetSharedData(queueSizeKey)
+		queueSize2 := binary.LittleEndian.Uint64(queueSizeBuf)
+		proxywasm.LogCriticalf("[CAS MISMATCH] tried to set %v but queue size is %v", queueSize, queueSize2)
+		//proxywasm.LogCriticalf("unable to set queue size: %v", err)
 	}
 	return queueSize
 }
