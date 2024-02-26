@@ -376,38 +376,39 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, 1)
 
 	// enqueue request in endpoint queue and total rps queue
-	var endpointQueueId uint32
-	endpointQueueId, err = proxywasm.ResolveSharedQueue("", sharedQueueKey(reqMethod, reqPath))
-	if err != nil {
-		// create queue
-		endpointQueueId, err = proxywasm.RegisterSharedQueue(sharedQueueKey(reqMethod, reqPath))
-		if err != nil {
-			// we're fucked anyway
-			proxywasm.LogCriticalf("unable to create shared queue: %v", err)
-		}
-		binary.LittleEndian.PutUint64(buf, uint64(0))
-		if err := proxywasm.SetSharedData(sharedQueueSizeKey(reqMethod, reqPath), buf, 0); err != nil {
-			proxywasm.LogCriticalf("unable to set queue size: %v", err)
-		}
-	}
-	rpsQueueId, err := proxywasm.ResolveSharedQueue("", KEY_RPS_SHARED_QUEUE)
-	curTime := time.Now().UnixMilli()
+	//var endpointQueueId uint32
+	//endpointQueueId, err = proxywasm.ResolveSharedQueue("", sharedQueueKey(reqMethod, reqPath))
+	//if err != nil {
+	//	// create queue
+	//	endpointQueueId, err = proxywasm.RegisterSharedQueue(sharedQueueKey(reqMethod, reqPath))
+	//	if err != nil {
+	//		// we're fucked anyway
+	//		proxywasm.LogCriticalf("unable to create shared queue: %v", err)
+	//	}
+	//	binary.LittleEndian.PutUint64(buf, uint64(0))
+	//	if err := proxywasm.SetSharedData(sharedQueueSizeKey(reqMethod, reqPath), buf, 0); err != nil {
+	//		proxywasm.LogCriticalf("unable to set queue size: %v", err)
+	//	}
+	//}
+	//rpsQueueId, err := proxywasm.ResolveSharedQueue("", KEY_RPS_SHARED_QUEUE)
+	//curTime := time.Now().UnixMilli()
+	TimestampListAdd(reqMethod, reqPath)
 	// convert cutTime to buf
-	binary.LittleEndian.PutUint64(buf, uint64(curTime))
-	if err := proxywasm.EnqueueSharedQueue(endpointQueueId, buf); err != nil {
-		proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to endpoint queue %v: %v", sharedQueueKey(reqMethod, reqPath), err)
-	}
-	if err := proxywasm.EnqueueSharedQueue(rpsQueueId, buf); err != nil {
-		proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to shared RPS queue: %v", err)
-	}
-	if err := proxywasm.EnqueueSharedQueue(endpointQueueId, buf); err != nil {
-		proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to endpoint queue %v: %v", sharedQueueKey(reqMethod, reqPath), err)
-	}
-	if err := proxywasm.EnqueueSharedQueue(rpsQueueId, buf); err != nil {
-		proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to shared RPS queue: %v", err)
-	}
-	IncrementSharedData(sharedQueueSizeKey(reqMethod, reqPath), 2)
-	IncrementSharedData(KEY_RPS_SHARED_QUEUE_SIZE, 2)
+	//binary.LittleEndian.PutUint64(buf, uint64(curTime))
+	//if err := proxywasm.EnqueueSharedQueue(endpointQueueId, buf); err != nil {
+	//	proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to endpoint queue %v: %v", sharedQueueKey(reqMethod, reqPath), err)
+	//}
+	//if err := proxywasm.EnqueueSharedQueue(rpsQueueId, buf); err != nil {
+	//	proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to shared RPS queue: %v", err)
+	//}
+	//if err := proxywasm.EnqueueSharedQueue(endpointQueueId, buf); err != nil {
+	//	proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to endpoint queue %v: %v", sharedQueueKey(reqMethod, reqPath), err)
+	//}
+	//if err := proxywasm.EnqueueSharedQueue(rpsQueueId, buf); err != nil {
+	//	proxywasm.LogCriticalf("OnHttpRequestHeaders: unable to enqueue current time to shared RPS queue: %v", err)
+	//}
+	//IncrementSharedData(sharedQueueSizeKey(reqMethod, reqPath), 2)
+	//IncrementSharedData(KEY_RPS_SHARED_QUEUE_SIZE, 2)
 
 	//endpointRPS := SharedQueueGetRPS(sharedQueueKey(reqMethod, reqPath), sharedQueueSizeKey(reqMethod, reqPath))
 	//totalRPS := SharedQueueGetRPS(KEY_RPS_SHARED_QUEUE, KEY_RPS_SHARED_QUEUE_SIZE)
@@ -948,12 +949,14 @@ func GetInflightRequestStats() (map[string]EndpointStats, error) {
 		path := strings.Split(endpoint, "@")[1]
 		if val, ok := inflightRequestStats[endpoint]; ok {
 			//val.Total = GetUint64SharedDataOrZero(endpointCountKey(method, path))
-			val.Total = SharedQueueGetRPS(sharedQueueKey(method, path), sharedQueueSizeKey(method, path))
+			//val.Total = SharedQueueGetRPS(sharedQueueKey(method, path), sharedQueueSizeKey(method, path))
+			val.Total = TimestampListGetRPS(method, path)
 			inflightRequestStats[endpoint] = val
 		} else {
 			inflightRequestStats[endpoint] = EndpointStats{
 				//Total: GetUint64SharedDataOrZero(endpointCountKey(method, path)),
-				Total: SharedQueueGetRPS(sharedQueueKey(method, path), sharedQueueSizeKey(method, path)),
+				//Total: SharedQueueGetRPS(sharedQueueKey(method, path), sharedQueueSizeKey(method, path)),
+				Total: TimestampListGetRPS(method, path),
 			}
 		}
 		if err != nil {
@@ -1064,6 +1067,100 @@ func AddToSharedDataList(key string, value string) {
 			return
 		}
 	}
+}
+
+/*
+TimestampListAdd adds a new timestamp to the end of the list for the given method and path.
+The list is stored as a comma-separated string of timestamps.
+*/
+func TimestampListAdd(method string, path string) {
+	// get list of timestamps
+	t := time.Now().UnixMilli()
+	timestampListBytes, cas, err := proxywasm.GetSharedData(sharedQueueKey(method, path))
+	if err != nil {
+		// nothing there, just set to the current time
+		newListBytes := []byte(strconv.FormatUint(uint64(t), 10))
+		if err := proxywasm.SetSharedData(sharedQueueKey(method, path), newListBytes, cas); err != nil {
+			if errors.Is(err, types.ErrorStatusCasMismatch) {
+				// try again
+				TimestampListAdd(method, path)
+			} else {
+				proxywasm.LogCriticalf("unable to set shared data: %v", err)
+			}
+		}
+		return
+	}
+	timestampList := strings.Split(string(timestampListBytes), ",")
+	// add new timestamp
+	newListBytes := []byte(strings.Join(append(timestampList, strconv.FormatUint(uint64(time.Now().UnixMilli()), 10)), ","))
+	if err := proxywasm.SetSharedData(sharedQueueKey(method, path), newListBytes, cas); err != nil {
+		if errors.Is(err, types.ErrorStatusCasMismatch) {
+			// try again
+			TimestampListAdd(method, path)
+		} else {
+			proxywasm.LogCriticalf("unable to set shared data: %v", err)
+		}
+	}
+
+}
+
+/*
+TimestampListGetRPS will evict entries older than 1 second for the given method and path.
+It will also return the current RPS, which is just the length of the data/queue.
+
+The data is a comma-separated string of timestamps. we add new timestamps to the end (.append),
+and evict from the front (to simulate efficiency of a queue).
+
+The "queue size" is then updated to reflect the new size of the queue. This is returned.
+*/
+func TimestampListGetRPS(method string, path string) uint64 {
+	// get list of timestamps
+	timestampListBytes, cas, err := proxywasm.GetSharedData(sharedQueueKey(method, path))
+	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
+		proxywasm.LogCriticalf("Couldn't get shared data for timestamp list: %v", err)
+		return 0
+	}
+	if errors.Is(err, types.ErrorStatusNotFound) {
+		// just return 0
+		return 0
+	}
+	timestampList := strings.Split(string(timestampListBytes), ",")
+	// evict old timestamps
+	timeMillisCutoff := time.Now().UnixMilli() - 1000
+	for len(timestampList) > 0 {
+		if len(timestampList[0]) == 0 {
+			timestampList = timestampList[1:]
+			continue
+		}
+		timestamp, err := strconv.ParseUint(timestampList[0], 10, 64)
+		if err != nil {
+			proxywasm.LogCriticalf("unable to parse timestamp: %v", err)
+			return 0
+		}
+		if timestamp > uint64(timeMillisCutoff) {
+			break
+		}
+		timestampList = timestampList[1:]
+	}
+	// set new list
+
+	newListBytes := []byte(strings.Join(timestampList, ","))
+	if len(newListBytes) == 0 {
+		newListBytes = make([]byte, 8)
+	}
+	if err := proxywasm.SetSharedData(sharedQueueKey(method, path), newListBytes, cas); err != nil {
+		//proxywasm.LogCriticalf("CAS MISMATCH: trying again")
+		return TimestampListGetRPS(method, path)
+	}
+	// set queue size. (do we care about cas here? aren't we eventually consistent?)
+	// we actually probably want to remove this altogether. we can just get the length of the list
+	//queueSizeBuf := make([]byte, 8)
+	//binary.LittleEndian.PutUint64(queueSizeBuf, uint64(len(timestampList)))
+	//if err := proxywasm.SetSharedData(sharedQueueSizeKey(method, path), queueSizeBuf, 0); err != nil {
+	//	proxywasm.LogCriticalf("unable to set shared data: %v", err)
+	//	return uint64(len(timestampList))
+	//}
+	return uint64(len(timestampList))
 }
 
 func inboundCountKey(traceId string) string {
