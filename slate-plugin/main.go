@@ -1121,7 +1121,7 @@ func TimestampListAdd(method string, path string) {
 		return
 	}
 	writePos := binary.LittleEndian.Uint64(timestampPos)
-	// if we're at the end of the list, we need to grow the list
+	// if we're at the end of the list, we need to rotate list
 	if writePos+8 > uint64(len(timestampListBytes)) {
 		proxywasm.LogCriticalf("[REACHED CAPACITY, ROTATING]")
 		// rotation magic
@@ -1153,7 +1153,7 @@ func TimestampListAdd(method string, path string) {
 		}
 	}
 	// add new timestamp
-	proxywasm.LogCriticalf("writePos: %v", writePos)
+	//proxywasm.LogCriticalf("writePos: %v", writePos)
 	if writePos >= uint64(len(timestampListBytes)) {
 		proxywasm.LogCriticalf("writePos: %v, len: %v", writePos, len(timestampListBytes))
 		// just fuck off and dont write anything until all threads sync
@@ -1161,42 +1161,15 @@ func TimestampListAdd(method string, path string) {
 	}
 	binary.LittleEndian.PutUint64(timestampListBytes[writePos:], uint64(t))
 
-	//newListBytes := []byte(string(timestampListBytes) + "," + strconv.FormatUint(uint64(t), 10))
-	// add new timestamp
 	if err := proxywasm.SetSharedData(sharedQueueKey(method, path), timestampListBytes, cas); err != nil {
 		//TimestampListAdd(method, path)
 		return
 	}
+	// change write position *after* writing new bytes was success
 	IncrementSharedData(timestampListWritePosKey(method, path), 8)
-	//IncrementTimestampListSize(method, path, 1)
-}
 
-/*
-TimestampListGetRPS will evict entries older than 1 second for the given method and path.
-It will also return the current RPS, which is just the length of the data/queue.
-
-The data is a comma-separated string of timestamps. we add new timestamps to the end (.append),
-and evict from the front (to simulate efficiency of a queue).
-
-The "queue size" is then updated to reflect the new size of the queue. This is returned.
-*/
-func TimestampListGetRPS(method string, path string) uint64 {
-	// get list of timestamps
-	timestampListBytes, cas, err := proxywasm.GetSharedData(sharedQueueKey(method, path))
-	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
-		proxywasm.LogCriticalf("Couldn't get shared data for timestamp list: %v", err)
-		return 0
-	}
-	if errors.Is(err, types.ErrorStatusNotFound) {
-		// just return 0
-		return 0
-	}
+	// evict old entries while we're at it
 	timeMillisCutoff := time.Now().UnixMilli() - 1000
-
-	// get write pos
-	writePosBytes, _, err := proxywasm.GetSharedData(timestampListWritePosKey(method, path))
-	writePos := binary.LittleEndian.Uint64(writePosBytes)
-
 	// get timestamp read position
 	readPosBytes, cas2, err := proxywasm.GetSharedData(timestampListReadPosKey(method, path))
 	if err != nil {
@@ -1204,7 +1177,7 @@ func TimestampListGetRPS(method string, path string) uint64 {
 		readPosBytes = make([]byte, 8)
 		binary.LittleEndian.PutUint64(readPosBytes, 0)
 		if err := proxywasm.SetSharedData(timestampListReadPosKey(method, path), readPosBytes, 0); err != nil {
-			return 0
+			return
 		}
 	}
 	readPos := binary.LittleEndian.Uint64(readPosBytes)
@@ -1219,51 +1192,81 @@ func TimestampListGetRPS(method string, path string) uint64 {
 	readPosBytes = make([]byte, 8)
 	binary.LittleEndian.PutUint64(readPosBytes, readPos)
 	if err := proxywasm.SetSharedData(timestampListReadPosKey(method, path), readPosBytes, cas2); err != nil {
-		//proxywasm.LogCriticalf("CAS MISMATCH: trying again")
-		return TimestampListGetRPS(method, path)
+		return
 	}
-	validRequests := (writePos - readPos) / 8
-	return validRequests
 
-	// custom, fast algorithm to evict entries, by iterating from string front instead of splitting the potentially massive string
-	// into a list of strings.
-	evictedEntries := 0
-	for idx := strings.Index(string(timestampListBytes), ","); idx != -1; idx = strings.Index(string(timestampListBytes), ",") {
-		if idx == 0 {
-			break
-		}
-		// get the timestamp
-		timestamp := string(timestampListBytes)[:idx]
-		timestampInt, err := strconv.ParseUint(timestamp, 10, 64)
-		if err != nil {
-			proxywasm.LogCriticalf("unable to parse timestamp: %v", err)
+	//newListBytes := []byte(string(timestampListBytes) + "," + strconv.FormatUint(uint64(t), 10))
+	// add new timestamp
+	//IncrementTimestampListSize(method, path, 1)
+}
+
+/*
+TimestampListGetRPS will evict entries older than 1 second for the given method and path.
+It will also return the current RPS, which is just the length of the data/queue.
+
+The data is a comma-separated string of timestamps. we add new timestamps to the end (.append),
+and evict from the front (to simulate efficiency of a queue).
+
+The "queue size" is then updated to reflect the new size of the queue. This is returned.
+*/
+func TimestampListGetRPS(method string, path string) uint64 {
+	// get list of timestamps
+	readPosBytes, _, err := proxywasm.GetSharedData(timestampListReadPosKey(method, path))
+	if err != nil {
+		return 0
+	}
+	readPos := binary.LittleEndian.Uint64(readPosBytes)
+	writePosBytes, _, err := proxywasm.GetSharedData(timestampListWritePosKey(method, path))
+	if err != nil {
+		return 0
+	}
+	writePos := binary.LittleEndian.Uint64(writePosBytes)
+	queueSize := writePos - readPos
+	return queueSize / 8
+	/*
+		timestampListBytes, _, err := proxywasm.GetSharedData(sharedQueueKey(method, path))
+		if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
+			proxywasm.LogCriticalf("Couldn't get shared data for timestamp list: %v", err)
 			return 0
 		}
-		// if the timestamp is older than 1 second, evict it
-		if timestampInt < uint64(timeMillisCutoff) {
-			evictedEntries++
-			timestampListBytes = timestampListBytes[idx+1:]
-		} else {
-			break
+		if errors.Is(err, types.ErrorStatusNotFound) {
+			// just return 0
+			return 0
 		}
-	}
+		timeMillisCutoff := time.Now().UnixMilli() - 1000
 
-	// todo maybe pass in time as an arg to TimestampListGetRPS to avoid unnecessary evictions.
-	if err := proxywasm.SetSharedData(sharedQueueKey(method, path), timestampListBytes, cas); err != nil {
-		//proxywasm.LogCriticalf("CAS MISMATCH: trying again")
-		return TimestampListGetRPS(method, path)
-	}
-	// set queue size. (do we care about cas here? aren't we eventually consistent?)
-	// we actually probably want to remove this altogether. we can just get the length of the list
-	//queueSizeBuf := make([]byte, 8)
-	//binary.LittleEndian.PutUint64(queueSizeBuf, uint64(len(timestampList)))
-	//if err := proxywasm.SetSharedData(sharedQueueSizeKey(method, path), queueSizeBuf, 0); err != nil {
-	//	proxywasm.LogCriticalf("unable to set shared data: %v", err)
-	//	return uint64(len(timestampList))
-	//}
-	IncrementSharedData(sharedQueueSizeKey(method, path), int64(-evictedEntries))
-	timestampListSize, _ := GetUint64SharedData(sharedQueueSizeKey(method, path))
-	return timestampListSize
+		// get write pos
+		writePosBytes, _, err := proxywasm.GetSharedData(timestampListWritePosKey(method, path))
+		writePos := binary.LittleEndian.Uint64(writePosBytes)
+
+		// get timestamp read position
+		readPosBytes, cas2, err := proxywasm.GetSharedData(timestampListReadPosKey(method, path))
+		if err != nil {
+			// set read pos to 0
+			readPosBytes = make([]byte, 8)
+			binary.LittleEndian.PutUint64(readPosBytes, 0)
+			if err := proxywasm.SetSharedData(timestampListReadPosKey(method, path), readPosBytes, 0); err != nil {
+				return 0
+			}
+		}
+		readPos := binary.LittleEndian.Uint64(readPosBytes)
+		for readPos < uint64(len(timestampListBytes)) {
+			if binary.LittleEndian.Uint64(timestampListBytes[readPos:]) < uint64(timeMillisCutoff) {
+				readPos += 8
+			} else {
+				break
+			}
+		}
+		// set read pos
+		readPosBytes = make([]byte, 8)
+		binary.LittleEndian.PutUint64(readPosBytes, readPos)
+		if err := proxywasm.SetSharedData(timestampListReadPosKey(method, path), readPosBytes, cas2); err != nil {
+			//proxywasm.LogCriticalf("CAS MISMATCH: trying again")
+			return TimestampListGetRPS(method, path)
+		}
+		validRequests := (writePos - readPos) / 8
+		return validRequests
+	*/
 }
 
 func inboundCountKey(traceId string) string {
