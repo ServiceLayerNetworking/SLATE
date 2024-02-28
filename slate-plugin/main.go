@@ -1094,7 +1094,7 @@ func TimestampListAdd(method string, path string) {
 	if err != nil {
 		// nothing there, just set to the current time
 		// 8 bytes per request, so we can store 3500 requests
-		newListBytes := make([]byte, 28000)
+		newListBytes := make([]byte, 14000)
 		binary.LittleEndian.PutUint64(newListBytes, uint64(t))
 		if err := proxywasm.SetSharedData(sharedQueueKey(method, path), newListBytes, cas); err != nil {
 			// drop on collisions
