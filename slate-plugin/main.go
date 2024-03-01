@@ -92,7 +92,9 @@ type EndpointStats struct {
 
 // Override types.DefaultVMContext.
 func (*vmContext) NewPluginContext(contextID uint32) types.PluginContext {
-	return &pluginContext{}
+	return &pluginContext{
+		startTime: time.Now().UnixMilli(),
+	}
 }
 
 func (*vmContext) OnVMStart(vmConfigurationSize int) types.OnVMStartStatus {
@@ -126,6 +128,8 @@ type pluginContext struct {
 
 	region        string
 	rpsThresholds []RpsThreshold
+
+	startTime int64
 }
 
 func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPluginStartStatus {
@@ -356,20 +360,6 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
 	IncrementSharedData(inboundCountKey(traceId), 1)
 
-	_, _, err = proxywasm.GetSharedData(traceId)
-	if err == nil {
-		// we've been set, get out
-		return types.ActionContinue
-	}
-
-	// we haven't been set, set us. this can be anything.
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(time.Now().UnixMilli()))
-	if err := proxywasm.SetSharedData(traceId, buf, 0); err != nil {
-		proxywasm.LogCriticalf("Couldn't set shared data: %v", err)
-		return types.ActionContinue
-	}
-
 	// increment request count for this tick period
 	IncrementSharedData(KEY_REQUEST_COUNT, 1)
 	// increment total number of inflight requests
@@ -392,7 +382,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	//}
 	//rpsQueueId, err := proxywasm.ResolveSharedQueue("", KEY_RPS_SHARED_QUEUE)
 	//curTime := time.Now().UnixMilli()
-	TimestampListAdd(reqMethod, reqPath)
+	//ctx.TimestampListAdd(reqMethod, reqPath)
 	// convert cutTime to buf
 	//binary.LittleEndian.PutUint64(buf, uint64(curTime))
 	//if err := proxywasm.EnqueueSharedQueue(endpointQueueId, buf); err != nil {
@@ -972,23 +962,6 @@ func IncrementInflightCount(method string, path string, amount int) {
 	IncrementSharedData(inflightCountKey(method, path), int64(amount))
 	if amount > 0 {
 		IncrementSharedData(endpointCountKey(method, path), int64(amount))
-		// update shared queue
-		//queueId, err := proxywasm.ResolveSharedQueue("", sharedQueueKey(method, path))
-		//if err != nil {
-		//	// create queue
-		//	queueId, err = proxywasm.RegisterSharedQueue(sharedQueueKey(method, path))
-		//	if err != nil {
-		//		proxywasm.LogCriticalf("unable to create shared queue: %v", err)
-		//		return
-		//	}
-		//}
-		//curTime := time.Now().UnixMilli()
-		//buf := make([]byte, 8)
-		//binary.LittleEndian.PutUint64(buf, uint64(curTime))
-		//if err := proxywasm.EnqueueSharedQueue(queueId, buf); err != nil {
-		//	proxywasm.LogCriticalf("unable to enqueue shared queue: %v", err)
-		//	return
-		//}
 	}
 
 	//if newAmt, _ := GetUint64SharedData(inflightCountKey(method, path)); newAmt == uint64(0) {
@@ -1083,23 +1056,40 @@ func IncrementTimestampListSize(method string, path string, amount int64) {
 	}
 }
 
+func (h *httpContext) GetTime() uint32 {
+	// get current time in milliseconds since the last day
+	diff := time.Now().UnixMilli() - h.pluginContext.startTime
+	return uint32(diff)
+}
+
 /*
 TimestampListAdd adds a new timestamp to the end of the list for the given method and path.
 The list is stored as a comma-separated string of timestamps.
 */
-func TimestampListAdd(method string, path string) {
+func (h *httpContext) TimestampListAdd(method string, path string) {
 	// get list of timestamps
-	t := time.Now().UnixMilli()
+	t := h.GetTime()
+	/*
+			todo aditya:
+			 this is an expensive load (14kb), and we are doing it on every request. This is likely what is causing
+			 the bottleneck.
+			 Is there a way we can cache this?
+			 We have to write current time to the list anyway...so we would need to read the list to make sure evictions
+			  happen...right?
+			 Could we possibly use int32 or int16 instead of int64 for the timestamps? 4bytes/2bytes vs 8 bytes, so we can
+			  store 3500/7000 requests with the same buffer.
+			 UnixMilli returns int64, but that's time since epoch, so can we use the last 32/16 bits of that? We still want
+		      millisecond precision.
+	*/
 	timestampListBytes, cas, err := proxywasm.GetSharedData(sharedQueueKey(method, path))
 	if err != nil {
 		// nothing there, just set to the current time
-		// 8 bytes per request, so we can store 3500 requests
-		newListBytes := make([]byte, 14000)
+		// 4 bytes per request, so we can store 1750 requests in 7000 bytes
+		newListBytes := make([]byte, 7000)
 		binary.LittleEndian.PutUint64(newListBytes, uint64(t))
 		if err := proxywasm.SetSharedData(sharedQueueKey(method, path), newListBytes, cas); err != nil {
-			// drop on collisions
+			h.TimestampListAdd(method, path)
 			return
-			//TimestampListAdd(method, path)
 		}
 		// set write pos
 		writePos := make([]byte, 8)
@@ -1110,22 +1100,18 @@ func TimestampListAdd(method string, path string) {
 
 		return
 	}
-	//sb := strings.Builder{}
-	//sb.WriteString(string(timestampListBytes))
-	//sb.WriteString(",")
-	//sb.WriteString(strconv.FormatUint(uint64(t), 10))
-	//newListBytes := []byte(sb.String())
-	timestampPos, _, err := proxywasm.GetSharedData(timestampListWritePosKey(method, path))
+	// get write position
+	timestampPos, writeCas, err := proxywasm.GetSharedData(timestampListWritePosKey(method, path))
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get shared data for timestamp write pos: %v", err)
 		return
 	}
 	writePos := binary.LittleEndian.Uint64(timestampPos)
 	// if we're at the end of the list, we need to rotate list
-	if writePos+8 > uint64(len(timestampListBytes)) {
+	if writePos+4 > uint64(len(timestampListBytes)) {
 		proxywasm.LogCriticalf("[REACHED CAPACITY, ROTATING]")
 		// rotation magic
-		readPosBytes, _, err := proxywasm.GetSharedData(timestampListReadPosKey(method, path))
+		readPosBytes, readCas, err := proxywasm.GetSharedData(timestampListReadPosKey(method, path))
 		if err != nil {
 			proxywasm.LogCriticalf("[ROTATION MAGIC] Couldn't get shared data for timestamp read pos: %v", err)
 			return
@@ -1137,8 +1123,13 @@ func TimestampListAdd(method string, path string) {
 		// set readPos to 0
 		readPosBytes = make([]byte, 8)
 		binary.LittleEndian.PutUint64(readPosBytes, 0)
-		if err := proxywasm.SetSharedData(timestampListReadPosKey(method, path), readPosBytes, 0); err != nil {
+		if err := proxywasm.SetSharedData(timestampListReadPosKey(method, path), readPosBytes, readCas); err != nil {
 			proxywasm.LogCriticalf("[ROTATION MAGIC] unable to set shared data for timestamp read pos: %v", err)
+			// try again
+			//if err := proxywasm.SetSharedData(timestampListReadPosKey(method, path), readPosBytes, 0); err != nil {
+			//	proxywasm.LogCriticalf("[ROTATION MAGIC] unable to set shared data for timestamp read pos: %v", err)
+			//	return
+			//}
 			return
 		}
 		// set writePos to the end of the segment we just rotated
@@ -1146,30 +1137,32 @@ func TimestampListAdd(method string, path string) {
 		// set writePos
 		writePosBytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(writePosBytes, writePos)
-		if err := proxywasm.SetSharedData(timestampListWritePosKey(method, path), writePosBytes, 0); err != nil {
+		if err := proxywasm.SetSharedData(timestampListWritePosKey(method, path), writePosBytes, writeCas); err != nil {
 			proxywasm.LogCriticalf("[ROTATION MAGIC] unable to set shared data for timestamp write pos: %v", err)
-			return
+			// try again
+			//if err := proxywasm.SetSharedData(timestampListWritePosKey(method, path), writePosBytes, 0); err != nil {
+			//	return
+			//}
 
 		}
 	}
 	// add new timestamp
-	//proxywasm.LogCriticalf("writePos: %v", writePos)
 	if writePos >= uint64(len(timestampListBytes)) {
 		proxywasm.LogCriticalf("writePos: %v, len: %v", writePos, len(timestampListBytes))
 		// just fuck off and dont write anything until all threads sync
 		return
 	}
-	binary.LittleEndian.PutUint64(timestampListBytes[writePos:], uint64(t))
+	binary.LittleEndian.PutUint32(timestampListBytes[writePos:], t)
 
 	if err := proxywasm.SetSharedData(sharedQueueKey(method, path), timestampListBytes, cas); err != nil {
-		//TimestampListAdd(method, path)
+		h.TimestampListAdd(method, path)
 		return
 	}
 	// change write position *after* writing new bytes was success
-	IncrementSharedData(timestampListWritePosKey(method, path), 8)
+	IncrementSharedData(timestampListWritePosKey(method, path), 4)
 
 	// evict old entries while we're at it
-	timeMillisCutoff := time.Now().UnixMilli() - 1000
+	timeMillisCutoff := h.GetTime() - 1000
 	// get timestamp read position
 	readPosBytes, cas2, err := proxywasm.GetSharedData(timestampListReadPosKey(method, path))
 	if err != nil {
@@ -1182,8 +1175,8 @@ func TimestampListAdd(method string, path string) {
 	}
 	readPos := binary.LittleEndian.Uint64(readPosBytes)
 	for readPos < uint64(len(timestampListBytes)) {
-		if binary.LittleEndian.Uint64(timestampListBytes[readPos:]) < uint64(timeMillisCutoff) {
-			readPos += 8
+		if binary.LittleEndian.Uint32(timestampListBytes[readPos:]) < timeMillisCutoff {
+			readPos += 4
 		} else {
 			break
 		}
@@ -1194,10 +1187,6 @@ func TimestampListAdd(method string, path string) {
 	if err := proxywasm.SetSharedData(timestampListReadPosKey(method, path), readPosBytes, cas2); err != nil {
 		return
 	}
-
-	//newListBytes := []byte(string(timestampListBytes) + "," + strconv.FormatUint(uint64(t), 10))
-	// add new timestamp
-	//IncrementTimestampListSize(method, path, 1)
 }
 
 /*
@@ -1222,7 +1211,7 @@ func TimestampListGetRPS(method string, path string) uint64 {
 	}
 	writePos := binary.LittleEndian.Uint64(writePosBytes)
 	queueSize := writePos - readPos
-	return queueSize / 8
+	return queueSize / 4
 	/*
 		timestampListBytes, _, err := proxywasm.GetSharedData(sharedQueueKey(method, path))
 		if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
