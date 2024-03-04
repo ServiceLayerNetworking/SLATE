@@ -475,7 +475,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     # logger.debug()
 
     
-    if objective == "end_to_end_latency":
+    if objective == "max_end_to_end_latency":
         svc_order = dict()
         for key in callgraph:
             assert key not in svc_order

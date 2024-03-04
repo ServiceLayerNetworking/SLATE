@@ -2,9 +2,9 @@
 
 apply_resource_field(){
     kubectl get deployments -n default -o json | \
-     jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "1"}}' | \
+     jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "2"}, "limits": {"cpu": "2"}}' | \
+     #jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "1"}}' | \
        kubectl apply -f -
-     #jq '(.items[] | select(.metadata.name != "slate-controller")) | .spec.template.spec.containers[].resources = {"requests": {"cpu": "1"}, "limits": {"cpu": "4"}}' | \
 }
 
 update_cpu_and_memory() {
@@ -34,6 +34,7 @@ update_cpu_and_memory() {
   done
 }
 
+#------------------------------------------------#
 # Usage:
-#update_cpu_and_memory default slate-controller
-apply_resource_field
+#update_cpu_and_memory default slate-controller # deprecated
+apply_resource_field # use this
