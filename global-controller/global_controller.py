@@ -422,7 +422,8 @@ def handleProxyLoad():
         assert False
     with open(f'csv_string-{svc}-{region}.txt', 'w') as f:
         f.write(csv_string)
-    logger.info(f'ROUTING_RULE: {ROUTING_RULE}, csv_string updated for {svc} in {region}: \n{csv_string}')
+    if csv_string != "":
+        logger.info(f'ROUTING_RULE: {ROUTING_RULE}, csv_string updated for {svc} in {region}: \n{csv_string}')
     return csv_string
 
 # def optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_level_inflight, endpoint_level_rps, placement, coef_dict, all_endpoints, endpoint_to_cg_key):
@@ -717,10 +718,11 @@ def parse_trace_string_file_to_trace_data_structure(trace_string_file_path):
     return complete_traces
 
 def is_trace_complete(single_trace):
-    # TODO: Must be changed for other applications.
-    if len(single_trace) == total_num_services: 
-        return True
-    return False
+    return True
+    # # TODO: Must be changed for other applications.
+    # if len(single_trace) == total_num_services: 
+    #     return True
+    # return False
 
 
 # This function can be async
@@ -886,12 +888,17 @@ def read_config_file():
                     logger.info(f'Update mode: {mode} -> {line[1]}')
                     mode = line[1]
             elif line[0] == "routing_rule":
-                if mode != line[1]:
+                if ROUTING_RULE != line[1]:
                     logger.info(f'Update mode: {ROUTING_RULE} -> {line[1]}')
                     if line[1] not in ROUTING_RULE_SET:
                         logger.error(f"ERROR: unknown routing_rule: {line[1]}")
                         assert False
                     ROUTING_RULE = line[1]
+            # elif line[0] == "clean_trace_str_datastructure":
+            #     temp = int(line[1])
+            #     if temp == 1: # True
+            #         trace_str_list = list()
+            #         logger.info("trace_str_list is cleaned.")
             else:
                 logger.error(f"ERROR: unknown config: {line}")
                 assert False

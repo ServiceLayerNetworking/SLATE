@@ -1,0 +1,2 @@
+kubectl label namespace default istio-injection=disabled --overwrite
+kubectl rollout restart deploy
