@@ -1,2 +1,2 @@
  pod=$1
- kubectl exec --stdin --tty ${pod} -- /bin/bash
+ kubectl exec --stdin --tty ${pod} -- /bin/sh
