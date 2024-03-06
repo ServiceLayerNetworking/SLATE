@@ -1093,7 +1093,7 @@ func (h *httpContext) TimestampListAdd(method string, path string) {
 		}
 		// set write pos
 		writePos := make([]byte, 8)
-		binary.LittleEndian.PutUint64(writePos, 8)
+		binary.LittleEndian.PutUint32(writePos, 4)
 		if err := proxywasm.SetSharedData(timestampListWritePosKey(method, path), writePos, 0); err != nil {
 			proxywasm.LogCriticalf("unable to set shared data for timestamp write pos: %v", err)
 		}
