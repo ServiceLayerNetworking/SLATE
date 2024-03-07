@@ -329,7 +329,9 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		// perform routing magic
 		// get endpoint distribution
 		endpointDistribution, _, err := proxywasm.GetSharedData(endpointDistributionKey(dst, reqMethod, reqPath))
-		//proxywasm.LogCriticalf("OnHttpRequestHeaders, endpoint distribution for %s %s: %s", reqMethod, reqPath, endpointDistribution)
+		proxywasm.LogCriticalf("OnHttpRequestHeaders, endpoint distribution for %s %s: %s", reqMethod, reqPath, endpointDistribution)
+		proxywasm.AddHttpRequestHeader("x-slate-routefrom", region)
+		proxywasm.LogCriticalf("OnHttpRequestHeaders, x-slate-routefrom set to %s", region)
 		if err != nil {
 			// no rules available yet.
 			//proxywasm.LogCriticalf("No rules available for endpoint %s %s to %s", reqMethod, reqPath, dst)
@@ -349,7 +351,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 				if coin <= total {
 					// proxywasm.LogCriticalf("OnHttpRequestHeaders, coin,%f, total,%f, targetRegion,%s", coin, total, targetRegion)
 					proxywasm.AddHttpRequestHeader("x-slate-routeto", targetRegion)
-					proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routeto set to %s (%.2f%% chance)", targetRegion, pct*100)
+					proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routefrom, %s, x-slate-routeto set to %s (%.2f%% chance)",region, targetRegion, pct*100)
 					break
 				}
 			}
@@ -573,7 +575,7 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 			distStr += fmt.Sprintf("%s %s\n", region, pct)
 		}
 		mp := strings.Split(methodPath, "@")
-		//proxywasm.LogCriticalf("setting ENDPOINT DIST %v: %v", endpointDistributionKey(mp[0], mp[1]), distStr)
+		proxywasm.LogCriticalf("setting ENDPOINT DIST %v: %v", endpointDistributionKey(mp[0], mp[1], mp[2]), distStr)
 		if err := proxywasm.SetSharedData(endpointDistributionKey(mp[0], mp[1], mp[2]), []byte(distStr), 0); err != nil {
 			proxywasm.LogCriticalf("unable to set shared data for endpoint distribution %v: %v", methodPath, err)
 		}
