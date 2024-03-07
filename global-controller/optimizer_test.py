@@ -4,6 +4,7 @@
 # In[31]:
 import sys
 sys.dont_write_bytecode = True
+import logging
 
 import time
 import pandas as pd
@@ -22,10 +23,8 @@ import itertools
 from pprint import pprint
 import span as sp
 from global_controller import app
-import logging
 
 logging.config.dictConfig(cfg.LOGGING_CONFIG)
-logger = logging.getLogger(__name__)
 
 random.seed(1234)
 
@@ -71,10 +70,12 @@ traffic_segmentation = True/False
 objective = "avg_latency"/"end_to_end_latency"/"egress_cost"/"multi_objective"
 '''
 def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective):
+    logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
         logger.debug(f"{cfg.log_prefix} mkdir {cfg.OUTPUT_DIR}")
     logger.info(f"{opt_prefix} endpoint_level_rps: {endpoint_level_rps}")
+    # print(f"{opt_prefix} endpoint_level_rps: {endpoint_level_rps}")
     for cid in endpoint_level_rps:
         for svc_name in endpoint_level_rps[cid]:
             for ep in endpoint_level_rps[cid][svc_name]:
@@ -84,7 +85,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     for cg_key in ep_str_callgraph_table:
         root_ep[cg_key] = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
     # e.g., root_ep[cg_key]: 'metrics-fake-ingress@GET@/start'
-    app.logger.info(f"{opt_prefix} root_ep: {root_ep}")
+    logger.info(f"{opt_prefix} root_ep: {root_ep}")
             
     def get_root_node_rps(endpoint_level_rps, root_ep):
         root_node_rps = dict()
@@ -99,20 +100,19 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                             logger.info(f'{opt_prefix} root_span: {root_ep[cg_key]}, rps: {root_node_rps[cid][ep]}')
         return root_node_rps
     
-    
     root_node_rps = get_root_node_rps(endpoint_level_rps, root_ep)
     no_rps = True
     for cid in root_node_rps:
         for ep in root_node_rps[cid]:
             if root_node_rps[cid][ep] != 0:
-                logger.info(f'{opt_prefix} root_node_rps[{cid}][{ep}] is 0')
+                logger.error(f'{opt_prefix} root_node_rps[{cid}][{ep}] is 0')
                 no_rps = False
                 break
         if no_rps == False:
             break
     if no_rps == True:
-        app.logger.info(f'{opt_prefix} Skip run_optimizer. (reason: all root_node_rps is 0)')
-        return pd.DataFrame()
+        logger.error(f'{opt_prefix} Skip run_optimizer. (reason: root_node_rps is 0, root: {root_ep})')
+        return pd.DataFrame(), f"reason: root_node_rps is 0, root: {root_ep}"
 
     def collapse_cid_in_endpoint_level_rps(endpoint_level_rps):
         collapsed_endpoint_level_rps = dict()
@@ -133,7 +133,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         return collapsed_endpoint_level_rps
     
     collapsed_endpoint_level_rps = collapse_cid_in_endpoint_level_rps(endpoint_level_rps)
-    logger.info(f'{opt_prefix} collapsed_endpoint_level_rps: {collapsed_endpoint_level_rps}')
+    logger.debug(f'{opt_prefix} collapsed_endpoint_level_rps: {collapsed_endpoint_level_rps}')
     # This is used in flow_conservation-nonleaf_endnode constraint
     request_in_out_weight = dict()
     for cg_key in ep_str_callgraph_table:
@@ -145,17 +145,16 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
             for child_ep in ep_str_callgraph_table[cg_key][parent_ep]:
                 if child_ep not in request_in_out_weight[cg_key][parent_ep]:
                     request_in_out_weight[cg_key][parent_ep][child_ep] = dict()
-                parent_svc_name = parent_ep.split(sp.ep_del)[0]
-                child_svc_name = child_ep.split(sp.ep_del)[0]
-                logger.info(f'parent_svc_name: {parent_svc_name}, parent_ep: {parent_ep}, {collapsed_endpoint_level_rps[parent_svc_name]}')
-                logger.info(f'child_svc_name: {child_svc_name}, child_ep: {child_ep}, {collapsed_endpoint_level_rps[child_svc_name]}')
+                parent_svc_name = parent_ep.split(cfg.ep_del)[0]
+                child_svc_name = child_ep.split(cfg.ep_del)[0]
+                logger.debug(f'parent_svc_name: {parent_svc_name}, parent_ep: {parent_ep}, {collapsed_endpoint_level_rps[parent_svc_name]}')
+                logger.debug(f'child_svc_name: {child_svc_name}, child_ep: {child_ep}, {collapsed_endpoint_level_rps[child_svc_name]}')
                 
                 in_ = collapsed_endpoint_level_rps[parent_svc_name][parent_ep]
                 out_ = collapsed_endpoint_level_rps[child_svc_name][child_ep]
                 # TODO: request_in_out_weight[cg_key][parent_ep][child_ep] = in_/out_
                 request_in_out_weight[cg_key][parent_ep][child_ep] = 1
-                logger.info(f'parent_ep: {parent_ep}, child_ep: {child_ep}, in_: {in_}, out_: {out_}, request_in_out_weight: {request_in_out_weight[cg_key][parent_ep][child_ep]}')
-    logger.info(f'request_in_out_weight: {request_in_out_weight}')
+                logger.debug(f'request_in_out_weight: {request_in_out_weight[cg_key][parent_ep][child_ep]}, parent_ep: {parent_ep}, child_ep: {child_ep}, in_: {in_}, out_: {out_}')
     ##############################################
     # TODO: Problem: how should we the endpoint to each call graph? Otherwise, by simply using the endpoint, we are not able to find root endpoint of the call graph.
     # norm_inout_weight = dict()
@@ -217,11 +216,11 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     compute_arc_var_name = opt_func.create_compute_arc_var_name(all_endpoints)
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
     compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict)
-    display(compute_df)
+    logger.debug(compute_df)
     compute_df.to_csv(f'{output_dir}/compute_df.csv')
     if traffic_segmentation == False:
         original_compute_df = opt_func.create_compute_df(placement, original_callgraph, callsize_dict, original_NUM_REQUESTS, original_MAX_LOAD)
-        # display(original_compute_df)
+        # logger.debug(original_compute_df)
         
     # for svc_name in latency_function:
     #     for ep in latency_function[svc_name]:
@@ -234,7 +233,8 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
 
     # In[42]:
 
-    gurobi_model = gp.Model('RequestRouting')
+    env = gp.Env(params={'OutputFlag':0})
+    gurobi_model = gp.Model('RequestRouting', env=env)
 
     ''' 
     Create new gurobi variables
@@ -651,14 +651,14 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     for cid in endpoint_level_rps:
         for svc_name in endpoint_level_rps[cid]:
             for ep in endpoint_level_rps[cid][svc_name]:
-                logger.info(f'endpoint_level_rps: {cid}, {svc_name}, {ep}, {endpoint_level_rps[cid][svc_name][ep]}')
+                logger.debug(f'endpoint_level_rps: {cid}, {svc_name}, {ep}, {endpoint_level_rps[cid][svc_name][ep]}')
     # logger.debug(endpoint_level_inflight_req)
     ## Constraint 1: SOURCE
     if cfg.LOAD_IN:
         total_coming = 0
         for cg_key in ep_str_callgraph_table:
             root_ep = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
-            root_ep_svc_name = root_ep.split(sp.ep_del)[0]
+            root_ep_svc_name = root_ep.split(cfg.ep_del)[0]
             # logger.debug(f'cg_key: {cg_key}')
             for cid in placement:
                 if root_ep_svc_name in placement[cid]:
@@ -783,7 +783,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                     #     lh = gp.quicksum(aggregated_load.select('*', end_node))*merged_in_out_weight[parent_svc][child_svc]
                     
                     # try:
-                    logger.info(f'request_in_out_weight: {request_in_out_weight}')
+                    logger.debug(f'request_in_out_weight: {request_in_out_weight}')
                     lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
                     rh = outgoing_sum
                     gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
@@ -863,11 +863,9 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     #     if key == "LICENSEID":
     #         value = int(value)
     #     options[key] = value
-    # env = gp.Env(params=options)
-    # gp.Model(env=env)
     
     ## When using gurobi.lic license
-    gp.Model()
+    # gp.Model()
     
     gurobi_model.update()
     
@@ -894,10 +892,10 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     # with pd.option_context('display.max_colwidth', None):
     #     with pd.option_context('display.max_rows', None):
     #         logger.debug("df_var")
-    #         display(df_var)
+    #         logger.debug(df_var)
     #         logger.debug()
     #         logger.debug("df_constr")
-    #         display(df_constr)
+    #         logger.debug(df_constr)
     substract_time = time.time() - ts
     opt_func.log_timestamp("get var and constraint")
 
@@ -905,11 +903,11 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
 
 
     if gurobi_model.Status != GRB.OPTIMAL:
-        app.logger.info(f"{opt_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
-        app.logger.info(f"{opt_prefix} XXXX INFEASIBLE MODEL! XXXX")
-        app.logger.info(f"{opt_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        logger.info(f"{opt_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        logger.info(f"{opt_prefix} XXXX INFEASIBLE MODEL! XXXX")
+        logger.info(f"{opt_prefix} XXXXXXXXXXXXXXXXXXXXXXXXXXX")
         if cfg.DISPLAY:
-            display(df_constr)
+            logger.debug(df_constr)
         
         gurobi_model.computeIIS()
         gurobi_model.write("gurobi_model.ilp")
@@ -920,34 +918,25 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
             if v.IISLB: logger.error(f'\t{v.varname} ≥ {v.LB}')
             if v.IISUB: logger.error(f'\t{v.varname} ≤ {v.UB}')
         logger.info(f'{opt_prefix} FAIL: INFEASIBLE MODEL')
-        return pd.DataFrame()
+        return pd.DataFrame(), "reason: infeasible model"
     else:
-        app.logger.info(f"{opt_prefix} ooooooooooooooooooooooo")
-        app.logger.info(f"{opt_prefix} oooo SOLVED MODEL! oooo")
-        app.logger.info(f"{opt_prefix} ooooooooooooooooooooooo")
-
-        ## Print out the result
-        optimize_end_time = time.time()
-        # optimizer_runtime = round((optimize_end_time - optimizer_start_time) - substract_time, 5)
-        # solve_runtime = round(solve_end_time - solve_start_time, 5)
-        # logger.debug(f"{cfg.log_prefix} ** Objective function: {objective}")
-        # logger.debug(f"{cfg.log_prefix} ** Num constraints: {num_constr}")
-        # logger.debug(f"{cfg.log_prefix} ** Num variables: {num_var}")
-        # logger.debug(f"{cfg.log_prefix} ** Optimization runtime: {optimizer_runtime} ms")
-        # logger.debug(f"{cfg.log_prefix} ** model.optimize() runtime: {solve_runtime} ms")
-        # logger.debug(f"{cfg.log_prefix} ** model.objVal: {gurobi_model.objVal}")
-        # logger.debug(f"{cfg.log_prefix} ** gurobi_model.objVal / total num requests: {gurobi_model.objVal/MAX_LOAD}")
+        logger.info(f"{opt_prefix} ooooooooooooooooooooooo")
+        logger.info(f"{opt_prefix} oooo SOLVED MODEL! oooo")
+        logger.info(f"{opt_prefix} ooooooooooooooooooooooo")
         request_flow = pd.DataFrame(columns=["From", "To", "Flow"])
         for arc in arcs:
             if aggregated_load[arc].x > 1e-6:
                 temp = pd.DataFrame({"From": [arc[0]], "To": [arc[1]], "Flow": [aggregated_load[arc].x]})
                 request_flow = pd.concat([request_flow, temp], ignore_index=True)
         request_flow.to_csv(f'{output_dir}/request_flow.csv')
-        display(request_flow)
+        logger.debug("asdf request_flow")
+        logger.debug(request_flow)
         percentage_df = opt_func.translate_to_percentage(request_flow)
+        logger.debug("asdf percentage_df")
+        logger.debug(percentage_df)
         # opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)
-        app.logger.info(f'{opt_prefix} Successful run.')
-        return percentage_df
+        logger.info(f'{opt_prefix} Successful run')
+        return percentage_df, "model solved"
 
 
         # In[52]:
@@ -1006,9 +995,9 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                 update_actual_flow(original_request_in_out_weight[key], percentage_df[merged_cg_key], original_callgraph[key], actual_request_flow_df[key], original_NUM_REQUESTS, key)
                 
                 logger.debug(f'percentage_df[{merged_cg_key}]')
-                display(percentage_df[merged_cg_key])
+                logger.debug(percentage_df[merged_cg_key])
                 logger.debug(f'actual_request_flow_df[{key}]')
-                display(actual_request_flow_df[key])
+                logger.debug(actual_request_flow_df[key])
         
 
         # In[52]:
@@ -1031,7 +1020,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                 another_group_by_df.at[index, "dst_cid"] = int(index.split(",")[3].split(".")[0])
                 another_group_by_df.at[index, "weight"] = row["flow"]/row["total"]
             logger.debug("another_group_by_df")
-            display(another_group_by_df)
+            logger.debug(another_group_by_df)
             
         # for key in callgraph:
         #     opt_func.plot_callgraph_request_flow(percentage_df, [key], network_arc_var_name)
@@ -1128,18 +1117,18 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         if traffic_segmentation == False:
             act_tot_network_latency = dict()
             for key in actual_request_flow_df:
-                # display(actual_request_flow_df[key])
+                # logger.debug(actual_request_flow_df[key])
                 act_tot_network_latency[key] = 0
                 for index, row in actual_request_flow_df[key].iterrows():
                     act_tot_network_latency[key] += opt_func.get_network_latency(row['src_cid'], row['dst_cid']) * row['flow']
             
             group_by_df = dict()
             for key in actual_request_flow_df:
-                # display(actual_request_flow_df[key])
+                # logger.debug(actual_request_flow_df[key])
                 temp_df = actual_request_flow_df[key].drop(columns=['src', 'src_cid', 'total', 'weight'])
                 group_by_df[key] = temp_df.groupby(["dst", "dst_cid"]).sum()
                 group_by_df[key] = group_by_df[key].reset_index()
-                # display(group_by_df[key])
+                # logger.debug(group_by_df[key])
                 
             act_tot_compute_avg_lat = dict()
             for key in group_by_df:
@@ -1155,7 +1144,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                                     break
                     temp_df = pd.DataFrame(data=data)
                     # logger.debug(f'{row["dst"]}, {row["dst_cid"]}')
-                    # display(temp_df)
+                    # logger.debug(temp_df)
                     idx = opt_func.get_compute_arc_var_name(row["dst"], row["dst_cid"])
                     lat_f = original_compute_df.loc[[idx]]["latency_function_"+key].tolist()[0]
                     # logger.debug(lat_f)
@@ -1198,7 +1187,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
 #     except Exception as e:
 #         weight_list.append(0)
 # concat_df["weight"] = weight_list
-# display(concat_df)
+# logger.debug(concat_df)
 
 
 # %%

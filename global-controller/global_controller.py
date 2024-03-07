@@ -52,14 +52,15 @@ mode = ""
 train_done = False
 benchmark_name = ""
 total_num_services = 0
-trace_string_file="trace_string.csv"
+# trace_string_file="trace_string.csv"
+trace_string_file="metrics-app.txt"
 # x_feature = "num_inflight_dict"
 x_feature = "rps_dict"
 target_y = "xt"
 endpoint_to_placement = dict()
 svc_to_placement = dict()
-ROUTING_RULE_SET = ["local", "slate", "roundrobin", "random"]
-ROUTING_RULE = "local"
+ROUTING_RULE_SET = ["LOCAL", "SLATE", "REMOTE", "MCLB"]
+ROUTING_RULE = "LOCAL"
 stats_mutex = Lock()
 
 def set_endpoint_to_placement(all_endpoints):
@@ -126,7 +127,7 @@ def get_local_routing_rule(src_svc, src_cid):
     df = pd.DataFrame(columns=["src_endpoint", "dst_endpoint", "src_cid", "dst_cid", "weight"])
     for cg_key in ep_str_callgraph_table:
         for parent_ep_str in ep_str_callgraph_table[cg_key]:
-            if parent_ep_str.split(sp.ep_del)[0] != src_svc:
+            if parent_ep_str.split(cfg.ep_del)[0] != src_svc:
                 continue
             for child_ep_str in ep_str_callgraph_table[cg_key][parent_ep_str]:
                 dst_cid_list = endpoint_to_placement[child_ep_str]
@@ -140,7 +141,66 @@ def get_local_routing_rule(src_svc, src_cid):
                         new_row_df = pd.DataFrame([new_row])
                         df = pd.concat([df, new_row_df], ignore_index=True)
     csv_string = df.to_csv(header=False, index=False)
-    logger.info(f"local_routing: {src_svc}, {src_cid}\n{csv_string}")
+    logger.info(f"routing rule, LOCAL: {src_svc}, {src_cid}\n{csv_string}")
+    return csv_string
+
+def always_remote_routing_rule(src_svc, src_cid):
+    global ep_str_callgraph_table
+    global endpoint_to_placement
+    global placement
+    num_cluster = len(placement)
+    local_pct = 0.0001*num_cluster # 0.0001 to local
+    remote_pct = 1 - local_pct # 0.9999 to remote
+    if len(ep_str_callgraph_table) == 0:
+        logger.error(f"ERROR: ep_str_callgraph_table is empty.")
+        return
+    df = pd.DataFrame(columns=["src_endpoint", "dst_endpoint", "src_cid", "dst_cid", "weight"])
+    for cg_key in ep_str_callgraph_table:
+        for parent_ep_str in ep_str_callgraph_table[cg_key]:
+            if parent_ep_str.split(cfg.ep_del)[0] != src_svc:
+                continue
+            for child_ep_str in ep_str_callgraph_table[cg_key][parent_ep_str]:
+                logger.debug(f"{parent_ep_str} -> {child_ep_str}")
+                dst_cid_list = endpoint_to_placement[child_ep_str]
+                for dst_cid in dst_cid_list:
+                    if src_cid == dst_cid:
+                        new_row = {"src_endpoint": parent_ep_str, "dst_endpoint": child_ep_str, "src_cid": src_cid, "dst_cid": dst_cid, "weight": local_pct}
+                        new_row_df = pd.DataFrame([new_row])
+                        df = pd.concat([df, new_row_df], ignore_index=True)
+                    else:
+                        new_row = {"src_endpoint": parent_ep_str, "dst_endpoint": child_ep_str, "src_cid": src_cid, "dst_cid": dst_cid, "weight": remote_pct}
+                        new_row_df = pd.DataFrame([new_row])
+                        df = pd.concat([df, new_row_df], ignore_index=True)
+    csv_string = df.to_csv(header=False, index=False)
+    logger.info(f"routing rule, REMOTE: {src_svc}, {src_cid}\n{csv_string}")
+    return csv_string
+
+def MCLB_routing_rule(src_svc, src_cid):
+    global ep_str_callgraph_table
+    global endpoint_to_placement
+    global placement
+    equal_distribution = 1/len(placement)
+    if len(ep_str_callgraph_table) == 0:
+        logger.error(f"ERROR: ep_str_callgraph_table is empty.")
+        return
+    df = pd.DataFrame(columns=["src_endpoint", "dst_endpoint", "src_cid", "dst_cid", "weight"])
+    for cg_key in ep_str_callgraph_table:
+        for parent_ep_str in ep_str_callgraph_table[cg_key]:
+            if parent_ep_str.split(cfg.ep_del)[0] != src_svc:
+                continue
+            for child_ep_str in ep_str_callgraph_table[cg_key][parent_ep_str]:
+                dst_cid_list = endpoint_to_placement[child_ep_str]
+                for dst_cid in dst_cid_list:
+                    if src_cid == dst_cid:
+                        new_row = {"src_endpoint": parent_ep_str, "dst_endpoint": child_ep_str, "src_cid": src_cid, "dst_cid": dst_cid, "weight": equal_distribution}
+                        new_row_df = pd.DataFrame([new_row])
+                        df = pd.concat([df, new_row_df], ignore_index=True)
+                    else:
+                        new_row = {"src_endpoint": parent_ep_str, "dst_endpoint": child_ep_str, "src_cid": src_cid, "dst_cid": dst_cid, "weight": equal_distribution}
+                        new_row_df = pd.DataFrame([new_row])
+                        df = pd.concat([df, new_row_df], ignore_index=True)
+    csv_string = df.to_csv(header=False, index=False)
+    logger.info(f"routing rule, MCLB: {src_svc}, {src_cid}\n{csv_string}")
     return csv_string
 
 
@@ -161,11 +221,20 @@ def is_span_existed_in_trace(traces_, span_):
 #     return traces_[span_.cluster_id][span_.trace_id]
 
 def parse_inflight_stats(body):
+    # logger.info(f"{cfg.log_prefix} body: {body}")
     lines = body.split("\n")
-    # for i in range(len(lines)):
-    #     logger.info(f"{cfg.log_prefix} parse_inflight_stats, lines[{i}]: {lines[i]}")
     inflightStats = lines[1]
     return inflightStats
+
+
+'''
+body:
+fmt.Sprintf("%d\n%s\n%s", reqCount, inflightStats, requestStatsStr)
+'''
+def parse_service_level_rps(body):
+    lines = body.split("\n")
+    rps = int(lines[0])
+    return rps
 
 
 def parse_stats_into_spans(body, given_svc_name):
@@ -173,9 +242,13 @@ def parse_stats_into_spans(body, given_svc_name):
     requestStats = lines[3:]
     spans = []
     for span_stat in requestStats:
+        '''
+        span_stat: "us-west-1 metrics-fake-ingress-us-west-1 GET /start 70904b1c08f35622387a6bb5c9141596 387a6bb5c9141596  1709763447436 1709763447540 0 GET@/start,0,18446744073709530962|"
+        
+        ss = ["us-west-1", "metrics-fake-ingress-us-west-1", "GET", "/start", "70904b1c08f35622387a6bb5c9141596", "387a6bb5c9141596", "1709763447436", "1709763447540", "0", "GET@/start,0,18446744073709530962|"]
+        ss = [region, serviceName, method, path, traceId, spanId, startTime, endTime, bodySize, endpointInflightStats]
+        '''
         ss = span_stat.split(" ")
-        # logger.debug(f"ss: {ss}")
-        # logger.debug(f"len(ss): {len(ss)}")
         ## NOTE: THIS SHOUD BE UPDATED WHEN member fields in span class is updated.
         if len(ss) != 11:
             logger.error(f"ERROR, len(ss) != 11, (len(ss):{len(ss)}, ss:{ss})")
@@ -195,8 +268,10 @@ def parse_stats_into_spans(body, given_svc_name):
         endTime = int(ss[8])
         bodySize = int(ss[9])
         if serviceName.find("metrics-handler") != -1:
+            logger.info(f"{cfg.log_prefix} Rewriting bodySize: {bodySize}, svc: {serviceName}, method: {method}, path: {path}")
             bodySize = 5000
         else:
+            logger.info(f"{cfg.log_prefix} Rewriting bodySize: {bodySize}, svc: {serviceName}, method: {method}, path: {path}")
             bodySize = 50
         # 'GET@/hotels,0,1|POST@/reservation,2,0|GET@/recommendations,2,1|'
         endpointInflightStats = ss[10].split("|")
@@ -280,7 +355,24 @@ def handleProxyLoad():
         return ""
     
     body = request.get_data().decode('utf-8')
-    # logger.debug("{svc} in {region}:\n{body}".format(svc=svc, region=region, body=body))
+    '''
+    example of body
+    
+    format:
+    service_level_rps at OnTick time
+    endpoint,endpoint_level_rps,endpoint_level_rps|...| at OnTick time
+    requestStat-1
+    requestStat-2
+    requestStat-3
+    
+    e.g.,
+    54 
+    GET@/start,0,12|POST@/upload,0,34|
+    us-west-1 metrics-fake-ingress-us-west-1 GET /start 70904b1c08f35622387a6bb5c9141596 387a6bb5c9141596  1709763447436 1709763447540 0 GET@/start,0,18446744073709530962|
+    us-west-1 metrics-fake-ingress-us-west-1 GET /start 8b869b12bba09c5e3843e396eeab84b5 3843e396eeab84b5  1709763447465 1709763447512 0 GET@/start,0,18446744073709530962|
+    us-west-1 metrics-fake-ingress-us-west-1 GET /start 4d098d189169f0f7e07e75c587d4c608 e07e75c587d4c608  1709763447751 1709763447814 0 GET@/start,0,18446744073709530944|
+    us-west-1 metrics-fake-ingress-us-west-1 GET /start d3c0c9e72a315edce2e118bb2d7be53d e2e118bb2d7be53d  1709763447856 1709763447929 0 GET@/start,0,18446744073709530939|
+    '''
         
     logger.debug(f"{cfg.log_prefix} svc: {svc}, region: {region}")
     
@@ -305,40 +397,58 @@ def handleProxyLoad():
         # logger.info(f"{cfg.log_prefix} Init entire inflight and rps to 0")
         # return ""
     
-    # inflightStats: GET@/start,4,1|POST@/start,4,1|
+    # inflightStats: "GET@/start,4,1|POST@/start,4,1|"
+    # METHOD1@URL1,RPS,INFLIGHT|METHOD2@URL2,RPS,INFLIGHT|...|
     logger.debug(f"{cfg.log_prefix} inflightStats: {inflightStats}")
+    # endpoints of this service which has load now
+    # E.g., there could be three endpoints(GET,POST,PUT) in the Service A and only GET,POST have load now. Then, active_endpoint_stats will be "GET,4,1|POST,10,2|"
     active_endpoint_stats = inflightStats.split("|")[:-1]
-    
-    for ep_stats in active_endpoint_stats:
-        # ep_stats: GET@/start,4,1
-        logger.debug(f"{cfg.log_prefix} ep_stats: {ep_stats}")
-        # ep: metrics-handler@GET@/start
-        method_and_url = ep_stats.split(",")[0]
-        ontick_rps = int(ep_stats.split(",")[1])
-        ontick_inflight = int(ep_stats.split(",")[2])
-        endpoint = svc + sp.ep_del + method_and_url
-        endpoint_level_rps[region][svc][endpoint] = ontick_rps
+    logger.debug(f"{cfg.log_prefix} active_endpoint_stats: {active_endpoint_stats}")
+    '''
+    TODO: parse_service_level_rps should be updated to ontick per endpoint level rps
+    '''
+    svc_level_rps = parse_service_level_rps(body)
+    for endpoint_stat in active_endpoint_stats:
+        # E.g., endpoint_stat: GET@/start,4,1
+        logger.info(f"{cfg.log_prefix} endpoint_stats: {endpoint_stat}")
+        method_and_url = endpoint_stat.split(",")[0] # GET@/start
+        method = method_and_url.split("@")[0] # GET
+        url = method_and_url.split("@")[1] # /start
+        ontick_rps = int(endpoint_stat.split(",")[1]) # 4
+        ontick_inflight = int(endpoint_stat.split(",")[2]) # 1
+        endpoint = svc + cfg.ep_del + method_and_url
+        '''
+        TODO: ontick_rps is actually right varaible. ontick_rps should be fixed at wasm...
+        For now, it will use service level rps
+        '''
+        ## set per endpoint rps at OnTick function call time
+        endpoint_level_rps[region][svc][endpoint] = svc_level_rps
+        # endpoint_level_rps[region][svc][endpoint] = ontick_rps
+        
+        ## set per endpoint inflight at OnTick function call time
         endpoint_level_inflight[region][svc][endpoint] = ontick_inflight
-            
+
+    # debug print
     for ep in endpoint_level_rps[region][svc]:
         logger.debug(f"{cfg.log_prefix} endpoint_level_rps: {region}, {svc}, {ep}, {endpoint_level_rps[region][svc][ep]}")
+        logger.info(f"{cfg.log_prefix} endpoint_level_rps: {region}, {svc}, {endpoint_level_rps[region][svc][ep]}")
+        
     for ep in endpoint_level_inflight[region][svc]:
         logger.debug(f"{cfg.log_prefix} endpoint_level_inflight: {region}, {svc}, {ep}, {endpoint_level_inflight[region][svc][ep]}")
         
     if mode == "profile":
-        # TODO: In the end of the profile phase, all the traces have to be written into a file.
+        ''' TODO: In the end of the profile phase, all the traces have to be written into a file.'''
         spans = parse_stats_into_spans(body, svc)
-        # logger.debug(f"{cfg.log_prefix} service_level_rps: {service_level_rps}")
         logger.debug(f"{cfg.log_prefix} inflightStats: {inflightStats}")
-        # It is necessary to initialize rps and inflight for each endpoint since it is not guaranteed that all endpoints are in the stats. In the current ontick, it shouldn't use previous rps or inflight. If there is stats for endpoint A, it doesn't mean that there is stats for endpoint B. 
+        
+        # ''' It is necessary to initialize endpoint rps and endpoint inflight since it is not guaranteed that all endpoints are in the stats. In the current ontick, it shouldn't use previous rps or inflight. If there is stats for endpoint A, it doesn't mean that there is stats for endpoint B. '''
         # all_ep_for_rps_so_far = endpoint_level_rps[region][svc]
         # for ep in all_ep_for_rps_so_far:
         #     endpoint_level_rps[region][svc][ep] = 0
         # all_ep_for_inflight_so_far = endpoint_level_inflight[region][svc]
+        # This code is for debugging purpose. for performance, comment it out.
         # for ep in all_ep_for_inflight_so_far:
         #     endpoint_level_inflight[region][svc][ep] = 0
-            
-        # This code is for debugging purpose. for performance, comment it out.
         # for i in len(all_ep_for_rps_so_far):
         #     assert all_ep_for_inflight_so_far[i] == all_ep_for_rps_so_far[i]
     
@@ -353,59 +463,54 @@ def handleProxyLoad():
                         # matmul-app: #spans = 2
                         # hotelreservation: #spans = ?
                         trace_str_list.append(str(span))
-        csv_string = ""
+        csv_string = get_local_routing_rule(svc, region)
     elif mode == "runtime":
-        ''' Generate fake load stat '''
+        # ''' Generate fake load stat '''
         # endpoint_level_inflight = gen_endpoint_level_inflight(all_endpoints)
         # endpoint_level_rps = gen_endpoint_level_rps(all_endpoints)
         
         '''
-        API, global_controller --> wasm
+        API from Global Controller ---> WASM
         
-        data format:
+        API format:
         src_endpoint, dst_endpoint, src_cid, dst_cid, weight
         
         It is raw text. It should be parsed in wasm.
         example:
         
-        west
-        ingress
-        
+        routing rule to ingress in west cluster:
         metrics-fake-ingress@GET@/start, us-west-1, us-west-1, 0.6
         metrics-fake-ingress@GET@/start, us-west-1, us-east-1, 0.4
         metrics-fake-ingress@POST@/start, us-west-1, us-west-1, 0.9
         metrics-fake-ingress@POST@/start, us-west-1, us-east-1, 0.1
         
-        east
-        ingress
-        
+        routing rule to ingress in east cluster:
         metrics-fake-ingress@GET@/start, us-east-1, us-west-1, 1.0
         metrics-fake-ingress@GET@/start, us-east-1, us-east-1, 0.0
         metrics-fake-ingress@POST@/start, us-east-1, us-west-1, 0.8
         metrics-fake-ingress@POST@/start, us-east-1, us-east-1, 0.2
         '''
         logger.info(f'ROUTING_RULE: {ROUTING_RULE}')
-        if ROUTING_RULE == "local":
+        if ROUTING_RULE == "LOCAL":
             csv_string = get_local_routing_rule(svc, region)
-        elif ROUTING_RULE == "slate":
+        elif ROUTING_RULE == "REMOTE":
+            csv_string = always_remote_routing_rule(svc, region)
+        elif ROUTING_RULE == "MCLB":
+            csv_string = MCLB_routing_rule(svc, region)
+        elif ROUTING_RULE == "SLATE":
+            # NOTE: remember percentage_df is set by 'optimizer_entrypoint' async function
             if percentage_df.empty:
-                csv_string = get_local_routing_rule(svc, region)
                 logger.info(f"{svc}, {region}, percentage_df is empty. rollback to local routing")
+                csv_string = get_local_routing_rule(svc, region)
             else:
-                logger.info(f"{svc}, {region}, percentage_df is valid")
+                logger.info(f"{svc}, {region}, percentage_df is not empty")
                 temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
                 # temp_df = temp_df.loc[(temp_df['src_cid'] == region)]
                 # logger.info(f"{cfg.log_prefix} handleProxyLoad df after filtering, temp_df: {temp_df}")
                 if len(temp_df) == 0:
-                    logger.error(f"{cfg.log_prefix} ERROR: handleProxyLoad df percentage_df becomes empty after filtering. {region}, {svc}. rollback to local routing")
+                    logger.error(f"{cfg.log_prefix} ERROR: {region}, {svc}. percentage_df becomes empty after filtering.\nrollback to local routing")
                     csv_string = get_local_routing_rule(svc, region)
                 else:
-                    '''
-                    src_endpoint, dst_endpoint, src_cid, dst_cid, weight
-                    
-                    metrics-fake-ingress@GET@/start,metrics-handler@GET@/detectAnomalies,us-west-1,us-east-1,0.49
-                    metrics-fake-ingress@GET@/start,metrics-handler@GET@/detectAnomalies,us-west-1,us-west-1,0.51
-                    '''
                     ## Add_region_back_to_svc_name
                     # temp_df['src_endpoint'] = temp_df['src_endpoint'].str.replace(r'([^@]+)', fr'\1-{temp_df["src_cid"]}', n=1, regex=True)
                     # temp_df['dst_endpoint'] = temp_df['dst_endpoint'].str.replace(r'([^@]+)', fr'\1-{temp_df["dst_cid"]}', n=1, regex=True)
@@ -413,20 +518,20 @@ def handleProxyLoad():
                     temp_df = temp_df.reset_index(drop=True)
                     temp_df.to_csv(f'percentage_df-{svc}-{region}.csv')
                     csv_string = temp_df.to_csv(header=False, index=False)
-                    logger.info(f"{cfg.log_prefix} handleProxyLoad new percentage_df! percentage_df-{svc}-{region}.csv")
+                    logger.info(f"{cfg.log_prefix} new routing rule! percentage_df-{svc}-{region}.csv")
         else:
             logger.error(f"ERROR: ROUTING_RULE is not supported yet. ROUTING_RULE: {ROUTING_RULE}")
             assert False
     else:
-        logger.error(f"ERROR: mode is not valid. mode: {mode}")
+        logger.error(f"ERROR: Invalid. mode: {mode}")
         assert False
     with open(f'csv_string-{svc}-{region}.txt', 'w') as f:
         f.write(csv_string)
-    if csv_string != "":
-        logger.info(f'ROUTING_RULE: {ROUTING_RULE}, csv_string updated for {svc} in {region}: \n{csv_string}')
+    assert csv_string != ""
+    logger.info(f'ROUTING_RULE: {ROUTING_RULE}, csv_string updated for {svc} in {region}: \n{csv_string}')
     return csv_string
 
-# def optimizer_entrypoint(sp_callgraph_table, ep_str_callgraph_table, endpoint_level_inflight, endpoint_level_rps, placement, coef_dict, all_endpoints, endpoint_to_cg_key):
+
 ## All variables are global variables
 def optimizer_entrypoint():
     global coef_dict
@@ -449,17 +554,17 @@ def optimizer_entrypoint():
     
     logger.debug("coef_dict")
     logger.debug(coef_dict)
-    logger.debug("[OPTIMIZER] endpoint_level_inflight")
+    logger.debug("endpoint_level_inflight")
     for region in endpoint_level_inflight:
         for svc in endpoint_level_inflight[region]:
             for ep in endpoint_level_inflight[region][svc]:
-                logger.debug(f"[OPTIMIZER] {region}, {svc} {ep} {endpoint_level_inflight[region][svc][ep]}")
-    logger.debug("[OPTIMIZER] endpoint_level_rps")
+                logger.debug(f"{region}, {svc} {ep} {endpoint_level_inflight[region][svc][ep]}")
+    logger.debug("endpoint_level_rps")
     for region in endpoint_level_rps:
         for svc in endpoint_level_rps[region]:
             for ep in endpoint_level_rps[region][svc]:
-                logger.debug(f"[OPTIMIZER] {region}, {svc} {ep} {endpoint_level_rps[region][svc][ep]}")
-    # logger.debug(f'[OPTIMIZER] {endpoint_level_rps}')
+                logger.debug(f"{region}, {svc} {ep} {endpoint_level_rps[region][svc][ep]}")
+    # logger.debug(f'{endpoint_level_rps}')
     logger.debug("placement")
     logger.debug(placement)
     logger.debug("all_endpoints")
@@ -468,10 +573,10 @@ def optimizer_entrypoint():
     logger.debug(endpoint_to_cg_key)
     # logger.debug("sp_callgraph_table")
     # logger.debug(sp_callgraph_table)
-    logger.debug("ep_str_callgraph_table")
+    logger.info("ep_str_callgraph_table")
     for cg_key in ep_str_callgraph_table:
         for ep_str in ep_str_callgraph_table[cg_key]:
-            logger.debug(f"[OPTIMIZER] {ep_str} -> {ep_str_callgraph_table[cg_key][ep_str]}")
+            logger.info(f"{ep_str} -> {ep_str_callgraph_table[cg_key][ep_str]}")
     logger.debug(ep_str_callgraph_table)
     logger.debug("traffic_segmentation")
     logger.debug(traffic_segmentation)
@@ -489,16 +594,31 @@ def optimizer_entrypoint():
         f.write(f"traffic_segmentation: {traffic_segmentation}\n")
         f.write(f"objective: {objective}\n")
     
-    percentage_df = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective)
+    logger.info(f"endpoint_level_rps: {endpoint_level_rps}")
+    percentage_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective)
+    ''' percentage_df format
+    percentage_df = pd.DataFrame(
+        data={
+            "src_svc": src_svc_list,
+            "dst_svc": dst_svc_list,
+            "src_endpoint": src_endpoint_list,
+            "dst_endpoint": dst_endpoint_list, 
+            "src_cid": src_cid_list,
+            "dst_cid": dst_cid_list,
+            "flow": flow_list,
+        },
+        index = src_and_dst_index
+    )
+    '''
     if percentage_df.empty:
-        logger.info(f"{cfg.log_prefix} [OPTIMIZER] ERROR: run_optimizer FAILS.")
+        logger.info(f"ERROR: run_optimizer FAIL (**{desc}**)")
         return
-    logger.info(f"{cfg.log_prefix} [OPTIMIZER] Successful run_optimizer")
-    logger.info(f"[OPTIMIZER] percentage_df: {percentage_df}")
+    sim_percentage_df = percentage_df.copy()
+    sim_percentage_df = sim_percentage_df.drop(columns=['src_endpoint', "dst_endpoint", ]).reset_indee(drop=True)
+    logger.info(f"run_optimizer SUCCESS")
+    logger.info(f"run_optimizer percentage_df: {sim_percentage_df}")
     percentage_df.to_csv(f"percentage_df.csv")
-    logger.info(f"[OPTIMIZER] percentage_df is written.")
     
-
 # Sample data
 def fit_linear_regression(data, y_col_name):
     df = pd.DataFrame(data)
@@ -567,27 +687,7 @@ def train_latency_function_with_trace(traces):
                     if y_col not in data:
                         data[y_col] = list()
                     data[y_col].append(row[target_y])
-                
-                # logger.debug(f"data: {data}")
-                # logger.debug()
                 coef_dict[svc_name][ep_str] = fit_linear_regression(data, y_col)
-                # NOTE: overwriting for debugging
-                # latency_func[svc_name][ep_str], X_ = opt_func.get_regression_pipeline(load_dict)
-                # X_.to_csv(f"X_c{cid}_{row['method']}.csv")
-                # # logger.debug(f"latency_func[ep_str]: {latency_func[svc_name][ep_str]}")
-                # if len(X_) == 0:
-                #     logger.debug(f'cluter_id: {cid}, svc_name: {svc_name}, ep_str: {ep_str}, len(X_) == 0')
-                # logger.debug(f"len(X_): {len(X_)}")
-                # if len(X_) > 10:
-                #     X_train, X_test, y_train, y_test = train_test_split(X_, y_, train_size=0.9, random_state=1)
-                # else:
-                #     X_train = X_
-                #     X_test = X_
-                #     y_train = y_
-                #     y_test = y_
-                # latency_func[svc_name][ep_str].fit(X_train, y_train)
-                # logger.debug(f"fitted latency_func[{svc_name}][{row['method']}] coef: {latency_func[svc_name][ep_str]['linearregression'].coef_}")
-                # logger.debug(f"fitted latency_func[{svc_name}][{row['method']}] intercept: {latency_func[svc_name][ep_str]['linearregression'].intercept_}")
     return coef_dict
 
 def gen_endpoint_level_inflight(all_endpoints):
@@ -640,50 +740,38 @@ def parse_trace_string_file_to_trace_data_structure(trace_string_file_path):
         num_inflight_dict = dict()
         rps_dict = dict()
         
-        # inflight_row =  "user-us-west-1@POST@/user.User/CheckUser:1|user-us-west-1@POST@/user.User/CheckUser:1|"
-        # print(row)
-        # print(row["inflight_dict"])
         try:
+            # row["inflight_dict"]: "user-us-west-1@POST@/user.User/CheckUser:1|user-us-west-1@POST@/user.User/CheckUser:1|"
             inflight_list = row["inflight_dict"].split("|")[:-1]
         except:
-            print(f"row: {row}")
-            print(f"row['inflight_dict']: {row['inflight_dict']}")
+            logger.debug(f"row: {row}")
+            logger.debug(f"row['inflight_dict']: {row['inflight_dict']}")
             assert False
         for ep_inflight in inflight_list:
-            # print(row)
+            # ep_inflight: user-us-west-1@POST@/user.User/CheckUser:1
             temp = ep_inflight.split(":")
-            # print(f"len(temp): {len(temp)}")
-            # print(temp)
             assert len(temp) == 2
             ep = temp[0] # user-us-west-1@POST@/user.User/CheckUser
             inflight = int(temp[1]) # 1
-            svc_name = ep.split("@")[0]
-            method = ep.split("@")[1]
-            path = ep.split("@")[2]
             num_inflight_dict[ep] = inflight
+            # svc_name = ep.split("@")[0] # user-us-west-1
+            # method = ep.split("@")[1] # POST
+            # path = ep.split("@")[2] # /user.User/CheckUser
             
         rps_list = row["rps_dict"].split("|")[:-1]
         for ep_rps in rps_list:
             temp = ep_rps.split(":")
-            # print(f"len(temp): {len(temp)}")
+            # logger.debug(f"len(temp): {len(temp)}")
             assert len(temp) == 2
             ep = temp[0] # user-us-west-1@POST@/user.User/CheckUser
             rps = int(temp[1]) # 1
-            svc_name = ep.split("@")[0]
-            method = ep.split("@")[1]
-            path = ep.split("@")[2]
             rps_dict[ep] = rps
+            # svc_name = ep.split("@")[0]
+            # method = ep.split("@")[1]
+            # path = ep.split("@")[2]
             
-        
-        ##################################################
-        # serviceName = row["svc_name"]
-        # if serviceName.find("-us-") != -1:
-        #     serviceName = serviceName.split("-us-")[0]
-        ##################################################
-        span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], row["trace_id"], row["span_id"], row["parent_span_id"], st=float(row["st"]), et=float(row["et"]), callsize=int(row["call_size"]), rps_dict=num_inflight_dict, num_inflight_dict=num_inflight_dict)
+        span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], row["trace_id"], row["span_id"], row["parent_span_id"], st=float(row["st"]), et=float(row["et"]), callsize=int(row["call_size"]), rps_dict=rps_dict, num_inflight_dict=num_inflight_dict)
         list_of_span.append(span)
-        # print(str(span))
-        # exit()
         
     # Convert list of span to traces data structure
     traces = dict()
@@ -694,15 +782,17 @@ def parse_trace_string_file_to_trace_data_structure(trace_string_file_path):
             traces[span.cluster_id][span.trace_id] = list()
         traces[span.cluster_id][span.trace_id].append(span)
     
+    '''
+    NOTE: using average num svc in a trace is shaky...
+    '''
     for cid in traces:
         tot_num_svc = 0
         for tid in traces[cid]:
             tot_num_svc += len(traces[cid][tid])
         avg_num_svc = tot_num_svc / len(traces[cid])
-        
-    print(f"avg_num_svc: {avg_num_svc}")
+    logger.debug(f"avg_num_svc: {avg_num_svc}")
     required_num_svc = math.ceil(avg_num_svc)
-    print(f"required_num_svc: {required_num_svc}")
+    logger.info(f"required_num_svc: {required_num_svc}")
     
     complete_traces = dict()
     for cid in traces:
@@ -712,11 +802,13 @@ def parse_trace_string_file_to_trace_data_structure(trace_string_file_path):
             if len(traces[cid][tid]) == required_num_svc:
                 complete_traces[cid][tid] = traces[cid][tid]
     for cid in traces:
-        print(f"len(traces[{cid}]): {len(traces[cid])}")
+        logger.info(f"len(traces[{cid}]): {len(traces[cid])}")
     for cid in complete_traces:
-        print(f"len(complete_traces[{cid}]): {len(complete_traces[cid])}")
+        logger.info(f"len(complete_traces[{cid}]): {len(complete_traces[cid])}")
     return complete_traces
 
+
+# Deprecated
 def is_trace_complete(single_trace):
     return True
     # # TODO: Must be changed for other applications.
@@ -725,6 +817,7 @@ def is_trace_complete(single_trace):
     # return False
 
 
+# Deprecated
 # This function can be async
 def check_and_move_to_complete_trace(all_traces):
     c_traces = dict()
@@ -770,8 +863,9 @@ def training_phase():
     global trace_string_file
     
     if mode != "runtime":
-        logger.debug(f"{cfg.log_prefix} Skip training. mode: {mode}")
+        logger.debug(f"{cfg.log_prefix} It is not runtime mode. Skip training. current mode: {mode}")
         return
+    
     ## We only need to train once.
     if train_done:
         logger.debug(f"{cfg.log_prefix} Training has been done already.")
@@ -792,16 +886,17 @@ def training_phase():
         logger.debug(f"{cfg.log_prefix} Skip training.")
         return
     
-    all_traces = parse_trace_string_file_to_trace_data_structure(trace_string_file)
-    logger.debug(f"{cfg.log_prefix} len(all_traces): {len(all_traces)}")
-    complete_traces = check_and_move_to_complete_trace(all_traces)
-    logger.debug(f"{cfg.log_prefix} len(complete_traces): {len(complete_traces)}")
-    # for span in complete_traces:
-    #     logger.debug(span)
+    complete_traces = parse_trace_string_file_to_trace_data_structure(trace_string_file)
+    for cid in complete_traces:
+        logger.info(f"{cfg.log_prefix} len(complete_traces[{cid}]): {len(complete_traces[cid])}")
+    # complete_traces = check_and_move_to_complete_trace(all_traces)
+    # for cid in complete_traces:
+    #     logger.info(f"{cfg.log_prefix} len(complete_traces[{cid}]): {len(complete_traces[cid])}")
     
     '''Time stitching'''
     stitched_traces = tst.stitch_time(complete_traces)
-    
+    for cid in stitched_traces:
+        logger.info(f"{cfg.log_prefix} len(stitched_traces[{cid}]): {len(stitched_traces[cid])}")
     '''Create useful data structures from the traces'''
     # sp_callgraph_table = tst.traces_to_span_callgraph_table(stitched_traces)
     # tst.file_write_callgraph_table(sp_callgraph_table)
@@ -812,8 +907,8 @@ def training_phase():
     svc_to_placement = set_svc_to_placement(all_endpoints)
     placement = tst.get_placement_from_trace(stitched_traces)
     
-    logger.debug("ep_str_callgraph_table")
-    logger.debug(f"num different callgraph: {len(ep_str_callgraph_table)}")
+    logger.info("ep_str_callgraph_table")
+    logger.info(f"num different callgraph: {len(ep_str_callgraph_table)}")
     for cg_key in ep_str_callgraph_table:
         logger.debug(f"{cg_key}: {ep_str_callgraph_table[cg_key]}")
     for cid in all_endpoints:
@@ -836,8 +931,8 @@ def training_phase():
             for ep_str in all_endpoints[region][svc]:
                 endpoint_level_rps[region][svc][ep_str] = 0
                 endpoint_level_inflight[region][svc][ep_str] = 0
-                logger.info(f"training_phase, Init endpoint_level_rps[{region}][{svc}][{ep_str}]: {endpoint_level_rps[region][svc][ep_str]}")
-                logger.info(f"training_phase, Init endpoint_level_inflight[{region}][{svc}][{ep_str}]: {endpoint_level_inflight[region][svc][ep_str]}")
+                logger.debug(f"training_phase, Init endpoint_level_rps[{region}][{svc}][{ep_str}]: {endpoint_level_rps[region][svc][ep_str]}")
+                logger.debug(f"training_phase, Init endpoint_level_inflight[{region}][{svc}][{ep_str}]: {endpoint_level_inflight[region][svc][ep_str]}")
                 
     
     '''
@@ -845,22 +940,22 @@ def training_phase():
     The linear regression model is function of "inflight_req"
     '''
     coef_dict = train_latency_function_with_trace(stitched_traces)
+    ############################################################
+    '''
+    NOTE: overwrite coefficient to 1 for debugging
+    '''
+    logger.warning(f"!!! WARNING !!! : overwrite coefficient to 1 for debugging")
     for svc_name in coef_dict:
         for ep_str in coef_dict[svc_name]:
-            logger.info(f'coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
-    ############################################################
-    ## NOTE: overwriting coefficient for debugging
-    # for svc_name in coef_dict:
-    #     for ep_str in coef_dict[svc_name]:
-    #         for feature_ep in coef_dict[svc_name][ep_str]:
-    #             if feature_ep == "intercept":
-    #                 coef_dict[svc_name][ep_str][feature_ep] = 0
-    #             else:
-    #                 coef_dict[svc_name][ep_str][feature_ep] = 1
-    # ############################################################
-    # for svc_name in coef_dict:
-    #     for ep_str in coef_dict[svc_name]:
-    #         logger.debug(f'coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
+            for feature_ep in coef_dict[svc_name][ep_str]:
+                if feature_ep == "intercept":
+                    coef_dict[svc_name][ep_str][feature_ep] = 0
+                else:
+                    coef_dict[svc_name][ep_str][feature_ep] = 1
+    # Print coefficient
+    for svc_name in coef_dict:
+        for ep_str in coef_dict[svc_name]:
+            logger.debug(f'coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
             
     train_done = True # train done!
     return

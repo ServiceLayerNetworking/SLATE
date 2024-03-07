@@ -4,6 +4,10 @@ import os
 def get_cur_time():
     return datetime.datetime.now().strftime("%Y%m%d_%H:%M:%S")
 
+
+############
+## LOGGER ##
+############
 # log_prefix="[SLATE]"
 log_prefix=""
 
@@ -13,7 +17,7 @@ LOGGING_CONFIG = {
     'formatters': {
         'standard': {
             # 'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            'format': '%(name)s - %(funcName)s - %(message)s',
+            'format': '%(name)s - %(funcName)s(line:%(lineno)d) - %(message)s',
         },
     },
     'handlers': {
@@ -28,6 +32,11 @@ LOGGING_CONFIG = {
             'handlers': ['default'],
             'level': 'INFO',
             'propagate': True
+        },
+        'gurobipy.gurobipy': {  # specifically targeting the gurobipy.gurobipy logger
+            'handlers': ['default'],  # It's optional in this case since we're only adjusting the level
+            'level': 'CRITICAL',  # Set to 'CRITICAL' to suppress all lower severity logs
+            'propagate': False  # Prevents the log messages from being propagated to ancestor loggers
         }
     }
 }
@@ -38,7 +47,8 @@ LOGGING_CONFIG = {
 PRINT_TRACE=False
 NUM_CLUSTER = 2 # NOTE: hardcoded
 MODE="PROFILE" # PROFILE, SLATE, LOCAL_ROUTING
-
+between_ep = "|" # svc@method@url|svc@method@url
+ep_del = "@" # svc@method@url
 
 ###############
 ## Optimizer ##

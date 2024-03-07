@@ -1,3 +1,4 @@
+import logging
 import config as cfg
 # from global_controller import app
 import graphviz
@@ -21,10 +22,9 @@ from sklearn.metrics import r2_score
 import span as sp
 import pprint
 import hashlib
-import logging
 
 logging.config.dictConfig(cfg.LOGGING_CONFIG)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__) # this line should be added to every function
 
 
 random.seed(1234)
@@ -52,7 +52,7 @@ edge_color_list = ["red", "blue", "green", "yellow"]
 
 def calculate_depth(graph, node):
     if node not in graph or not graph[node]:
-        print(f"leaf node: {node}, depth: 1")
+        logger.debug(f"leaf node: {node}, depth: 1")
         return 1
     children = graph[node]
     child_depths = [calculate_depth(graph, child) for child in children]
@@ -80,8 +80,7 @@ def get_callsize_dict(cg, depth):
     for parent in cg:
         for child in cg[parent]:
             assert depth[parent] < depth[child]
-            print(f"depth[{parent}]")
-            print(f"{depth[parent]}")
+            logger.debug(f"depth[{parent}]")
             callsize_dict[(parent,child)] = ((depth[parent]+1)*10)
     return callsize_dict
 
@@ -121,7 +120,7 @@ def is_network_var(var_tuple):
     elif var_tuple[0].split(cfg.DELIMITER)[2] == "start" and var_tuple[1].split(cfg.DELIMITER)[2] == "end":
         return False
     else:
-        print(f'Wrong var_tuple: {var_tuple}')
+        logger.error(f'Wrong var_tuple: {var_tuple}')
         assert False
     
 
@@ -150,7 +149,7 @@ def get_slope(svc_name, callgraph):
 
 def get_compute_latency(load, svc_name, slope, intercept, target_cg, callgraph):
     if len(load) != len(slope):
-        print(f'Wrong length of load({len(load)}) != slope({len(slope)})')
+        logger.error(f'Wrong length of load({len(load)}) != slope({len(slope)})')
         assert False
     if svc_name == "ingress_gw":
         return 0
@@ -262,7 +261,7 @@ def create_network_arc_var_name(endpoint_to_placement):
     cluster_pair = get_cluster_pair(endpoint_to_placement)
     network_arc_var_name = list()
     # [(0, 0), (0, 1), (1, 0), (1, 1)]
-    print("cluster_pair: ", cluster_pair)
+    logger.debug("cluster_pair: ", cluster_pair)
     for c_pair in cluster_pair:
         src_cid = c_pair[0]
         dst_cid = c_pair[1]
@@ -301,7 +300,6 @@ def write_arguments_to_file(num_reqs, callgraph, depth_dict, callsize_dict, uniq
     temp += f'{cfg.log_prefix} INTER_CLUSTER_RTT: {cfg.INTER_CLUSTER_RTT}\n'
     temp += f'{cfg.log_prefix} INTER_CLUSTER_EGRESS_COST: {cfg.INTER_CLUSTER_EGRESS_COST}\n'
     temp += f'{cfg.log_prefix} DOLLAR_PER_MS: {cfg.DOLLAR_PER_MS}\n'
-    print(temp)
     with open(f'{cfg.OUTPUT_DIR}/arguments.txt', 'w') as f:
         f.write(temp)
     
@@ -322,16 +320,16 @@ def check_compute_arc_var_name(c_arc_var_name):
         dst_node_type = dst_node.split(cfg.DELIMITER)[2]
         
         if src_svc_name != dst_svc_name:
-            print(f'src_svc_name != dst_svc_name, {src_svc_name} != {dst_svc_name}')
+            logger.error(f'src_svc_name != dst_svc_name, {src_svc_name} != {dst_svc_name}')
             assert False
         if src_cid != dst_cid:
-            print(f'src_cid != dst_cid, {src_cid} != {dst_cid}')
+            logger.error(f'src_cid != dst_cid, {src_cid} != {dst_cid}')
             assert False
         if src_node_type != "start":
-            print(f'src_node_type != "start", {src_node_type} != "start"')
+            logger.error(f'src_node_type != "start", {src_node_type} != "start"')
             assert False
         if dst_node_type != "end":
-            print(f'dst_node_type != "end", {dst_node_type} != "end"')
+            logger.error(f'dst_node_type != "end", {dst_node_type} != "end"')
             assert False
 
 
@@ -339,9 +337,9 @@ def is_ingress_gw(target_svc, callgraph):
     for key in callgraph:
         for parent_svc in callgraph[key]:
             if target_svc in callgraph[key][parent_svc]:
-                # print(f'{target_svc} is NOT ingress_gw')
+                # logger.error(f'{target_svc} is NOT ingress_gw')
                 return False
-    # print(f'{target_svc} is ingress_gw')
+    # logger.error(f'{target_svc} is ingress_gw')
     return True
 
 
@@ -424,9 +422,9 @@ def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table):
     for var_name in compute_arc_var_name:
         if type(var_name) == tuple:
             ep = var_name[0].split(cfg.DELIMITER)[0]
-            svc_name = ep.split(sp.ep_del)[0]
-            method = ep.split(sp.ep_del)[1]
-            url = ep.split(sp.ep_del)[2]
+            svc_name = ep.split(cfg.ep_del)[0]
+            method = ep.split(cfg.ep_del)[1]
+            url = ep.split(cfg.ep_del)[2]
             endpoint_list.append(ep)
             svc_name_list.append(svc_name)
             method_list.append(method)
@@ -438,7 +436,7 @@ def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table):
             src_cid_list.append(src_cid)
             dst_cid_list.append(dst_cid)
         else:
-            print(f'Wrong var_name type: {type(var_name)}. It must be tuple')
+            logger.error(f'Wrong var_name type: {type(var_name)}. It must be tuple')
             assert False
             endpoint_list.append(var_name.split(",")[0].split(cfg.DELIMITER)[0])
             src_cid_list.append(int(var_name.split(",")[0].split(cfg.DELIMITER)[1]))
@@ -469,9 +467,9 @@ def get_observed_y(callgraph, load_list, compute_df):
                 slope = get_slope(row['svc_name'], callgraph)
                 intercept = 0
                 compute_latency = get_compute_latency(load_dict, row["svc_name"], slope, intercept, cg_key, callgraph) # compute_latency is ground truth
-                print(f'svc: {row["svc_name"]}, load_dict: {load_dict}, slope: {slope}, compute_latency: {compute_latency}')
+                logger.debug(f'svc: {row["svc_name"]}, load_dict: {load_dict}, slope: {slope}, compute_latency: {compute_latency}')
                 observed_y[row["svc_name"]][cg_key].append(compute_latency)
-            print(row['svc_name'], cg_key, len(observed_y[row["svc_name"]][cg_key]))
+            logger.debug(row['svc_name'], cg_key, len(observed_y[row["svc_name"]][cg_key]))
     '''
     observed_y[svc_name][cg_key] = a list of compute_latency
     compute_latency: 
@@ -490,15 +488,15 @@ def get_observed_x_df(row_, callgraph):
     data = dict()
     for key in callgraph:
         data["observed_x_"+key] = row_["observed_x_"+key]
-    print(data)
     temp_df = pd.DataFrame(
         data=data,
     )
     # X_ = temp_df[["observed_x_A", "observed_x_B"]]
-    # display(temp_df)
-    # display(X_)
+    # logger.debug(temp_df)
+    # logger.debug(X_)
     return temp_df
 
+# Deprecated
 def learn_latency_function(row, callgraph, key):
     X_ = get_observed_x_df(row, callgraph)
     y_ = row["observed_y_"+key]
@@ -510,8 +508,8 @@ def learn_latency_function(row, callgraph, key):
     in_ = reg["linearregression"].intercept_
     y_pred = reg.predict(X_test)
     r2 =  np.round(r2_score(y_test, y_pred),2)
-    print(f'reg: {reg}')
-    print(f'Service {row["svc_name"]}, r2: {r2}, slope: {c_}, intercept: {in_}')
+    logger.debug(f'reg: {reg}')
+    logger.debug(f'Service {row["svc_name"]}, r2: {r2}, slope: {c_}, intercept: {in_}')
 
     check_negative_relationship(reg)
     return reg
@@ -539,12 +537,11 @@ def fill_observation_in_compute_df(compute_df, callgraph_table):
     
 
 def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict):
-    # print(f'compute_arc_var_name: {compute_arc_var_name}')
     columns = get_compute_df_column(ep_str_callgraph_table)
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
     fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table)
     for index, row in compute_df.iterrows():
-        print(f'{row["svc_name"]}, {row["endpoint"]}')
+        logger.debug(f'{row["svc_name"]}, {row["endpoint"]}')
         compute_df.at[index, 'coef'] = coef_dict[row["svc_name"]][row['endpoint']]
         # compute_df.at[index, 'latency_function'] = latency_func[row['svc_name']][row['endpoint']]
     return compute_df
@@ -558,9 +555,8 @@ def print_gurobi_var(gurobi_model):
         df_var.to_csv(cfg.OUTPUT_DIR+"/variable.csv")
     with pd.option_context('display.max_colwidth', None):
         with pd.option_context('display.max_rows', None):
-            # print(f"len(df_var): {len(df_var)}")
-            # print("df_var")
-            # display(df_var)
+            # logger.debug(f"len(df_var): {len(df_var)}")
+            # logger.debug("df_var")
             df_var.to_csv("variable.csv")
             
 def print_gurobi_constraint(gurobi_model):
@@ -571,29 +567,29 @@ def print_gurobi_constraint(gurobi_model):
         df_constr.to_csv(cfg.OUTPUT_DIR+"/constraint.csv")
     with pd.option_context('display.max_colwidth', None):
         with pd.option_context('display.max_rows', None):
-            # print(f"len(df_constr): {len(df_constr)}")
-            # print("df_constr")
-            # display(df_constr)
+            # logger.debug(f"len(df_constr): {len(df_constr)}")
+            # logger.debug("df_constr")
             df_constr.to_csv("constraint.csv")
-        
+
+# Deprecated
 def check_negative_relationship(reg):
     if cfg.REGRESSOR_DEGREE == 1:
         for i in range(len(reg["linearregression"].coef_)):
             if reg["linearregression"].coef_[i] < 0:
                 new_c = np.array([0.])
                 reg["linearregression"].coef_[i] = new_c
-                print(f'{cfg.log_prefix} Service {row["svc_name"]}, changed slope {reg["linearregression"].coef_[i]} --> {new_c}, intercept: {in_}')
+                logger.warning(f'{cfg.log_prefix} Service {row["svc_name"]}, changed slope {reg["linearregression"].coef_[i]} --> {new_c}, intercept: {in_}')
                 assert False
     # if cfg.REGRESSOR_DEGREE == 2:
     #     '''
     #     (X1,X2) transforms to (1, X1, X2, X1^2, X1X2, X2^2)
     #     '''
-    #     print(f'Service {row["svc_name"]}, slope: {reg["linearregression"].coef_} {reg}')
+    #     logger.warning(f'Service {row["svc_name"]}, slope: {reg["linearregression"].coef_} {reg}')
     #     for i in range(len(reg["linearregression"].coef_)):
     #         if reg["linearregression"].coef_[i][1] < 0:
     #             new_c = np.array([0., 0.])
     #             reg["linearregression"].coef_[i] = new_c
-    #             print(f'{cfg.log_prefix} Service {row["svc_name"]}, changed slope {reg["linearregression"].coef_[i]} --> {new_c}, intercept: {in_}')
+    #             logger.warning(f'{cfg.log_prefix} Service {row["svc_name"]}, changed slope {reg["linearregression"].coef_[i]} --> {new_c}, intercept: {in_}')
     #             assert False
 
 
@@ -606,21 +602,21 @@ def log_timestamp(event_name):
     timestamp_list.append([event_name, time.time()])
     if len(timestamp_list) > 1:
         dur = round(timestamp_list[-1][1] - timestamp_list[-2][1], 5)
-        print(f"{cfg.log_prefix} Finished, {event_name}, duration,{dur}")
+        logger.debug(f"{cfg.log_prefix} Finished, {event_name}, duration,{dur}")
 
 
 def print_timestamp():
-    print(f"{cfg.log_prefix} ** timestamp_list(ms)")
+    logger.debug(f"{cfg.log_prefix} ** timestamp_list(ms)")
     for i in range(1, len(timestamp_list)):
-        print(f"{cfg.log_prefix} {timestamp_list[i][0]}, {timestamp_list[i][1] - timestamp_list[i-1][1]}")
+        logger.info(f"{cfg.log_prefix} {timestamp_list[i][0]}, {timestamp_list[i][1] - timestamp_list[i-1][1]}")
         
-        
+# Deprecated
 def print_error(msg):
     exit_time = 5
-    print("[ERROR] " + msg)
-    print("EXIT PROGRAM in")
+    logger.error("[ERROR] " + msg)
+    logger.error("EXIT PROGRAM in")
     for i in reversed(range(exit_time)) :
-        print("{} seconds...".format(i))
+        logger.error("{} seconds...".format(i))
         time.sleep(1)
     assert False
 
@@ -742,7 +738,7 @@ def plot_dict_detail(target_dict, cg, g_):
         elif get_edge_type(src_node_type, dst_node_type) == "network":
             edge_color = get_network_edge_color(src_cid, dst_cid)
         else:
-            print(f'Wrong edge type: {src_node_type}->{dst_node_type}')
+            logger.error(f'Wrong edge type: {src_node_type}->{dst_node_type}')
             assert False
         g_.edge(src, dst, penwidth=edge_pw, style="filled", fontsize=edge_fs_0, fontcolor=edge_color, color=edge_color, arrowsize=edge_arrowsize, minlen=edge_minlen)
 
@@ -780,15 +776,12 @@ def plot_dict_wo_compute_edge(target_dict, g_):
         dst_node = dst_svc+str(dst_cid)
         src_node_color = node_color_dict[src_cid]
         dst_node_color = node_color_dict[dst_cid]
-        print(src_node_color)
-        print(dst_node_color)
-        
-        edge_color = "white" # transparent
         # src_node
         g_.node(name=src_node, label=src_svc[:name_cut], shape='circle', style='filled', fillcolor=src_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
         # dst_node
         g_.node(name=dst_node, label=dst_svc[:name_cut], shape='circle', style='filled', fillcolor=dst_node_color, penwidth=node_pw, fontsize=fs, fontname=fn, fixedsize="True", width="0.5")
         # # transparent edge for structured plot
+        # edge_color = "white" # transparent
         # g_.edge(src_node, dst_node, color=edge_color, penwidth=edge_pw, style="filled", fontsize=edge_fs, fontcolor="black", arrowsize=edge_arrowsize, minlen=edge_minlen)
         
 
@@ -918,18 +911,18 @@ def check_network_arc_var_name(net_arc_var):
         dst_node_type = dst_node.split(cfg.DELIMITER)[2]
         
         if src_svc_name == dst_svc_name:
-            print(f'src_svc_name == dst_svc_name, {src_svc_name} == {dst_svc_name}')
+            logger.error(f'src_svc_name == dst_svc_name, {src_svc_name} == {dst_svc_name}')
             assert False
         # if src_cid == dst_cid:
-        #     print(f'src_cid == dst_cid, {src_cid} == {dst_cid}')
+        #     logger.error(f'src_cid == dst_cid, {src_cid} == {dst_cid}')
         #     assert False
         if is_normal_node(src_svc_name) and src_node_type != "end":
-            print(f'{src_node_type} != "end"')
-            print(src_node)
+            logger.error(f'{src_node_type} != "end"')
+            logger.error(src_node)
             assert False
         if is_normal_node(dst_svc_name) and dst_node_type != "start":
-            print(f'{dst_node_type} != "end"')
-            print(dst_node)
+            logger.error(f'{dst_node_type} != "end"')
+            logger.error(dst_node)
             assert False
 
 
@@ -958,6 +951,10 @@ def get_start_node_name(svc_name, cid):
 
 
 def translate_to_percentage(df_req_flow):
+    logger = logging.getLogger(__name__)
+    i = 0
+    logger.info(f'translate_to_percentage {i}')
+    i+=1
     src_endpoint_list = list()
     dst_endpoint_list = list()
     src_svc_list = list()
@@ -965,10 +962,14 @@ def translate_to_percentage(df_req_flow):
     src_cid_list = list()
     dst_cid_list = list()
     flow_list = list()
-    edge_name_list = list()
-    edge_dict = dict()
     src_and_dst_index = list()
+    # edge_name_list = list()
+    # edge_dict = dict()
+    logger.info(f'translate_to_percentage {i}')
+    i+=1
     for index, row in df_req_flow.iterrows():
+        logger.info(f'translate_to_percentage {i}, {row["From"]}, {row["To"]}')
+        i+=1
         src_endpoint = row["From"].split(cfg.DELIMITER)[0]
         dst_endpoint = row["To"].split(cfg.DELIMITER)[0]
         # src_cid = int(row["From"].split(cfg.DELIMITER)[1])
@@ -985,16 +986,18 @@ def translate_to_percentage(df_req_flow):
             src_and_dst_index.append((src_endpoint, src_cid, dst_endpoint))
             src_endpoint_list.append(src_endpoint)
             dst_endpoint_list.append(dst_endpoint)
-            src_svc_list.append(src_endpoint.split(sp.ep_del)[0])
-            dst_svc_list.append(dst_endpoint.split(sp.ep_del)[0])
+            src_svc_list.append(src_endpoint.split(cfg.ep_del)[0])
+            dst_svc_list.append(dst_endpoint.split(cfg.ep_del)[0])
             src_cid_list.append(src_cid)
             dst_cid_list.append(dst_cid)
             flow_list.append(int(math.ceil(row["Flow"])))
-            edge_name = src_endpoint+","+dst_endpoint
-            edge_name_list.append(edge_name)
-            if edge_name not in edge_dict:
-                edge_dict[edge_name] = list()
-            edge_dict[edge_name].append([src_cid,dst_cid,row["Flow"]])
+            # edge_name = src_endpoint+","+dst_endpoint
+            # edge_name_list.append(edge_name)
+            # if edge_name not in edge_dict:
+            #     edge_dict[edge_name] = list()
+            # edge_dict[edge_name].append([src_cid,dst_cid,row["Flow"]])
+    logger.info(f'translate_to_percentage {i}, for loop done')
+    i+=1
     percentage_df = pd.DataFrame(
         data={
             "src_svc": src_svc_list,
@@ -1007,15 +1010,19 @@ def translate_to_percentage(df_req_flow):
         },
         index = src_and_dst_index
     )
+    logger.info(f'translate_to_percentage {i} created percentage_df')
+    i+=1
     percentage_df.index.name = "index_col"
     group_by_sum = percentage_df.groupby(['index_col']).sum()
-    if cfg.DISPLAY:
-        display(group_by_sum)
-    
+    logger.debug(group_by_sum)
+    logger.info(f'translate_to_percentage {i} group_by done')
+    i+=1
     total_list = list()
     for index, row in percentage_df.iterrows():
         total = group_by_sum.loc[[index]]["flow"].tolist()[0]
         total_list.append(total)
+    logger.info(f'translate_to_percentage {i}')
+    i+=1
     percentage_df["total"] = total_list
     weight_list = list()
     for index, row in percentage_df.iterrows():
@@ -1023,22 +1030,27 @@ def translate_to_percentage(df_req_flow):
             weight_list.append(row['flow']/row['total'])
         except Exception as e:
             weight_list.append(0)
+            logger.warning(f'translate_to_percentage Error: {e}')
+    logger.info(f'translate_to_percentage {i}, calculated weight_list')
+    i+=1
     percentage_df["weight"] = weight_list
     # percentage_df = percentage_df.reset_index(drop=True)
+    logger.info(f'translate_to_percentage is done')
     return percentage_df
 
 
+# 
 def print_result_flow(callgraph, aggregated_load):
     for key in callgraph:
         for k, v in aggregated_load[key].items():
-            print(f"var_name: {v.getAttr('VarName').split('[')[0].split('_')[2]}")
-            print(f"type: {v.getAttr('VarName').split('[')[0].split('_')[-1]}")
-            print(f"valie: {v.getAttr('X')}")
+            logger.info(f"var_name: {v.getAttr('VarName').split('[')[0].split('_')[2]}")
+            logger.info(f"type: {v.getAttr('VarName').split('[')[0].split('_')[-1]}")
+            logger.info(f"valie: {v.getAttr('X')}")
 
 
 def print_all_gurobi_var(gurobi_model, callgraph):
     for var in gurobi_model.getVars():
-        print(f'{var}, {var.x}')
+        logger.info(f'{var}, {var.x}')
 
 
 def get_result_latency(gurobi_model, callgraph):
@@ -1051,7 +1063,7 @@ def get_result_latency(gurobi_model, callgraph):
     for v in gurobi_model.getVars():
         prefix_var_name = v.getAttr("VarName").split('[')[0]
         if prefix_var_name.split('_')[1] == "latency":
-            print(f'{v}, {v.getAttr("X")}')
+            logger.info(f'{v}, {v.getAttr("X")}')
             cg_key = prefix_var_name.split('_')[-1]
             which_latency = prefix_var_name.split('_')[0]
             result_latency[cg_key][which_latency] += v.getAttr("X")
@@ -1110,7 +1122,7 @@ def remove_too_many_cross_cluster_routing_path(all_combinations, threshold):
         if count_ccr(path) <= threshold:
             new_all_combinations.append(path)
         # else:
-        #     print(f'path: {path} has too many cross cluster routing, {count_ccr(path)} > {threshold}')
+        #     logger.debug(f'path: {path} has too many cross cluster routing, {count_ccr(path)} > {threshold}')
     return new_all_combinations
 
 '''
@@ -1125,7 +1137,7 @@ The order in svc_order MUST be same as the order in combination data structure.
 ## recursive, dfs (depth first search)
 def get_svc_order(callgraph, key, parent_svc, svc_order, idx):
     if len(callgraph[key][parent_svc]) == 0:
-        # print(f'{parent_svc} is leaf')
+        # logger.debug(f'{parent_svc} is leaf')
         svc_order[key][parent_svc] = idx
         return
     svc_order[key][parent_svc] = idx
@@ -1158,19 +1170,18 @@ def find_root_node(cg):
         if temp[parent_node] == "True":
             root_node.append(parent_node)
     if len(root_node) == 0:
-        print(f'ERROR: cannot find root node in callgraph')
+        logger.error(f'ERROR: cannot find root node in callgraph')
         assert False
     if len(root_node) > 1:
-        print(f'ERROR: too many root node in callgraph')
-        print(cg)
+        logger.error(f'ERROR: too many root node in callgraph')
+        logger.error(cg)
         assert False
-    # print(cg)
     return root_node[0]
 
     
 def create_path(svc_order, comb, unpack_list, callgraph, key):
-    # print('Target path')
-    # print(f'- comb: {comb}')
+    # logger.debug('Target path')
+    # logger.debug(f'- comb: {comb}')
     assert len(svc_order) == len(comb)
     path = list()
     
@@ -1185,7 +1196,7 @@ def create_path(svc_order, comb, unpack_list, callgraph, key):
         dst_svc = pair[1]
         src_cid = comb[svc_order[src_svc]]
         dst_cid = comb[svc_order[dst_svc]]
-        print(f'Add path: {src_svc},{src_cid} -> {dst_svc},{dst_cid}')
+        logger.debug(f'Add path: {src_svc},{src_cid} -> {dst_svc},{dst_cid}')
         if is_root(callgraph[key], src_svc):
             network_arc_var_name = get_network_arc_var_name(source_node_name, NONE_CID, src_svc, src_cid)
             path.append(network_arc_var_name)
@@ -1243,10 +1254,10 @@ def merge(request_in_out_weight, norm_inout_weight, max_load):
                 if child_svc in merged_in_out_weight[parent_svc]:
                     continue
                 temp = request_in_out_weight[key][parent_svc][child_svc]*(max_load[key]/sum(max_load.values()))
-                # print(f'merged_in_out_weight[{parent_svc}][{child_svc}] += {request_in_out_weight[key][parent_svc][child_svc]}*({max_load[key]}/{sum(max_load.values())})')
+                # logger.debug(f'merged_in_out_weight[{parent_svc}][{child_svc}] += {request_in_out_weight[key][parent_svc][child_svc]}*({max_load[key]}/{sum(max_load.values())})')
                 for other_cg_key in norm_inout_weight:
                     if parent_svc in norm_inout_weight[other_cg_key] and child_svc in norm_inout_weight[other_cg_key][parent_svc] and other_cg_key != key:
                         temp += request_in_out_weight[other_cg_key][parent_svc][child_svc]*(max_load[other_cg_key]/sum(max_load.values()))
-                        # print(f'merged_in_out_weight[{parent_svc}][{child_svc}] += {request_in_out_weight[other_cg_key][parent_svc][child_svc]}*({max_load[other_cg_key]}/{sum(max_load.values())})')
+                        # logger.debug(f'merged_in_out_weight[{parent_svc}][{child_svc}] += {request_in_out_weight[other_cg_key][parent_svc][child_svc]}*({max_load[other_cg_key]}/{sum(max_load.values())})')
                 merged_in_out_weight[parent_svc][child_svc] = temp
     return merged_in_out_weight

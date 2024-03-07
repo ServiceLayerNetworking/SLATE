@@ -1,4 +1,5 @@
 # import pandas as pd
+import config as cfg
 
 # def pre_recorded_trace_object(TRACE_PATH):
 #     df = pd.read_csv(TRACE_PATH)
@@ -15,10 +16,6 @@
 # def parse_num_cluster(trace_file):
 #     df = pd.read_csv(trace_file)
 #     return len(df["cluster_id"].unique())
-
-between_ep = "|" # svc@method@url|svc@method@url
-ep_del = "@" # svc@method@url
-
 
 def are_they_same_endpoint(span1, span2):
     if span1.svc_name == span2.svc_name and span1.method == span2.method and span1.method == span2.method:
@@ -48,7 +45,7 @@ class Endpoint:
         return hash((self.svc_name, self.method, self.url))
     
     def __str__(self):
-        return f"{self.svc_name}{ep_del}{self.method}{ep_del}{self.url}"
+        return f"{self.svc_name}{cfg.ep_del}{self.method}{cfg.ep_del}{self.url}"
 
 
 class Span:
