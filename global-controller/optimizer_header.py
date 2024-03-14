@@ -412,7 +412,8 @@ def get_regression_pipeline(load_dict):
     return reg, df
     
 
-def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table):
+def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_load_per_service):
+    logger = logging.getLogger(__name__)
     endpoint_list = list()
     svc_name_list = list()
     method_list = list()
@@ -450,7 +451,8 @@ def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table):
     compute_df["call_size"] = 0
     for index, row in compute_df.iterrows():
         # for cg_key in ep_str_callgraph_table:
-        compute_df.at[index, 'max_load'] = 999999999
+        logger.info(f"Set max_load for {row['svc_name']}: {max_load_per_service[row['svc_name']]}")
+        compute_df.at[index, 'max_load'] = max_load_per_service[row["svc_name"]]
         compute_df.at[index, 'min_load'] = 0
         compute_df.at[index, "min_compute_latency"] = 0
             
@@ -536,10 +538,10 @@ def fill_observation_in_compute_df(compute_df, callgraph_table):
     fill_latency_function(compute_df, callgraph_table)
     
 
-def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict):
+def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_load_per_service):
     columns = get_compute_df_column(ep_str_callgraph_table)
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
-    fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table)
+    fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_load_per_service)
     for index, row in compute_df.iterrows():
         logger.debug(f'{row["svc_name"]}, {row["endpoint"]}')
         compute_df.at[index, 'coef'] = coef_dict[row["svc_name"]][row['endpoint']]
@@ -930,9 +932,9 @@ def get_network_latency(src_cid, dst_cid):
     if src_cid == NONE_CID or dst_cid == NONE_CID:
         return 0
     if src_cid == dst_cid:
-        return cfg.INTRA_CLUTER_RTT
+        return cfg.intra_CLUSTER_NETWORK_LATENCY
     else:
-        return cfg.INTER_CLUSTER_RTT
+        return cfg.INTER_CLUSTER_NETWORK_LATENCY
 
 
 def get_egress_cost(src, src_cid, dst, dst_cid, callsize_dict):
