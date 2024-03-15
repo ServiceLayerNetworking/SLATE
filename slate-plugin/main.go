@@ -351,7 +351,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 				if coin <= total {
 					// proxywasm.LogCriticalf("OnHttpRequestHeaders, coin,%f, total,%f, targetRegion,%s", coin, total, targetRegion)
 					proxywasm.AddHttpRequestHeader("x-slate-routeto", targetRegion)
-					proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routefrom, %s, x-slate-routeto set to %s (%.2f%% chance)",region, targetRegion, pct*100)
+					proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routefrom, %s, x-slate-routeto set to %s (%.2f%% chance)", region, targetRegion, pct*100)
 					break
 				}
 			}
@@ -384,7 +384,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	//}
 	//rpsQueueId, err := proxywasm.ResolveSharedQueue("", KEY_RPS_SHARED_QUEUE)
 	//curTime := time.Now().UnixMilli()
-	//ctx.TimestampListAdd(reqMethod, reqPath)
+	ctx.TimestampListAdd(reqMethod, reqPath)
 	// convert cutTime to buf
 	//binary.LittleEndian.PutUint64(buf, uint64(curTime))
 	//if err := proxywasm.EnqueueSharedQueue(endpointQueueId, buf); err != nil {
