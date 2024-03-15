@@ -51,10 +51,9 @@ stats_mutex = Lock()
 list_of_span = list() # unorganized list of spanss
 complete_traces = dict() # filtered traces
 train_done = False
-trace_str_list = list() # internal data structure of traces before writing it to a file
+# trace_str_list = list() # internal data structure of traces before writing it to a file
 profile_output_file="trace_string.csv" # traces_str_list -> profile_output_file in write_trace_str_to_file() function every 5s
 latency_func = {}
-is_trained_flag = False
 trainig_input_trace_file="metrics-app.txt" # NOTE: It should be updated when the app is changed
 x_feature = "rps_dict" # "num_inflight_dict"
 target_y = "xt"
@@ -290,7 +289,7 @@ def write_spans_to_file():
     global profile_output_file
     global list_of_span
     if mode == "profile":
-        if len(trace_str_list) > 0:
+        if len(list_of_span) > 0:
             with stats_mutex:
                 with open(profile_output_file, "w") as file:
                     for span in list_of_span:
@@ -298,37 +297,13 @@ def write_spans_to_file():
             logger.debug(f"{cfg.log_prefix} write_trace_str_to_file happened.")
     
 
-'''
-----------------------------------------------------
-service_level_rps_of_all_endpoints
-service_level_num_inflight_req_of_all_endpoints
-endpoint_0,endpoint_0_rps,endpoint_0_num_inflight
-endpoint_1,endpoint_1_rps,endpoint_1_num_inflight
-
-region svc_name method path traceId spanId parentSpanId startTime endTime bodySize endpoint_0#endpoint_0_rps#endpoint_0_num_inflight_req@endpoint_1#endpoint_1_rps#endpoint_1_num_inflight_req
-
-Example:
-service_level_rps
-3
-
-inflightStats
-endpoint,endpoint_rps,endpoint_num_inflight
-GET /recommendations,6,0
-
-requestStats
-7077af93f0f42b3a  1704850297727 1704850297793 0 GET /hotels,8,0|POST /user,1,0|GET /recommendations,26,0|POST /reservation,59,2|
-us-west-1 frontend-us-west-1 GET /recommendations 8d025f3477105642098d1be482cb9d20 098d1be482cb9d20  1704850297777 1704850297871 0 POST /reservation,59,1|GET /hotels,8,0|GET /recommendations,27,1|POST /user,1,0|
-us-west-1 frontend-us-west-1 GET /recommendations d355834dbf0a45032c18e6905b0a8839 2c18e6905b0a8839  1704850297800 1704850297871 0 GET /recommendations,28,2|POST /reservation,59,0|GET /hotels,8,0|POST /user,1,0|
-...
-----------------------------------------------------
-'''
 # @app.route("/clusterLoad", methods=["POST"]) # from cluster-controller
 @app.post('/proxyLoad') # from wasm
 def handleProxyLoad():
     global endpoint_level_rps
     global endpoint_level_inflight
     global percentage_df
-    global trace_str_list
+    # global trace_str_list
     global ROUTING_RULE
     global mode
     global list_of_span
@@ -347,10 +322,9 @@ def handleProxyLoad():
         return ""
     
     body = request.get_data().decode('utf-8')
+    #logger.info(body)
     '''
-    example of body
-    
-    format:
+    request body format:
     service_level_rps at OnTick time
     endpoint,endpoint_level_rps,endpoint_level_rps|...| at OnTick time
     requestStat-1
