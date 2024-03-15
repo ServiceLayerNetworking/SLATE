@@ -329,9 +329,9 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		// perform routing magic
 		// get endpoint distribution
 		endpointDistribution, _, err := proxywasm.GetSharedData(endpointDistributionKey(dst, reqMethod, reqPath))
-		proxywasm.LogCriticalf("OnHttpRequestHeaders, endpoint distribution for %s %s: %s", reqMethod, reqPath, endpointDistribution)
+		//proxywasm.LogCriticalf("OnHttpRequestHeaders, endpoint distribution for %s %s: %s", reqMethod, reqPath, endpointDistribution)
 		proxywasm.AddHttpRequestHeader("x-slate-routefrom", region)
-		proxywasm.LogCriticalf("OnHttpRequestHeaders, x-slate-routefrom set to %s", region)
+		//proxywasm.LogCriticalf("OnHttpRequestHeaders, x-slate-routefrom set to %s", region)
 		if err != nil {
 			// no rules available yet.
 			//proxywasm.LogCriticalf("No rules available for endpoint %s %s to %s", reqMethod, reqPath, dst)
