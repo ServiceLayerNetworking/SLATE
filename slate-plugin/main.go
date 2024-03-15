@@ -351,7 +351,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 				if coin <= total {
 					// proxywasm.LogCriticalf("OnHttpRequestHeaders, coin,%f, total,%f, targetRegion,%s", coin, total, targetRegion)
 					proxywasm.AddHttpRequestHeader("x-slate-routeto", targetRegion)
-					proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routefrom, %s, x-slate-routeto set to %s (%.2f%% chance)", region, targetRegion, pct*100)
+					proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routefrom, %s, x-slate-routeto set to %s (%.2f%% chance)",region, targetRegion, pct*100)
 					break
 				}
 			}
@@ -646,37 +646,19 @@ func SharedQueueGetRPS(queueKey string, queueSizeKey string) uint64 {
 // IncrementSharedData increments the value of the shared data at the given key. The data is
 // stored as a little endian uint64. if the key doesn't exist, it is created with the value 1.
 func IncrementSharedData(key string, amount int64) {
-	IncrementSharedDataWithRetries(key, amount, 2)
-}
-
-func IncrementSharedDataWithRetries(key string, amount int64, triesLeft int) {
-	// get out if we have no retries
-	if triesLeft == 0 {
-		return
-	}
 	data, cas, err := proxywasm.GetSharedData(key)
 	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
 		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
 	}
-	var val uint64
-	if len(data) == 0 && amount > 0 {
-		// only start with positive values
-		val = uint64(amount)
+	var val int64
+	if len(data) == 0 {
+		val = amount
 	} else {
-		// hopefully we don't overflow...I don't think its likely we overflow a uint64 though barring some crazy
-		// bug in the code.
-		// do bounds checks and make sure we don't go negative
-		// if we're trying to decrement
-		if amount < 0 {
-			if int64(binary.LittleEndian.Uint64(data))+amount < 0 {
-				// it would go negative, set to 0
-				val = 0
-			} else {
-				val = uint64(int64(binary.LittleEndian.Uint64(data)) + amount)
-			}
+		// hopefully we don't overflow...
+		if int64(binary.LittleEndian.Uint64(data)) != 0 || amount > 0 {
+			val = int64(binary.LittleEndian.Uint64(data)) + amount
 		} else {
-			// assume we don't overflow. todo do this in the future?
-			val = uint64(int64(binary.LittleEndian.Uint64(data)) + amount)
+			val = int64(binary.LittleEndian.Uint64(data))
 		}
 	}
 	buf := make([]byte, 8)
@@ -684,7 +666,7 @@ func IncrementSharedDataWithRetries(key string, amount int64, triesLeft int) {
 	if err := proxywasm.SetSharedData(key, buf, cas); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data: %v", err)
 		if errors.Is(err, types.ErrorStatusCasMismatch) {
-			IncrementSharedDataWithRetries(key, amount, triesLeft-1)
+			IncrementSharedData(key, amount)
 		}
 	}
 }
