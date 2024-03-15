@@ -335,6 +335,8 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		if err != nil {
 			// no rules available yet.
 			//proxywasm.LogCriticalf("No rules available for endpoint %s %s to %s", reqMethod, reqPath, dst)
+			// proxywasm.LogCriticalf("Set x-slate-routeto header to local region: %s", region)
+			proxywasm.AddHttpRequestHeader("x-slate-routeto", region)
 		} else {
 			coin := rand.Float64()
 			total := 0.0
