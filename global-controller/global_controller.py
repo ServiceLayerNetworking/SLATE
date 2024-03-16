@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, abort
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
@@ -19,6 +19,8 @@ from sklearn.preprocessing import StandardScaler
 import datetime
 import os
 import math
+# import matplotlib.pyplot as plt
+import numpy as np
 # import logging.config
 
 logging.config.dictConfig(cfg.LOGGING_CONFIG)
@@ -41,6 +43,7 @@ ep_str_callgraph_table = {}
 all_endpoints = {}
 placement = {}
 coef_dict = {}
+degree = 0
 endpoint_to_placement = dict()
 svc_to_placement = dict()
 percentage_df = None
@@ -54,13 +57,13 @@ train_done = False
 # trace_str_list = list() # internal data structure of traces before writing it to a file
 profile_output_file="trace_string.csv" # traces_str_list -> profile_output_file in write_trace_str_to_file() function every 5s
 latency_func = {}
-trainig_input_trace_file="metrics-app.txt" # NOTE: It should be updated when the app is changed
+trainig_input_trace_file="trace.slatelog" # NOTE: It should be updated when the app is changed
 x_feature = "rps_dict" # "num_inflight_dict"
 target_y = "xt"
 
 '''config'''
 mode = ""
-MODE_SET = ["profile", "runtime"]
+MODE_SET = ["profile", "runtime", "before_start"]
 benchmark_name = ""
 benchmark_set = ["metrics-app", "matmul-app", "hotelreservation"]
 total_num_services = 0
@@ -508,6 +511,7 @@ def optimizer_entrypoint():
     global max_load_per_service
     global mode
     global optimizer_cnt
+    global degree
     
     if mode != "runtime":
         logger.info(f"run optimizer only in runtime mode. current mode: {mode}. return optimizer_entrypoint without executing optimizer...")
@@ -577,10 +581,14 @@ def optimizer_entrypoint():
         total_svc_rps = get_total_svc_rps(svc)
         total_capacity_across_all_clusters = max_load_per_service[svc]*len(svc_to_placement[svc])
         logger.info(f"svc,{svc}, total_svc_rps: {total_svc_rps}, total_capacity_across_all_clusters: {total_capacity_across_all_clusters}")
-        if total_svc_rps < total_capacity_across_all_clusters:
-            logger.error(f"ERROR: total_svc_rps({total_svc_rps}) must not exceed total_capacity_across_all_clusters({total_capacity_across_all_clusters}), svc,{svc}, max_load_per_service[svc],{max_load_per_service[svc]}, len(placement),{len(placement)}")
+        if total_svc_rps > total_capacity_across_all_clusters:
+            logger.error("!!! ERROR !!!")
+            logger.error(f"ERROR: svc,{svc}, total_svc_rps({total_svc_rps}) exceeds total_capacity_across_all_clusters({total_capacity_across_all_clusters}), max_load_per_service[svc],{max_load_per_service[svc]}, len(placement),{len(placement)}")
+            logger.error("!!! ERROR !!!")
             assert False
-    percentage_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_load_per_service)
+    logger.info("!!! before run_optimizer")
+    percentage_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_load_per_service, degree)
+    logger.info("!!! after run_optimizer")
     '''
     percentage_df = pd.DataFrame(
         data={
@@ -596,7 +604,7 @@ def optimizer_entrypoint():
     )
     '''
     
-    logger.info(f"run_optimizer SUCCESS ({desc})")
+    logger.info(f"run_optimizer result: {desc}")
     optimizer_cnt += 1
     pct_df_history_fn = "sim_percentage_df_history.csv"
     file_exists = os.path.isfile(pct_df_history_fn)
@@ -624,9 +632,39 @@ def optimizer_entrypoint():
         sim_percentage_df.to_csv(pct_df_history_fn, header=False, mode="a")
     logger.info(f"sim_percentage_df_most_recent.csv, sim_percentage_df_history.csv updated")
     ''' end of optimizer_entrypoint '''
+
+def fit_polynomial_regression(data, y_col_name, svc_name, ep_str, cid, degree):
+    df = pd.DataFrame(data)
+    x_colnames = [x for x in df.columns if x != y_col_name]
+    X = df[x_colnames]
+    y = df[y_col_name]
+    X_transformed = np.hstack((X**degree, np.ones(X.shape)))
+    model = LinearRegression(fit_intercept=False)  # Intercept is manually included in X_transformed
+    model.fit(X_transformed, y)
+    feature_names = x_colnames.copy() + ['intercept']
+    coefficients = pd.Series(model.coef_, index=feature_names)
     
+    '''
+    feature_names: ['metrics-db@GET@/dbcall', 'intercept']
     
-# Sample data
+    coef_dict[metrics-db][metrics-db@GET@/dbcall]: {'metrics-db@GET@/dbcall': -1.3077803530123953e-17, 'intercept': 0.5702831840648688}
+    '''
+    
+    # '''plot'''
+    # plt.scatter(X, y, color='blue', alpha=0.1, label='Data')
+    # X_plot = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
+    # X_plot_transformed = np.hstack((X_plot**degree, np.ones(X_plot.shape)))
+    # y_plot = model.predict(X_plot_transformed)
+    # plt.plot(X_plot, y_plot, color='red', linewidth=2, label=f'Cubic Fit: $a \cdot x^{degree} + b$')
+    # plt.xlabel(x_feature)
+    # plt.ylabel(y_col_name)
+    # plt.title(f'{ep_str} in {cid}')
+    # plt.legend()
+    # plt.savefig(f"poly{degree}-latency-{x_feature}-{svc_name}.pdf")
+    # plt.show()
+    
+    return coefficients.to_dict()
+    
 def fit_linear_regression(data, y_col_name):
     df = pd.DataFrame(data)
 
@@ -664,10 +702,8 @@ def fit_linear_regression(data, y_col_name):
     return coef
 
 
-def train_latency_function_with_trace(traces):
+def train_latency_function_with_trace(traces, degree):
     global coef_dict
-    # df = pd.read_csv(f"{trace_file_path}")
-    # traces = sp.file_to_trace(trace_file_path)
     df = tst.trace_to_df(traces)
     df.to_csv(f"trace_to_file.csv")
     for cid in df["cluster_id"].unique():
@@ -679,12 +715,7 @@ def train_latency_function_with_trace(traces):
             if svc_name not in coef_dict:
                 coef_dict[svc_name] = dict()
             for ep_str in cid_svc_df["endpoint_str"].unique():
-                # logger.debug(f"before len(temp_df): {len(temp_df)}")
                 ep_df = cid_svc_df[cid_svc_df["endpoint_str"]==ep_str]
-                # logger.debug(f'cluter_id: {cid}, svc_name: {svc_name}, ep_str: {ep_str}, len(X_) == 0')
-                # logger.debug(f"after len(ep_df): {len(ep_df)}")
-                
-                # Data preparation: load(X) and latency(y) 
                 data = dict()
                 y_col = "latency"
                 for index, row in ep_df.iterrows():
@@ -695,7 +726,8 @@ def train_latency_function_with_trace(traces):
                     if y_col not in data:
                         data[y_col] = list()
                     data[y_col].append(row[target_y])
-                coef_dict[svc_name][ep_str] = fit_linear_regression(data, y_col)
+                # coef_dict[svc_name][ep_str] = fit_linear_regression(data, y_col)
+                coef_dict[svc_name][ep_str] = fit_polynomial_regression(data, y_col, svc_name, ep_str, cid, degree)
     return coef_dict
 
 def gen_endpoint_level_inflight(all_endpoints):
@@ -737,8 +769,7 @@ put unorganized spans into traces data structure
 filter incomplete traces
 - ceil(avg_num_svc)
 '''
-def parse_trace_string_file_to_trace_data_structure():
-    global trainig_input_trace_file
+def parse_trace_string_file_to_trace_data_structure(trainig_input_trace_file):
     col = ["cluster_id","svc_name","method","path","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size","inflight_dict","rps_dict"]
     df = pd.read_csv(trainig_input_trace_file, names=col, header=None)
     # span_df = df.iloc[:, :-2] # inflight_dict, rps_dict
@@ -894,6 +925,7 @@ def training_phase():
     global train_done
     global trainig_input_trace_file
     global max_load_per_service
+    global degree
     
     if mode != "runtime":
         logger.debug(f"{cfg.log_prefix} It is not runtime mode. Skip training. current mode: {mode}")
@@ -919,7 +951,7 @@ def training_phase():
         logger.debug(f"{cfg.log_prefix} Skip training.")
         return
     
-    complete_traces = parse_trace_string_file_to_trace_data_structure()
+    complete_traces = parse_trace_string_file_to_trace_data_structure(trainig_input_trace_file)
     for cid in complete_traces:
         logger.info(f"{cfg.log_prefix} len(complete_traces[{cid}]): {len(complete_traces[cid])}")
     # complete_traces = check_and_move_to_complete_trace(all_traces)
@@ -970,23 +1002,31 @@ def training_phase():
     
     '''
     Train linear regression model
-    The linear regression model is function of "inflight_req"
+
+    coef_dict[metrics-db][metrics-db@GET@/dbcall]: {'metrics-db@GET@/dbcall': -1.3077803530123953e-17, 'intercept': 0.5702831840648688}
     '''
-    coef_dict = train_latency_function_with_trace(stitched_traces)
-    coef_df = pd.DataFrame(coef_dict)
-    coef_df.to_csv("coef_df.csv")
+    if degree <= 0:
+        logger.error(f"ERROR: degree is not valid. degree: {degree}")
+        assert False
+    coef_dict = train_latency_function_with_trace(stitched_traces, degree)
     # NOTE: overwrite coefficient to 1 for debugging
-    logger.warning(f"!!! WARNING !!! : overwrite coefficient to 1 for debugging")
-    for svc_name in coef_dict:
-        for ep_str in coef_dict[svc_name]:
-            for feature_ep in coef_dict[svc_name][ep_str]:
-                if feature_ep == "intercept":
-                    coef_dict[svc_name][ep_str][feature_ep] = 0
-                else:
-                    coef_dict[svc_name][ep_str][feature_ep] = 1
-    
+    for svc_name in coef_dict: # svc_name: metrics-db
+        for ep_str in coef_dict[svc_name]: # ep_str: metrics-db@GET@/dbcall
+            for feature_ep in coef_dict[svc_name][ep_str]: # feature_ep: 'metrics-db@GET@/dbcall' or 'intercept'
+                if feature_ep != "intercept": # a in a*(x^degree) + b
+                    if coef_dict[svc_name][ep_str][feature_ep] < 0:
+                        coef_dict[svc_name][ep_str][feature_ep] = 0
+                        coef_dict[svc_name][ep_str]['intercept'] = 1
+                        logger.warning(f"coef_dict[{svc_name}][{ep_str}] coefficient is negative. Set it to 0.")
+                    else: # a is positive
+                        if coef_dict[svc_name][ep_str]['intercept'] < 0:
+                            coef_dict[svc_name][ep_str]['intercept'] = 0
+                            logger.warning(f"coef_dict[{svc_name}][{ep_str}], coefficient is positive.")
+                            logger.warning(f"But, coef_dict[{svc_name}][{ep_str}], intercept is negative. Set it to 0.")
+                        coef_dict[svc_name][ep_str][feature_ep] = 1
+                    
     if ROUTING_RULE == "WATERFALL":
-        logger.info(f"!!!WARNING!!! {ROUTING_RULE} algorithm, set all coefficients to 0!")
+        logger.info(f"!!! WARNING !!! {ROUTING_RULE} algorithm, set all coefficients to 0!")
         for svc_name in coef_dict:
             for ep_str in coef_dict[svc_name]:
                 for feature_ep in coef_dict[svc_name][ep_str]:
@@ -995,6 +1035,13 @@ def training_phase():
                     else:
                         coef_dict[svc_name][ep_str][feature_ep] = 0
                         
+    for svc_name in coef_dict:
+        for ep_str in coef_dict[svc_name]:
+            logger.info(f'final coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
+    
+    coef_df = pd.DataFrame(coef_dict)
+    coef_df.to_csv("coefficient.csv")
+                        
     # Print coefficient
     for svc_name in coef_dict:
         for ep_str in coef_dict[svc_name]:
@@ -1002,7 +1049,6 @@ def training_phase():
     
     ''' It will be used as a constraint in the optimizer'''
     calc_max_load_per_service()
-    
     train_done = True # train done!
     return
 
@@ -1013,6 +1059,7 @@ def read_config_file():
     global ROUTING_RULE
     global MODE_SET
     global CAPACITY
+    global degree
     with open("env.txt", "r") as file:
         lines = file.readlines()
         for line in lines:
@@ -1041,8 +1088,11 @@ def read_config_file():
                     logger.info(f'Update mode: {ROUTING_RULE} -> {line[1]}')
                     ROUTING_RULE = line[1]
             elif line[0] == "capacity":
-                logger.info(f'Update mode: {ROUTING_RULE} -> {line[1]}')
+                logger.info(f'Update CAPACITY: {CAPACITY} -> {line[1]}')
                 CAPACITY = int(line[1])
+            elif line[0] == "degree":
+                logger.info(f'Update degree: {degree} -> {line[1]}')
+                degree = int(line[1])
             else:
                 logger.debug(f"ERROR: unknown config: {line}")
     logger.info(f"benchmark_name: {benchmark_name}, total_num_services: {total_num_services}, mode: {mode}, ROUTING_RULE: {ROUTING_RULE}")

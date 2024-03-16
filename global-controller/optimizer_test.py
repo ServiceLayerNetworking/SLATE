@@ -74,7 +74,7 @@ traffic_segmentation = True/False
 
 objective = "avg_latency"/"end_to_end_latency"/"egress_cost"/"multi_objective"
 '''
-def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_load_per_service):
+def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_load_per_service, degree):
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -302,18 +302,23 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     for index, row in compute_df.iterrows():
         lh = compute_latency[index]
         rh = 0
-        coefs = row['coef']
-        logger.debug(f"target svc,endpoint: {row['svc_name']}, {row['endpoint']}")
-        logger.debug(coefs)
-        for dependent_ep in coefs:
-            if dependent_ep != 'intercept':
-                dependent_arc_name = opt_func.get_compute_arc_var_name(dependent_ep, row['src_cid'])
-                logger.debug(f'dependent_arc_name: {dependent_arc_name}')
-                logger.debug(f'coefs[{dependent_ep}]: {coefs[dependent_ep]}')
-                c = coefs[dependent_ep]
-                logger.debug(f'dependent_arc_name: {dependent_arc_name}')
-                rh += compute_load[dependent_arc_name] * c
-        rh += coefs['intercept']
+        try:
+            coefs = row['coef']
+            logger.debug(f"target svc,endpoint: {row['svc_name']}, {row['endpoint']}")
+            logger.debug(coefs)
+            for dependent_ep in coefs:
+                if dependent_ep != 'intercept':
+                    dependent_arc_name = opt_func.get_compute_arc_var_name(dependent_ep, row['src_cid'])
+                    logger.debug(f'dependent_arc_name: {dependent_arc_name}')
+                    logger.debug(f'coefs[{dependent_ep}]: {coefs[dependent_ep]}')
+                    logger.debug(f'dependent_arc_name: {dependent_arc_name}')
+                    logger.error(f"type(compute_load[{dependent_arc_name}]): {type(compute_load[dependent_arc_name])}")
+                    logger.error(f"compute_load[{dependent_arc_name}]: {compute_load[dependent_arc_name]}")
+                    rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** degree)
+            rh += coefs['intercept']
+        except Exception as e:
+            logger.error(f'Exception: {e}')
+            return pd.DataFrame(), f"Exception: {e}"
         # logger.debug(f"index: {index}")
         # logger.debug(f"lh: {lh}")
         # logger.debug(f"rh: {rh}")
