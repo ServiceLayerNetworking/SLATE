@@ -26,10 +26,17 @@ LOGGING_CONFIG = {
             'formatter': 'standard',
             'class': 'logging.StreamHandler',
         },
+        'error_file': {  # New handler for error level logs
+            'level': 'ERROR',
+            'formatter': 'standard',
+            'class': 'logging.FileHandler',
+            'filename': 'error.log',  # File to log errors
+            'mode': 'a',  # Append mode
+        },
     },
     'loggers': {
         '': {  # root logger
-            'handlers': ['default'],
+            'handlers': ['default', 'error_file'],
             'level': 'INFO',
             'propagate': True
         },
