@@ -254,6 +254,18 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     compute_load = dict()
     compute_latency = gppd.add_vars(gurobi_model, compute_df, name="compute_latency", lb="min_compute_latency")
     compute_load = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge", ub="max_load")
+    '''
+    compute_load2 = compute_load**2
+    latency = compute_load2**2 + b
+    latency = (compute_load**2)**2 + b
+    latency = compute_load**4 + b -> this is what we want eventually. 
+    This is walkaround solution because gurobi does not support more than quadratic.
+    '''
+    compute_load2 = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge2")
+    for index, row in compute_df.iterrows():
+        if degree == 4:
+            gurobi_model.addConstr(compute_load2[index] == compute_load[index]**2, name=f'for_higher_degree-{index}')
+        
     gurobi_model.update()
 
     
@@ -299,6 +311,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         endpoint latency == (coef[ep_1]*scheduled_load[ep_1]) + (coef[ep_2]*scheduled_load[ep_2]) + intercept
     
     '''
+
     for index, row in compute_df.iterrows():
         lh = compute_latency[index]
         rh = 0
@@ -312,11 +325,18 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                     logger.debug(f'dependent_arc_name: {dependent_arc_name}')
                     logger.debug(f'coefs[{dependent_ep}]: {coefs[dependent_ep]}')
                     logger.debug(f'dependent_arc_name: {dependent_arc_name}')
-                    logger.error(f"type(compute_load[{dependent_arc_name}]): {type(compute_load[dependent_arc_name])}")
-                    logger.error(f"compute_load[{dependent_arc_name}]: {compute_load[dependent_arc_name]}")
-                    rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** degree)
+                    if degree == 4:
+                        # degree is 4 using compute_load2 = compute_load**2
+                        rh += coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2) 
+                    elif degree == 2:
+                        rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
+                    else:
+                        # degree is 1
+                        rh += coefs[dependent_ep] * (compute_load[dependent_arc_name])
             rh += coefs['intercept']
         except Exception as e:
+            logger.error(f"type(compute_load[{dependent_arc_name}]): {type(compute_load[dependent_arc_name])}")
+            logger.error(f"compute_load[{dependent_arc_name}]: {compute_load[dependent_arc_name]}")
             logger.error(f'Exception: {e}')
             return pd.DataFrame(), f"Exception: {e}"
         # logger.debug(f"index: {index}")
