@@ -19,7 +19,7 @@ from sklearn.preprocessing import StandardScaler
 import datetime
 import os
 import math
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import numpy as np
 # import logging.config
 
@@ -455,40 +455,58 @@ def handleProxyLoad():
         elif ROUTING_RULE == "MCLB":
             csv_string = MCLB_routing_rule(svc, region)
         elif ROUTING_RULE == "SLATE" or ROUTING_RULE == "WATERFALL":
-            # NOTE: remember percentage_df is set by 'optimizer_entrypoint' async function
-            if percentage_df.empty:
-                logger.info(f"{svc}, {region}, percentage_df is empty. rollback to local routing")
-                csv_string = get_local_routing_rule(svc, region)
-            else:
-                logger.info(f"{svc}, {region}, percentage_df is not empty")
-                temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
-                # temp_df = temp_df.loc[(temp_df['src_cid'] == region)]
-                # logger.info(f"{cfg.log_prefix} handleProxyLoad df after filtering, temp_df: {temp_df}")
-                if len(temp_df) == 0:
-                    logger.error(f"{cfg.log_prefix} ERROR: {region}, {svc}. percentage_df becomes empty after filtering.\nrollback to local routing")
+            try:
+                # NOTE: remember percentage_df is set by 'optimizer_entrypoint' async function
+                if percentage_df.empty:
+                    logger.info(f"{svc}, {region}, percentage_df is empty. rollback to local routing")
                     csv_string = get_local_routing_rule(svc, region)
                 else:
-                    ## Add_region_back_to_svc_name
-                    # temp_df['src_endpoint'] = temp_df['src_endpoint'].str.replace(r'([^@]+)', fr'\1-{temp_df["src_cid"]}', n=1, regex=True)
-                    # temp_df['dst_endpoint'] = temp_df['dst_endpoint'].str.replace(r'([^@]+)', fr'\1-{temp_df["dst_cid"]}', n=1, regex=True)
-                    temp_df = temp_df.drop(columns=['src_svc', "dst_svc"])
-                    temp_df = temp_df.reset_index(drop=True)
-                    temp_df.to_csv(f'percentage_df-{svc}-{region}.csv')
-                    csv_string = temp_df.to_csv(header=False, index=False)
-                    logger.info(f"{cfg.log_prefix} new routing rule! percentage_df-{svc}-{region}.csv")
+                    logger.info(f"{svc}, {region}, percentage_df is not empty")
+                    temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
+                    # temp_df = temp_df.loc[(temp_df['src_cid'] == region)]
+                    # logger.info(f"{cfg.log_prefix} handleProxyLoad df after filtering, temp_df: {temp_df}")
+                    if len(temp_df) == 0:
+                        logger.debug(f"{cfg.log_prefix} ERROR: {region}, {svc}. percentage_df becomes empty after filtering.\nrollback to local routing")
+                        csv_string = get_local_routing_rule(svc, region)
+                    else:
+                        ## Add_region_back_to_svc_name
+                        # temp_df['src_endpoint'] = temp_df['src_endpoint'].str.replace(r'([^@]+)', fr'\1-{temp_df["src_cid"]}', n=1, regex=True)
+                        # temp_df['dst_endpoint'] = temp_df['dst_endpoint'].str.replace(r'([^@]+)', fr'\1-{temp_df["dst_cid"]}', n=1, regex=True)
+                        '''
+                        percentage_df = pd.DataFrame(
+                            data={
+                                // "src_svc": src_svc_list,
+                                // "dst_svc": dst_svc_list,
+                                "src_endpoint": src_endpoint_list,
+                                "dst_endpoint": dst_endpoint_list, 
+                                "src_cid": src_cid_list,
+                                "dst_cid": dst_cid_list,
+                                "flow": flow_list,
+                            },
+                            index = src_and_dst_index
+                        )
+                        '''
+                        temp_df = temp_df.drop(columns=['src_svc', "dst_svc", "flow", "total"])
+                        temp_df = temp_df.reset_index(drop=True)
+                        temp_df.to_csv(f'percentage_df-{svc}-{region}.csv')
+                        csv_string = temp_df.to_csv(header=False, index=False)
+                        logger.info(f"{cfg.log_prefix} new routing rule! percentage_df-{svc}-{region}.csv")
+            except Exception as e:
+                logger.error(f"!!! ERROR !!!: {e}")
+                csv_string = get_local_routing_rule(svc, region)
         else:
             logger.error(f"ERROR: ROUTING_RULE is not supported yet. ROUTING_RULE: {ROUTING_RULE}")
             assert False
         ''' end of if mode == runtime '''
     else:
-        logger.error(f"ERROR: Invalid. mode: {mode}")
-        assert False
+        csv_string = get_local_routing_rule(svc, region)
+        return csv_string
     if csv_string != "":    
         logger.info(f'ROUTING_RULE: {ROUTING_RULE}, csv_string updated for {svc} in {region}: \n{csv_string}')
         # with open(f'csv_string-{svc}-{region}.txt', 'w') as f:
         #     f.write(csv_string)
     else:
-        logger.error(f"ERROR: csv_string is empty")
+        logger.info(f"{region}, {svc}, csv_string is empty")
     return csv_string
 
 
@@ -583,30 +601,15 @@ def optimizer_entrypoint():
         logger.info(f"svc,{svc}, total_svc_rps: {total_svc_rps}, total_capacity_across_all_clusters: {total_capacity_across_all_clusters}")
         if total_svc_rps > total_capacity_across_all_clusters:
             logger.error("!!! ERROR !!!")
-            logger.error(f"ERROR: svc,{svc}, total_svc_rps({total_svc_rps}) exceeds total_capacity_across_all_clusters({total_capacity_across_all_clusters}), max_load_per_service[svc],{max_load_per_service[svc]}, len(placement),{len(placement)}")
+            logger.error(f"ERROR: svc,{svc}, total_svc_rps({total_svc_rps}) exceeds total_capacity_across_all_clusters({total_capacity_across_all_clusters}), max_load_per_service[{svc}],{max_load_per_service[svc]}, len(placement),{len(placement)}")
             logger.error("!!! ERROR !!!")
             assert False
     logger.info("!!! before run_optimizer")
     percentage_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_load_per_service, degree)
     logger.info("!!! after run_optimizer")
-    '''
-    percentage_df = pd.DataFrame(
-        data={
-            "src_svc": src_svc_list,
-            "dst_svc": dst_svc_list,
-            "src_endpoint": src_endpoint_list,
-            "dst_endpoint": dst_endpoint_list, 
-            "src_cid": src_cid_list,
-            "dst_cid": dst_cid_list,
-            "flow": flow_list,
-        },
-        index = src_and_dst_index
-    )
-    '''
-    
     logger.info(f"run_optimizer result: {desc}")
     optimizer_cnt += 1
-    pct_df_history_fn = "sim_percentage_df_history.csv"
+    pct_df_history_fn = "routing_history.csv"
     file_exists = os.path.isfile(pct_df_history_fn)
     if percentage_df.empty:
         logger.error(f"ERROR: run_optimizer FAIL (**{desc}**) return without updating percentage_df")
@@ -623,7 +626,7 @@ def optimizer_entrypoint():
     sim_percentage_df = sim_percentage_df.drop(columns=['src_endpoint', "dst_endpoint"]).reset_index(drop=True)
     # sim_percentage_df['counter'] = optimizer_cnt
     sim_percentage_df.insert(loc=0, column="counter", value=optimizer_cnt) # same as previous line but inserting to the leftmost position of the dataframe
-    sim_percentage_df.to_csv("sim_percentage_df_most_recent.csv", mode="w")
+    sim_percentage_df.to_csv("last_percentage_df.csv", mode="w")
     logger.info(f"sim_percentage_df:\n{sim_percentage_df.to_csv()}")
     
     if file_exists == False:
@@ -651,17 +654,18 @@ def fit_polynomial_regression(data, y_col_name, svc_name, ep_str, cid, degree):
     '''
     
     # '''plot'''
-    # plt.scatter(X, y, color='blue', alpha=0.1, label='Data')
-    # X_plot = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
-    # X_plot_transformed = np.hstack((X_plot**degree, np.ones(X_plot.shape)))
-    # y_plot = model.predict(X_plot_transformed)
-    # plt.plot(X_plot, y_plot, color='red', linewidth=2, label=f'Cubic Fit: $a \cdot x^{degree} + b$')
-    # plt.xlabel(x_feature)
-    # plt.ylabel(y_col_name)
-    # plt.title(f'{ep_str} in {cid}')
-    # plt.legend()
-    # plt.savefig(f"poly{degree}-latency-{x_feature}-{svc_name}.pdf")
-    # plt.show()
+    plt.figure()
+    plt.scatter(X, y, color='blue', alpha=0.1, label='Data')
+    X_plot = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
+    X_plot_transformed = np.hstack((X_plot**degree, np.ones(X_plot.shape)))
+    y_plot = model.predict(X_plot_transformed)
+    plt.plot(X_plot, y_plot, color='red', linewidth=2, label=f'Cubic Fit: $a \cdot x^{degree} + b$')
+    plt.xlabel(x_feature)
+    plt.ylabel(y_col_name)
+    plt.title(f'{ep_str} in {cid}')
+    plt.legend()
+    plt.savefig(f"latency-{svc_name}.pdf")
+    plt.show()
     
     return coefficients.to_dict()
     
@@ -727,7 +731,7 @@ def train_latency_function_with_trace(traces, degree):
                         data[y_col] = list()
                     data[y_col].append(row[target_y])
                 # coef_dict[svc_name][ep_str] = fit_linear_regression(data, y_col)
-                coef_dict[svc_name][ep_str] = fit_polynomial_regression(data, y_col, svc_name, ep_str, cid, degree)
+                coef_dict[svc_name][ep_str] = fit_polynomial_regression(data, y_col, svc_name, ep_str, cid, degree=degree)
     return coef_dict
 
 def gen_endpoint_level_inflight(all_endpoints):
@@ -769,7 +773,7 @@ put unorganized spans into traces data structure
 filter incomplete traces
 - ceil(avg_num_svc)
 '''
-def parse_trace_string_file_to_trace_data_structure(trainig_input_trace_file):
+def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
     col = ["cluster_id","svc_name","method","path","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size","inflight_dict","rps_dict"]
     df = pd.read_csv(trainig_input_trace_file, names=col, header=None)
     # span_df = df.iloc[:, :-2] # inflight_dict, rps_dict
@@ -896,15 +900,15 @@ def calc_max_load_per_service():
     global benchmark_name
     global CAPACITY
     for svc in svc_to_placement:
+        if CAPACITY == 0:
+            max_load_per_service[svc] = 9999999999999
+            logger.error(f"ERROR: CAPACITY is 0. set max_load_per_service[{svc}] to infinity")
         if benchmark_name == "metrics":
-            if svc == "metrics-fake-ingress":
-                # fake-ingress gw should receive the original traffic all the time. Routing in User->ingress gateway is fixed as given.
-                max_load_per_service[svc] = 9999999999999
+            if svc == "metrics-handler":
+            # if svc != "metrics-fake-ingress":
+                max_load_per_service[svc] = CAPACITY
             else:
-                if CAPACITY == 0:
-                    logger.error(f"ERROR: CAPACITY is 0. It should be set to a positive number.")
-                    assert False
-                max_load_per_service[svc] = CAPACITY # It should per-service enforcement. For now, only one number.
+                max_load_per_service[svc] = 9999999999999
         else:
             max_load_per_service[svc] = 9999999999
         logger.info(f"benchmark_name: {benchmark_name}, set max_load_per_service[{svc}] = {max_load_per_service[svc]}")
@@ -951,7 +955,7 @@ def training_phase():
         logger.debug(f"{cfg.log_prefix} Skip training.")
         return
     
-    complete_traces = parse_trace_string_file_to_trace_data_structure(trainig_input_trace_file)
+    complete_traces = trace_string_file_to_trace_data_structure(trainig_input_trace_file)
     for cid in complete_traces:
         logger.info(f"{cfg.log_prefix} len(complete_traces[{cid}]): {len(complete_traces[cid])}")
     # complete_traces = check_and_move_to_complete_trace(all_traces)
@@ -1009,21 +1013,21 @@ def training_phase():
         logger.error(f"ERROR: degree is not valid. degree: {degree}")
         assert False
     coef_dict = train_latency_function_with_trace(stitched_traces, degree)
-    # NOTE: overwrite coefficient to 1 for debugging
+    # NOTE: latency function should be strictly increasing function
     for svc_name in coef_dict: # svc_name: metrics-db
         for ep_str in coef_dict[svc_name]: # ep_str: metrics-db@GET@/dbcall
             for feature_ep in coef_dict[svc_name][ep_str]: # feature_ep: 'metrics-db@GET@/dbcall' or 'intercept'
                 if feature_ep != "intercept": # a in a*(x^degree) + b
                     if coef_dict[svc_name][ep_str][feature_ep] < 0:
                         coef_dict[svc_name][ep_str][feature_ep] = 0
-                        coef_dict[svc_name][ep_str]['intercept'] = 1
-                        logger.warning(f"coef_dict[{svc_name}][{ep_str}] coefficient is negative. Set it to 0.")
-                    else: # a is positive
+                        # coef_dict[svc_name][ep_str]['intercept'] = 1
+                        print(f"WARNING!!!: coef_dict[{svc_name}][{ep_str}] coefficient is negative. Set it to 0.")
+                    else: 
                         if coef_dict[svc_name][ep_str]['intercept'] < 0:
-                            coef_dict[svc_name][ep_str]['intercept'] = 0
-                            logger.warning(f"coef_dict[{svc_name}][{ep_str}], coefficient is positive.")
-                            logger.warning(f"But, coef_dict[{svc_name}][{ep_str}], intercept is negative. Set it to 0.")
-                        coef_dict[svc_name][ep_str][feature_ep] = 1
+                            # a is positive but intercept is negative
+                            coef_dict[svc_name][ep_str]['intercept'] = 1
+                            print(f"WARNING: coef_dict[{svc_name}][{ep_str}], coefficient is positive.")
+                            print(f"WARNING: But, coef_dict[{svc_name}][{ep_str}], intercept is negative. Set it to 0.")
                     
     if ROUTING_RULE == "WATERFALL":
         logger.info(f"!!! WARNING !!! {ROUTING_RULE} algorithm, set all coefficients to 0!")
@@ -1040,7 +1044,11 @@ def training_phase():
             logger.info(f'final coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
     
     coef_df = pd.DataFrame(coef_dict)
-    coef_df.to_csv("coefficient.csv")
+    with open("coefficient.csv", "w") as f:
+        f.write("svc_name, endpoint, coef\n")
+        for svc_name in coef_dict:
+            for ep_str in coef_dict[svc_name]:
+                f.write(f'{svc_name},{ep_str},{coef_dict[svc_name][ep_str]}\n')
                         
     # Print coefficient
     for svc_name in coef_dict:
