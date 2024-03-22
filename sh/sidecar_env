@@ -1,0 +1,2 @@
+pod=$1
+kubectl exec ${pod} -c istio-proxy -- env

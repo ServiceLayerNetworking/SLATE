@@ -46,6 +46,7 @@ node_color_dict["XXXX"] = "gray"
 node_color_dict['-1'] = "#FFBF00"
 node_color_dict['us-west-1'] = "#FFBF00"
 node_color_dict['us-east-1'] = "#ff6375"
+node_color_dict['us-central-1'] = "green"
 
 edge_color_list = ["red", "blue", "green", "yellow"]
 # edge_color_taken = dict()
@@ -539,13 +540,20 @@ def fill_observation_in_compute_df(compute_df, callgraph_table):
     
 
 def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_load_per_service):
+    logger = logging.getLogger(__name__)
     columns = get_compute_df_column(ep_str_callgraph_table)
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
-    fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_load_per_service)
+    try:
+        fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_load_per_service)
+    except Exception as e:
+        logger.error(f"!!! ERROR !!! fill_compute_df failed: {type(e).__name__}, {e}")
     for index, row in compute_df.iterrows():
         logger.debug(f'{row["svc_name"]}, {row["endpoint"]}')
-        compute_df.at[index, 'coef'] = coef_dict[row["svc_name"]][row['endpoint']]
-        # compute_df.at[index, 'latency_function'] = latency_func[row['svc_name']][row['endpoint']]
+        try:
+            compute_df.at[index, 'coef'] = coef_dict[row["svc_name"]][row['endpoint']]
+            # compute_df.at[index, 'latency_function'] = latency_func[row['svc_name']][row['endpoint']]
+        except Exception as e:
+            logger.error(f"!!! ERROR !!! coef_dict[{row['svc_name']}][{row['endpoint']}] fill_compute_df failed: {type(e).__name__}, {e}")
     return compute_df
 
 def print_gurobi_var(gurobi_model):
@@ -1032,7 +1040,7 @@ def translate_to_percentage(df_req_flow):
             weight_list.append(row['flow']/row['total'])
         except Exception as e:
             weight_list.append(0)
-            logger.warning(f'translate_to_percentage Error: {e}')
+            logger.warning(f'translate_to_percentage Error: {type(e).__name__}, {e}')
     logger.info(f'translate_to_percentage {i}, calculated weight_list')
     i+=1
     percentage_df["weight"] = weight_list
@@ -1162,6 +1170,7 @@ def svc_to_cid(svc_order, unique_service):
 
 
 def find_root_node(cg):
+    logger = logging.getLogger(__name__)
     temp = dict()
     root_node = list()
     for parent_node in cg:

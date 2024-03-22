@@ -48,6 +48,7 @@ endpoint_to_placement = dict()
 svc_to_placement = dict()
 percentage_df = None
 optimizer_cnt = 0
+inter_cluster_latency = dict()
 stats_mutex = Lock()
 
 '''profiling (training)'''
@@ -321,8 +322,8 @@ def handleProxyLoad():
     
     region = request.headers.get('x-slate-region')
     if region == "SLATE_UNKNOWN_REGION":
-        logger.debug(f"{cfg.log_prefix} WARNING: skip SLATE_UNKNOWN_REGION in handleproxy")
-        return ""
+        logger.info(f"skip SLATE_UNKNOWN_REGION, svc: {svc}, region: {region}")
+        return "your region is SLATE_UNKNOWN_REGION. It is wrong"
     
     body = request.get_data().decode('utf-8')
     #logger.info(body)
@@ -377,6 +378,7 @@ def handleProxyLoad():
     TODO: parse_service_level_rps should be updated to ontick per endpoint level rps
     '''
     svc_level_rps = parse_service_level_rps(body)
+    logger.info(f"svc,{svc}, region,{region}, svc_level_rps: {svc_level_rps}")
     for endpoint_stat in active_endpoint_stats:
         # E.g., endpoint_stat: GET@/start,4,1
         logger.info(f"{cfg.log_prefix} endpoint_stats: {endpoint_stat}")
@@ -455,6 +457,8 @@ def handleProxyLoad():
         elif ROUTING_RULE == "MCLB":
             csv_string = MCLB_routing_rule(svc, region)
         elif ROUTING_RULE == "SLATE" or ROUTING_RULE == "WATERFALL":
+            if percentage_df == None:
+                logger.error("ERROR: percentage_df is None. SOMETHING IS WRONG.")
             try:
                 # NOTE: remember percentage_df is set by 'optimizer_entrypoint' async function
                 if percentage_df.empty:
@@ -530,6 +534,7 @@ def optimizer_entrypoint():
     global mode
     global optimizer_cnt
     global degree
+    global inter_cluster_latency
     
     if mode != "runtime":
         logger.info(f"run optimizer only in runtime mode. current mode: {mode}. return optimizer_entrypoint without executing optimizer...")
@@ -551,11 +556,11 @@ def optimizer_entrypoint():
         for svc in endpoint_level_inflight[region]:
             for ep in endpoint_level_inflight[region][svc]:
                 logger.debug(f"{region}, {svc} {ep} {endpoint_level_inflight[region][svc][ep]}")
-    logger.debug("endpoint_level_rps")
+    logger.info("endpoint_level_rps")
     for region in endpoint_level_rps:
         for svc in endpoint_level_rps[region]:
             for ep in endpoint_level_rps[region][svc]:
-                logger.debug(f"{region}, {svc} {ep} {endpoint_level_rps[region][svc][ep]}")
+                logger.info(f"{region}, {svc} {ep} {endpoint_level_rps[region][svc][ep]}")
     # logger.debug(f'{endpoint_level_rps}')
     logger.debug("placement")
     logger.debug(placement)
@@ -565,6 +570,9 @@ def optimizer_entrypoint():
     logger.debug(endpoint_to_cg_key)
     # logger.debug("sp_callgraph_table")
     # logger.debug(sp_callgraph_table)
+    if len(ep_str_callgraph_table) == 0:
+        logger.error(f"!!! ERROR !!!: ep_str_callgraph_table is empty.")
+        return
     logger.info("ep_str_callgraph_table")
     for cg_key in ep_str_callgraph_table:
         for ep_str in ep_str_callgraph_table[cg_key]:
@@ -605,7 +613,8 @@ def optimizer_entrypoint():
             logger.error("!!! ERROR !!!")
             assert False
     logger.info("!!! before run_optimizer")
-    percentage_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_load_per_service, degree)
+    logger.info(f"inter_cluster_latency: {inter_cluster_latency}")
+    percentage_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_load_per_service, degree, inter_cluster_latency)
     logger.info("!!! after run_optimizer")
     logger.info(f"run_optimizer result: {desc}")
     optimizer_cnt += 1
@@ -775,7 +784,11 @@ filter incomplete traces
 '''
 def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
     col = ["cluster_id","svc_name","method","path","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size","inflight_dict","rps_dict"]
-    df = pd.read_csv(trainig_input_trace_file, names=col, header=None)
+    try:
+        df = pd.read_csv(trainig_input_trace_file, names=col, header=None)
+    except Exception as e:
+        logger.error(f"!!! ERROR !!!: failed to read {trainig_input_trace_file} with error: {e}")
+        assert False
     # span_df = df.iloc[:, :-2] # inflight_dict, rps_dict
     # inflight_df = df.iloc[:, -2:-1] # inflight_dict, rps_dict
     # rps_df = df.iloc[:, -1:] # inflight_dict, rps_dict
@@ -783,6 +796,7 @@ def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
     # for (index1, span_df_row), (index2, inflight_df_row), (index2, rps_df_row) in zip(span_df.iterrows(), inflight_df.iterrows(), rps_df.iterrows()):
     for index, row in df.iterrows():
         if row["cluster_id"] == "SLATE_UNKNOWN_REGION" or row["svc_name"] == "consul":
+            logger.info(f"svc_name: {row['svc_name']}, cluster_id: {row['cluster_id']} is filtered out")
             continue
         # row: user-us-west-1@POST@/user.User/CheckUser:1|,user-us-west-1@POST@/user.User/CheckUser:14|
         # , is delimiter between rps_dict and inflight_dict
@@ -794,13 +808,16 @@ def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
             # row["inflight_dict"]: "user-us-west-1@POST@/user.User/CheckUser:1|user-us-west-1@POST@/user.User/CheckUser:1|"
             inflight_list = row["inflight_dict"].split("|")[:-1]
         except:
-            logger.debug(f"row: {row}")
-            logger.debug(f"row['inflight_dict']: {row['inflight_dict']}")
+            logger.error(f"!!! ERROR !!! row['inflight_dict']: {row['inflight_dict']}")
+            logger.error(f"!!! ERROR !!! row: {row}")
             assert False
         for ep_inflight in inflight_list:
             # ep_inflight: user-us-west-1@POST@/user.User/CheckUser:1
             temp = ep_inflight.split(":")
-            assert len(temp) == 2
+            if len(temp) != 2:
+                logger.error(f"!!! ERROR !!! len(temp) != 2, ep_inflight: {ep_inflight}")
+                logger.error(f"!!! ERROR !!! row: {row}")
+                assert False
             ep = temp[0] # user-us-west-1@POST@/user.User/CheckUser
             inflight = int(temp[1]) # 1
             num_inflight_dict[ep] = inflight
@@ -812,7 +829,10 @@ def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
         for ep_rps in rps_list:
             temp = ep_rps.split(":")
             # logger.debug(f"len(temp): {len(temp)}")
-            assert len(temp) == 2
+            if len(temp) != 2:
+                logger.error(f"!!! ERROR !!! len(temp) != 2, ep_rps: {ep_rps}")
+                logger.error(f"!!! ERROR !!! row: {row}")
+                assert False
             ep = temp[0] # user-us-west-1@POST@/user.User/CheckUser
             rps = int(temp[1]) # 1
             rps_dict[ep] = rps
@@ -853,6 +873,8 @@ def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
                 complete_traces[cid][tid] = traces[cid][tid]
     for cid in complete_traces:
         logger.info(f"len(complete_traces[{cid}]): {len(complete_traces[cid])}")
+        if len(complete_traces[cid]) == 0:
+            logger.error(f"!!! ERROR: len(complete_traces[{cid}]) == 0")
     return complete_traces
 
 
@@ -954,7 +976,10 @@ def training_phase():
             logger.debug(f"{cfg.log_prefix} ERROR: {profile_output_file} is empty.")        
         logger.debug(f"{cfg.log_prefix} Skip training.")
         return
-    
+     
+    if trainig_input_trace_file not in os.listdir():
+        logger.error(f"!!! ERROR: {trainig_input_trace_file} is not in the current directory.")
+        return
     complete_traces = trace_string_file_to_trace_data_structure(trainig_input_trace_file)
     for cid in complete_traces:
         logger.info(f"{cfg.log_prefix} len(complete_traces[{cid}]): {len(complete_traces[cid])}")
@@ -963,7 +988,17 @@ def training_phase():
     #     logger.info(f"{cfg.log_prefix} len(complete_traces[{cid}]): {len(complete_traces[cid])}")
     
     '''Time stitching'''
+    for cid in complete_traces:
+        logger.info(f"len(complete_traces[{cid}]) = {len(complete_traces[cid])}")
+    if len(complete_traces) == 0:
+        logger.error(f"!!! ERROR: len(complete_traces) == 0")
+        
     stitched_traces = tst.stitch_time(complete_traces)
+    
+    for cid in stitched_traces:
+        logger.info(f"len(stitched_traces[{cid}]) = {len(stitched_traces[cid])}")
+    if len(stitched_traces) == 0:
+        logger.error(f"!!! ERROR: len(stitched_traces) == 0")
     for cid in stitched_traces:
         logger.info(f"{cfg.log_prefix} len(stitched_traces[{cid}]): {len(stitched_traces[cid])}")
     '''Create useful data structures from the traces'''
@@ -977,9 +1012,9 @@ def training_phase():
     placement = tst.get_placement_from_trace(stitched_traces)
     
     logger.info("ep_str_callgraph_table")
-    logger.info(f"num different callgraph: {len(ep_str_callgraph_table)}")
     for cg_key in ep_str_callgraph_table:
         logger.debug(f"{cg_key}: {ep_str_callgraph_table[cg_key]}")
+    logger.info(f"num callgraph: {len(ep_str_callgraph_table)}")
     for cid in all_endpoints:
         for svc_name in all_endpoints[cid]:
             logger.debug(f"all_endpoints[{cid}][{svc_name}]: {all_endpoints[cid][svc_name]}")
@@ -1000,8 +1035,8 @@ def training_phase():
             for ep_str in all_endpoints[region][svc]:
                 endpoint_level_rps[region][svc][ep_str] = 0
                 endpoint_level_inflight[region][svc][ep_str] = 0
-                logger.debug(f"training_phase, Init endpoint_level_rps[{region}][{svc}][{ep_str}]: {endpoint_level_rps[region][svc][ep_str]}")
-                logger.debug(f"training_phase, Init endpoint_level_inflight[{region}][{svc}][{ep_str}]: {endpoint_level_inflight[region][svc][ep_str]}")
+                logger.info(f"Init endpoint_level_rps[{region}][{svc}][{ep_str}]: {endpoint_level_rps[region][svc][ep_str]}")
+                logger.info(f"Init endpoint_level_inflight[{region}][{svc}][{ep_str}]: {endpoint_level_inflight[region][svc][ep_str]}")
                 
     
     '''
@@ -1068,6 +1103,7 @@ def read_config_file():
     global MODE_SET
     global CAPACITY
     global degree
+    global inter_cluster_latency
     with open("env.txt", "r") as file:
         lines = file.readlines()
         for line in lines:
@@ -1077,30 +1113,45 @@ def read_config_file():
                     logger.info(f'Update benchmark_name: {benchmark_name} -> {line[1]}')
                     benchmark_name = line[1]
             elif line[0] == "total_num_services":
-                temp = int(line[1])
-                if total_num_services != temp:
-                    logger.info(f'Update total_num_services: {total_num_services} -> {temp}')
-                    total_num_services = temp
+                if total_num_services != line[1]:
+                    logger.info(f'Update total_num_services: {total_num_services} -> {line[1]}')
+                    total_num_services = line[1]
             elif line[0] == "mode":
                 if mode != line[1]:
                     if line[1] not in MODE_SET:
-                        logger.error(f"ERROR: unknown mode: {line[1]}")
+                        logger.error(f"!!! ERROR !!!: unknown mode: {line[1]}")
                         assert False
-                    logger.info(f'Update mode: {mode} -> {line[1]}')
-                    mode = line[1]
+                    if line[1] != mode:
+                        logger.info(f'Update mode: {mode} -> {line[1]}')
+                        mode = line[1]
             elif line[0] == "routing_rule":
                 if ROUTING_RULE != line[1]:
                     if line[1] not in ROUTING_RULE_SET:
                         logger.error(f"ERROR: unknown routing_rule: {line[1]}")
                         assert False
-                    logger.info(f'Update mode: {ROUTING_RULE} -> {line[1]}')
-                    ROUTING_RULE = line[1]
+                    if line[1] != ROUTING_RULE:
+                        logger.info(f'Update mode: {ROUTING_RULE} -> {line[1]}')
+                        ROUTING_RULE = line[1]
             elif line[0] == "capacity":
-                logger.info(f'Update CAPACITY: {CAPACITY} -> {line[1]}')
-                CAPACITY = int(line[1])
+                if CAPACITY != int(line[1]):
+                    logger.info(f'Update CAPACITY: {CAPACITY} -> {line[1]}')
+                    CAPACITY = int(line[1])
             elif line[0] == "degree":
-                logger.info(f'Update degree: {degree} -> {line[1]}')
-                degree = int(line[1])
+                if degree != int(line[1]):
+                    logger.info(f'Update degree: {degree} -> {line[1]}')
+                    degree = int(line[1])
+            elif line[0] == "inter_cluster_latency":
+                src = line[1]
+                dst = line[2]
+                oneway_latency = int(line[3])
+                if src not in inter_cluster_latency:
+                    inter_cluster_latency[src] = dict()
+                if dst not in inter_cluster_latency:
+                    inter_cluster_latency[dst] = dict()
+                # if inter_cluster_latency[src][dst] != oneway_latency:
+                inter_cluster_latency[src][dst] = oneway_latency
+                inter_cluster_latency[dst][src] = oneway_latency
+                logger.debug(f'Update inter_cluster_latency: {src} -> {dst}: {oneway_latency}')
             else:
                 logger.debug(f"ERROR: unknown config: {line}")
     logger.info(f"benchmark_name: {benchmark_name}, total_num_services: {total_num_services}, mode: {mode}, ROUTING_RULE: {ROUTING_RULE}")
