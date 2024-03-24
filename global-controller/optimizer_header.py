@@ -452,7 +452,7 @@ def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, ma
     compute_df["call_size"] = 0
     for index, row in compute_df.iterrows():
         # for cg_key in ep_str_callgraph_table:
-        logger.info(f"Set max_load for {row['svc_name']}: {max_load_per_service[row['svc_name']]}")
+        logger.debug(f"Set max_load for {row['svc_name']}: {max_load_per_service[row['svc_name']]}")
         compute_df.at[index, 'max_load'] = max_load_per_service[row["svc_name"]]
         compute_df.at[index, 'min_load'] = 0
         compute_df.at[index, "min_compute_latency"] = 0
@@ -936,13 +936,14 @@ def check_network_arc_var_name(net_arc_var):
             assert False
 
 
-def get_network_latency(src_cid, dst_cid):
-    if src_cid == NONE_CID or dst_cid == NONE_CID:
-        return 0
-    if src_cid == dst_cid:
-        return cfg.intra_CLUSTER_NETWORK_LATENCY
-    else:
-        return cfg.INTER_CLUSTER_NETWORK_LATENCY
+# Deprecated by inter_cluster_latency config in env.txt file. check global_controller.read_config_file function
+# def get_network_latency(src_cid, dst_cid):
+#     if src_cid == NONE_CID or dst_cid == NONE_CID:
+#         return 0
+#     if src_cid == dst_cid:
+#         return cfg.intra_CLUSTER_NETWORK_LATENCY
+#     else:
+#         return cfg.INTER_CLUSTER_NETWORK_LATENCY
 
 
 def get_egress_cost(src, src_cid, dst, dst_cid, callsize_dict):
@@ -963,7 +964,7 @@ def get_start_node_name(svc_name, cid):
 def translate_to_percentage(df_req_flow):
     logger = logging.getLogger(__name__)
     i = 0
-    logger.info(f'translate_to_percentage {i}')
+    logger.debug(f'translate_to_percentage {i}')
     i+=1
     src_endpoint_list = list()
     dst_endpoint_list = list()
@@ -975,10 +976,10 @@ def translate_to_percentage(df_req_flow):
     src_and_dst_index = list()
     # edge_name_list = list()
     # edge_dict = dict()
-    logger.info(f'translate_to_percentage {i}')
+    logger.debug(f'translate_to_percentage {i}')
     i+=1
     for index, row in df_req_flow.iterrows():
-        logger.info(f'translate_to_percentage {i}, {row["From"]}, {row["To"]}')
+        logger.debug(f'translate_to_percentage {i}, {row["From"]}, {row["To"]}')
         i+=1
         src_endpoint = row["From"].split(cfg.DELIMITER)[0]
         dst_endpoint = row["To"].split(cfg.DELIMITER)[0]
@@ -1006,7 +1007,7 @@ def translate_to_percentage(df_req_flow):
             # if edge_name not in edge_dict:
             #     edge_dict[edge_name] = list()
             # edge_dict[edge_name].append([src_cid,dst_cid,row["Flow"]])
-    logger.info(f'translate_to_percentage {i}, for loop done')
+    logger.debug(f'translate_to_percentage {i}, for loop done')
     i+=1
     percentage_df = pd.DataFrame(
         data={
@@ -1020,18 +1021,18 @@ def translate_to_percentage(df_req_flow):
         },
         index = src_and_dst_index
     )
-    logger.info(f'translate_to_percentage {i} created percentage_df')
+    logger.debug(f'translate_to_percentage {i} created percentage_df')
     i+=1
     percentage_df.index.name = "index_col"
     group_by_sum = percentage_df.groupby(['index_col']).sum()
     logger.debug(group_by_sum)
-    logger.info(f'translate_to_percentage {i} group_by done')
+    logger.debug(f'translate_to_percentage {i} group_by done')
     i+=1
     total_list = list()
     for index, row in percentage_df.iterrows():
         total = group_by_sum.loc[[index]]["flow"].tolist()[0]
         total_list.append(total)
-    logger.info(f'translate_to_percentage {i}')
+    logger.debug(f'translate_to_percentage {i}')
     i+=1
     percentage_df["total"] = total_list
     weight_list = list()
@@ -1041,11 +1042,11 @@ def translate_to_percentage(df_req_flow):
         except Exception as e:
             weight_list.append(0)
             logger.warning(f'translate_to_percentage Error: {type(e).__name__}, {e}')
-    logger.info(f'translate_to_percentage {i}, calculated weight_list')
+    logger.debug(f'translate_to_percentage {i}, calculated weight_list')
     i+=1
     percentage_df["weight"] = weight_list
     # percentage_df = percentage_df.reset_index(drop=True)
-    logger.info(f'translate_to_percentage is done')
+    logger.debug(f'translate_to_percentage is done')
     return percentage_df
 
 
@@ -1053,14 +1054,14 @@ def translate_to_percentage(df_req_flow):
 def print_result_flow(callgraph, aggregated_load):
     for key in callgraph:
         for k, v in aggregated_load[key].items():
-            logger.info(f"var_name: {v.getAttr('VarName').split('[')[0].split('_')[2]}")
-            logger.info(f"type: {v.getAttr('VarName').split('[')[0].split('_')[-1]}")
-            logger.info(f"valie: {v.getAttr('X')}")
+            logger.debug(f"var_name: {v.getAttr('VarName').split('[')[0].split('_')[2]}")
+            logger.debug(f"type: {v.getAttr('VarName').split('[')[0].split('_')[-1]}")
+            logger.debug(f"valie: {v.getAttr('X')}")
 
 
 def print_all_gurobi_var(gurobi_model, callgraph):
     for var in gurobi_model.getVars():
-        logger.info(f'{var}, {var.x}')
+        logger.debug(f'{var}, {var.x}')
 
 
 def get_result_latency(gurobi_model, callgraph):
@@ -1073,7 +1074,7 @@ def get_result_latency(gurobi_model, callgraph):
     for v in gurobi_model.getVars():
         prefix_var_name = v.getAttr("VarName").split('[')[0]
         if prefix_var_name.split('_')[1] == "latency":
-            logger.info(f'{v}, {v.getAttr("X")}')
+            logger.debug(f'{v}, {v.getAttr("X")}')
             cg_key = prefix_var_name.split('_')[-1]
             which_latency = prefix_var_name.split('_')[0]
             result_latency[cg_key][which_latency] += v.getAttr("X")

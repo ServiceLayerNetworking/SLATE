@@ -13,7 +13,7 @@ log_prefix=""
 
 LOGGING_CONFIG = {
     'version': 1,
-    'disable_existing_loggers': True,
+    'disable_existing_loggers': False,
     'formatters': {
         'standard': {
             # 'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -82,8 +82,8 @@ ALL_PRODUCTPAGE=False
 REGRESSOR_DEGREE=1 # 1: linear, >2: polynomial
 APP_NAME="bookinfo"
 
-intra_CLUSTER_NETWORK_LATENCY=0.5 # oneway
-INTER_CLUSTER_NETWORK_LATENCY=20 # oneway
+# intra_CLUSTER_NETWORK_LATENCY=0.5 # oneway
+# INTER_CLUSTER_NETWORK_LATENCY=20 # oneway
 INTER_CLUSTER_EGRESS_COST=1
 # DOLLAR_PER_MS: value of latency
 # DOLLAR_PER_MS = 0.00001

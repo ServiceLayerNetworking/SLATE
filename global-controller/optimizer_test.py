@@ -88,7 +88,9 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     for cg_key in ep_str_callgraph_table:
         root_ep[cg_key] = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
     # e.g., root_ep[cg_key]: 'metrics-fake-ingress@GET@/start'
-    logger.info(f"root_ep: {root_ep}")
+    for cg_key in root_ep:
+        logger.debug(f"cg_key: {cg_key}, root_ep: {root_ep[cg_key]}")
+        
     if root_ep == "":
         logger.error(f"!!! Skip run_optimizer. (reason: failed to find root_ep) root_ep: {root_ep}")
         return pd.DataFrame(), f"reason: root_ep is empty"
@@ -110,14 +112,15 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     no_rps = True
     for cid in root_node_rps:
         for ep in root_node_rps[cid]:
+            # As a minimum requirement, only one of all regions needs to have load in root endpoint.
             if root_node_rps[cid][ep] != 0:
                 no_rps = False
                 break
         if no_rps == False:
             break
     if no_rps == True:
-        logger.error(f'!!! Skip run_optimizer. (reason: root_node_rps is 0, root: {root_ep})')
-        return pd.DataFrame(), f"reason: root_node_rps is 0, root: {root_ep}"
+        logger.error(f'!!! Skip run_optimizer. (reason: all region has root_node_rps 0)')
+        return pd.DataFrame(), f"reason: all region have root_node_rps 0"
 
     def collapse_cid_in_endpoint_level_rps(endpoint_level_rps):
         collapsed_endpoint_level_rps = dict()
@@ -139,8 +142,6 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     
     collapsed_endpoint_level_rps = collapse_cid_in_endpoint_level_rps(endpoint_level_rps)
     logger.debug(f'collapsed_endpoint_level_rps: {collapsed_endpoint_level_rps}')
-    asdf = 1
-    logger.info(f"asdf: {asdf}"); asdf += 1
     # This is used in flow_conservation-nonleaf_endnode constraint
     request_in_out_weight = dict()
     for cg_key in ep_str_callgraph_table:
@@ -162,7 +163,6 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                 # TODO: request_in_out_weight[cg_key][parent_ep][child_ep] = in_/out_
                 request_in_out_weight[cg_key][parent_ep][child_ep] = 1
                 logger.debug(f'request_in_out_weight: {request_in_out_weight[cg_key][parent_ep][child_ep]}, parent_ep: {parent_ep}, child_ep: {child_ep}, in_: {in_}, out_: {out_}')
-    logger.info(f"asdf: {asdf}"); asdf += 1
     ##############################################
     # TODO: Problem: how should we the endpoint to each call graph? Otherwise, by simply using the endpoint, we are not able to find root endpoint of the call graph.
     # norm_inout_weight = dict()
@@ -210,14 +210,12 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     depth_dict = dict()
     for cg_key in ep_str_callgraph_table:
         depth_dict[cg_key] = opt_func.get_depth_in_graph(ep_str_callgraph_table[cg_key])
-    logger.info(f"asdf: {asdf}"); asdf += 1
     # logger.debug("depth_dict")
     # logger.debug(depth_dict)
     # key: (parent_svc,child_svc), value: callsize of the link (= depth+1)
     callsize_dict = dict()
     for cg_key in ep_str_callgraph_table:
         callsize_dict[cg_key] = opt_func.get_callsize_dict(ep_str_callgraph_table[cg_key], depth_dict[cg_key])
-    logger.info(f"asdf: {asdf}"); asdf += 1
     # logger.debug(f'callsize_dict: {callsize_dict}')
 
     # In[31]:
@@ -225,14 +223,12 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     root_node_max_rps = opt_func.get_root_node_max_rps(root_node_rps)
     compute_arc_var_name = opt_func.create_compute_arc_var_name(all_endpoints)
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
-    logger.info(f"asdf: {asdf}"); asdf += 1
     try:
         compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_load_per_service)
     except Exception as e:
         logger.error(f'Exception: {type(e).__name__}, {e}')
         logger.error(f'!!! ERROR !!! create_compute_df failed')
         return pd.DataFrame(), f"Exception: {e}"
-    logger.info(f"asdf: {asdf}"); asdf += 1
     compute_df.to_csv(f'compute_df.csv')
     if traffic_segmentation == False:
         original_compute_df = opt_func.create_compute_df(placement, original_callgraph, callsize_dict, original_NUM_REQUESTS, original_MAX_LOAD)
@@ -246,10 +242,21 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     #         logger.debug(f'latency_function[{svc_name}][{ep}], intercept: {latency_function[svc_name][ep]["linearregression"].intercept_}')
         
 
-
-    # In[42]:
-
-    env = gp.Env(params={'OutputFlag':0})
+    # When using gurobi.wls license
+    ## Defining objective function
+    gurobi_key = open("./gurobi.wls", "r")
+    options = dict()
+    for line in gurobi_key:
+        line = line.strip()
+        # print("line: ", line)
+        if line == "":
+            continue
+        key, value = line.split(",")
+        if key == "LICENSEID":
+            value = int(value)
+        options[key] = value
+    options['OutputFlag'] = 0
+    env = gp.Env(params=options)
     gurobi_model = gp.Model('RequestRouting', env=env)
 
     ''' 
@@ -285,8 +292,6 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         
     gurobi_model.update()
 
-    logger.info(f"asdf: {asdf}"); asdf += 1
-    
     # # In[44]:
 
 

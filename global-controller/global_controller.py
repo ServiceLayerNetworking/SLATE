@@ -21,6 +21,7 @@ import os
 import math
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 # import logging.config
 
 logging.config.dictConfig(cfg.LOGGING_CONFIG)
@@ -32,6 +33,9 @@ logger = logging.getLogger(__name__)
 logging.getLogger('werkzeug').setLevel(logging.WARNING)
 logging.getLogger('apscheduler').setLevel(logging.WARNING)
 logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
+logging.getLogger('apscheduler').setLevel(logging.DEBUG)
+
+os.environ['train_done'] = '0'
 
 
 '''runtime (optimizer)'''
@@ -50,11 +54,13 @@ percentage_df = None
 optimizer_cnt = 0
 inter_cluster_latency = dict()
 stats_mutex = Lock()
+endpoint_rps_history = list()
 
 '''profiling (training)'''
 list_of_span = list() # unorganized list of spanss
 complete_traces = dict() # filtered traces
 train_done = False
+train_start = False
 # trace_str_list = list() # internal data structure of traces before writing it to a file
 profile_output_file="trace_string.csv" # traces_str_list -> profile_output_file in write_trace_str_to_file() function every 5s
 latency_func = {}
@@ -152,7 +158,7 @@ def get_local_routing_rule(src_svc, src_cid):
                         new_row_df = pd.DataFrame([new_row])
                         df = pd.concat([df, new_row_df], ignore_index=True)
     csv_string = df.to_csv(header=False, index=False)
-    logger.info(f"routing rule, LOCAL: {src_svc}, {src_cid}\n{csv_string}")
+    logger.debug(f"routing rule, LOCAL: {src_svc}, {src_cid}, {csv_string.strip()}")
     return csv_string
 
 def always_remote_routing_rule(src_svc, src_cid):
@@ -183,7 +189,7 @@ def always_remote_routing_rule(src_svc, src_cid):
                         new_row_df = pd.DataFrame([new_row])
                         df = pd.concat([df, new_row_df], ignore_index=True)
     csv_string = df.to_csv(header=False, index=False)
-    logger.info(f"routing rule, REMOTE: {src_svc}, {src_cid}\n{csv_string}")
+    logger.debug(f"routing rule, REMOTE: {src_svc}, {src_cid}, {csv_string.strip()}")
     return csv_string
 
 def MCLB_routing_rule(src_svc, src_cid):
@@ -211,12 +217,12 @@ def MCLB_routing_rule(src_svc, src_cid):
                         new_row_df = pd.DataFrame([new_row])
                         df = pd.concat([df, new_row_df], ignore_index=True)
     csv_string = df.to_csv(header=False, index=False)
-    logger.info(f"routing rule, MCLB: {src_svc}, {src_cid}\n{csv_string}")
+    logger.debug(f"routing rule, MCLB: {src_svc}, {src_cid}, {csv_string.strip()}")
     return csv_string
 
 
 def parse_inflight_stats(body):
-    # logger.info(f"{cfg.log_prefix} body: {body}")
+    # logger.info(f"body: {body}")
     lines = body.split("\n")
     inflightStats = lines[1]
     return inflightStats
@@ -264,10 +270,10 @@ def parse_stats_into_spans(body, given_svc_name):
         bodySize = int(ss[9])
         if serviceName.find("metrics-handler") != -1:
             bodySize = 5000
-            logger.debug(f"{cfg.log_prefix} Rewriting bodySize: {bodySize}, svc: {serviceName}, method: {method}, path: {path}")
+            logger.debug(f"Rewriting bodySize: {bodySize}, svc: {serviceName}, method: {method}, path: {path}")
         else:
             bodySize = 50
-            logger.debug(f"{cfg.log_prefix} Rewriting bodySize: {bodySize}, svc: {serviceName}, method: {method}, path: {path}")
+            logger.debug(f"Rewriting bodySize: {bodySize}, svc: {serviceName}, method: {method}, path: {path}")
         # 'GET@/hotels,0,1|POST@/reservation,2,0|GET@/recommendations,2,1|'
         endpointInflightStats = ss[10].split("|")
         if endpointInflightStats[-1] == "":
@@ -284,7 +290,7 @@ def parse_stats_into_spans(body, given_svc_name):
             rps_dict[str(endpoint)] = rps
             inflight_dict[str(endpoint)] = inflight
         spans.append(sp.Span(method, path, serviceName, region, traceId, spanId, parentSpanId, startTime, endTime, bodySize, rps_dict=rps_dict, num_inflight_dict=inflight_dict))
-        # logger.info(f"{cfg.log_prefix} new span parsed. serviceName: {serviceName}, bodySize: {bodySize}")
+        # logger.info(f"new span parsed. serviceName: {serviceName}, bodySize: {bodySize}")
     return spans
 
 
@@ -298,7 +304,7 @@ def write_spans_to_file():
                 with open(profile_output_file, "w") as file:
                     for span in list_of_span:
                         file.write(str(span)+"\n")
-            logger.debug(f"{cfg.log_prefix} write_trace_str_to_file happened.")
+            logger.debug(f"write_trace_str_to_file happened.")
     
 
 # @app.route("/clusterLoad", methods=["POST"]) # from cluster-controller
@@ -312,17 +318,18 @@ def handleProxyLoad():
     global mode
     global list_of_span
     global stats_mutex
+    global endpoint_rps_history
     
     svc = request.headers.get('x-slate-servicename')
     if svc.find("-us-") != -1:
             svc = svc.split("-us-")[0]
     if svc == "slate-controller":
-        logger.debug(f"{cfg.log_prefix} WARNING: skip slate-controller in handleproxy")
+        logger.debug(f"WARNING: skip slate-controller in handleproxy")
         return ""
     
     region = request.headers.get('x-slate-region')
     if region == "SLATE_UNKNOWN_REGION":
-        logger.info(f"skip SLATE_UNKNOWN_REGION, svc: {svc}, region: {region}")
+        logger.debug(f"skip SLATE_UNKNOWN_REGION, svc: {svc}, region: {region}")
         return "your region is SLATE_UNKNOWN_REGION. It is wrong"
     
     body = request.get_data().decode('utf-8')
@@ -343,7 +350,7 @@ def handleProxyLoad():
     us-west-1 metrics-fake-ingress-us-west-1 GET /start 4d098d189169f0f7e07e75c587d4c608 e07e75c587d4c608  1709763447751 1709763447814 0 GET@/start,0,18446744073709530944|
     us-west-1 metrics-fake-ingress-us-west-1 GET /start d3c0c9e72a315edce2e118bb2d7be53d e2e118bb2d7be53d  1709763447856 1709763447929 0 GET@/start,0,18446744073709530939|
     '''
-    logger.debug(f"{cfg.log_prefix} svc: {svc}, region: {region}")
+    logger.debug(f"svc: {svc}, region: {region}")
     if region not in endpoint_level_rps:
         endpoint_level_rps[region] = dict()
     if svc not in endpoint_level_rps[region]:
@@ -356,32 +363,28 @@ def handleProxyLoad():
         logger.info(f"Init endpoint_level_inflight[{region}][{svc}]")
     
     inflightStats = parse_inflight_stats(body)
-    # When there is no load in this service
     if inflightStats == "":
-        for ep in endpoint_level_rps[region][svc]:
-            endpoint_level_rps[region][svc][ep] = 0
+        # for ep in endpoint_level_rps[region][svc]:
+        #     endpoint_level_rps[region][svc][ep] = 0
         for ep in endpoint_level_inflight[region][svc]:
             endpoint_level_inflight[region][svc][ep] = 0
-        # logger.info(f"{cfg.log_prefix} {svc} inflightStats is empty")
-        # logger.info(f"{cfg.log_prefix} Init entire inflight and rps to 0")
-        # return ""
     
     # inflightStats: "GET@/start,4,1|POST@/start,4,1|"
     # METHOD1@URL1,RPS,INFLIGHT|METHOD2@URL2,RPS,INFLIGHT|...|
-    logger.debug(f"{cfg.log_prefix} inflightStats: {inflightStats}")
+    logger.debug(f"inflightStats: {inflightStats}")
     # endpoints of this service which has load now
     # E.g., there could be three endpoints(GET,POST,PUT) in the Service A and only GET,POST have load now. Then, active_endpoint_stats will be "GET,4,1|POST,10,2|"
     active_endpoint_stats = inflightStats.split("|")[:-1]
-    logger.debug(f"{cfg.log_prefix} active_endpoint_stats: {active_endpoint_stats}")
+    logger.debug(f"active_endpoint_stats: {active_endpoint_stats}")
     
     '''
     TODO: parse_service_level_rps should be updated to ontick per endpoint level rps
     '''
     svc_level_rps = parse_service_level_rps(body)
-    logger.info(f"svc,{svc}, region,{region}, svc_level_rps: {svc_level_rps}")
+    logger.debug(f"svc,{svc}, region,{region}, svc_level_rps: {svc_level_rps}")
     for endpoint_stat in active_endpoint_stats:
         # E.g., endpoint_stat: GET@/start,4,1
-        logger.info(f"{cfg.log_prefix} endpoint_stats: {endpoint_stat}")
+        logger.debug(f"endpoint_stats: {endpoint_stat}")
         method_and_url = endpoint_stat.split(",")[0] # GET@/start
         method = method_and_url.split("@")[0] # GET
         url = method_and_url.split("@")[1] # /start
@@ -401,9 +404,9 @@ def handleProxyLoad():
 
     # debug print
     for ep in endpoint_level_rps[region][svc]:
-        logger.debug(f"{cfg.log_prefix} endpoint_level_rps: {region}, {svc}, {ep}, {endpoint_level_rps[region][svc][ep]}")
+        logger.debug(f"endpoint_level_rps: {region}, {svc}, {ep}, {endpoint_level_rps[region][svc][ep]}")
     for ep in endpoint_level_inflight[region][svc]:
-        logger.debug(f"{cfg.log_prefix} endpoint_level_inflight: {region}, {svc}, {ep}, {endpoint_level_inflight[region][svc][ep]}")
+        logger.debug(f"endpoint_level_inflight: {region}, {svc}, {ep}, {endpoint_level_inflight[region][svc][ep]}")
         
     if mode == "profile":
         spans = parse_stats_into_spans(body, svc)
@@ -449,7 +452,7 @@ def handleProxyLoad():
         metrics-fake-ingress@POST@/start, us-east-1, us-west-1, 0.8
         metrics-fake-ingress@POST@/start, us-east-1, us-east-1, 0.2
         '''
-        logger.info(f'ROUTING_RULE: {ROUTING_RULE}')
+        logger.debug(f'ROUTING_RULE: {ROUTING_RULE}')
         if ROUTING_RULE == "LOCAL":
             csv_string = get_local_routing_rule(svc, region)
         elif ROUTING_RULE == "REMOTE":
@@ -457,8 +460,6 @@ def handleProxyLoad():
         elif ROUTING_RULE == "MCLB":
             csv_string = MCLB_routing_rule(svc, region)
         elif ROUTING_RULE == "SLATE" or ROUTING_RULE == "WATERFALL":
-            if percentage_df == None:
-                logger.error("ERROR: percentage_df is None. SOMETHING IS WRONG.")
             try:
                 # NOTE: remember percentage_df is set by 'optimizer_entrypoint' async function
                 if percentage_df.empty:
@@ -468,9 +469,9 @@ def handleProxyLoad():
                     logger.info(f"{svc}, {region}, percentage_df is not empty")
                     temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
                     # temp_df = temp_df.loc[(temp_df['src_cid'] == region)]
-                    # logger.info(f"{cfg.log_prefix} handleProxyLoad df after filtering, temp_df: {temp_df}")
+                    # logger.info(f"handleProxyLoad df after filtering, temp_df: {temp_df}")
                     if len(temp_df) == 0:
-                        logger.debug(f"{cfg.log_prefix} ERROR: {region}, {svc}. percentage_df becomes empty after filtering.\nrollback to local routing")
+                        logger.debug(f"ERROR: {region}, {svc}. percentage_df becomes empty after filtering.\nrollback to local routing")
                         csv_string = get_local_routing_rule(svc, region)
                     else:
                         ## Add_region_back_to_svc_name
@@ -494,7 +495,7 @@ def handleProxyLoad():
                         temp_df = temp_df.reset_index(drop=True)
                         temp_df.to_csv(f'percentage_df-{svc}-{region}.csv')
                         csv_string = temp_df.to_csv(header=False, index=False)
-                        logger.info(f"{cfg.log_prefix} new routing rule! percentage_df-{svc}-{region}.csv")
+                        logger.info(f"new routing rule! percentage_df-{svc}-{region}.csv")
             except Exception as e:
                 logger.error(f"!!! ERROR !!!: {e}")
                 csv_string = get_local_routing_rule(svc, region)
@@ -506,7 +507,7 @@ def handleProxyLoad():
         csv_string = get_local_routing_rule(svc, region)
         return csv_string
     if csv_string != "":    
-        logger.info(f'ROUTING_RULE: {ROUTING_RULE}, csv_string updated for {svc} in {region}: \n{csv_string}')
+        logger.info(f'Enforcement: {ROUTING_RULE}, {svc} in {region}: {csv_string.strip()}')
         # with open(f'csv_string-{svc}-{region}.txt', 'w') as f:
         #     f.write(csv_string)
     else:
@@ -535,6 +536,7 @@ def optimizer_entrypoint():
     global optimizer_cnt
     global degree
     global inter_cluster_latency
+    global endpoint_rps_history
     
     if mode != "runtime":
         logger.info(f"run optimizer only in runtime mode. current mode: {mode}. return optimizer_entrypoint without executing optimizer...")
@@ -551,16 +553,18 @@ def optimizer_entrypoint():
         
     logger.debug("coef_dict")
     logger.debug(coef_dict)
+    
     logger.debug("endpoint_level_inflight")
     for region in endpoint_level_inflight:
         for svc in endpoint_level_inflight[region]:
             for ep in endpoint_level_inflight[region][svc]:
                 logger.debug(f"{region}, {svc} {ep} {endpoint_level_inflight[region][svc][ep]}")
+                
     logger.info("endpoint_level_rps")
     for region in endpoint_level_rps:
         for svc in endpoint_level_rps[region]:
             for ep in endpoint_level_rps[region][svc]:
-                logger.info(f"{region}, {svc} {ep} {endpoint_level_rps[region][svc][ep]}")
+                logger.info(f"endpoint_rps: {endpoint_level_rps[region][svc][ep]}, {region}, {svc}, {ep}")
     # logger.debug(f'{endpoint_level_rps}')
     logger.debug("placement")
     logger.debug(placement)
@@ -594,7 +598,7 @@ def optimizer_entrypoint():
         f.write(f"traffic_segmentation: {traffic_segmentation}\n")
         f.write(f"objective: {objective}\n")
         
-    def get_total_svc_rps(target_svc):
+    def get_total_demand(target_svc):
         global endpoint_level_rps
         rps = 0
         for region in endpoint_level_rps:
@@ -604,13 +608,11 @@ def optimizer_entrypoint():
     
     # total service rps across all clusters should be less than max_load_per_service[svc]*num_cluster
     for svc in max_load_per_service:
-        total_svc_rps = get_total_svc_rps(svc)
-        total_capacity_across_all_clusters = max_load_per_service[svc]*len(svc_to_placement[svc])
-        logger.info(f"svc,{svc}, total_svc_rps: {total_svc_rps}, total_capacity_across_all_clusters: {total_capacity_across_all_clusters}")
-        if total_svc_rps > total_capacity_across_all_clusters:
-            logger.error("!!! ERROR !!!")
-            logger.error(f"ERROR: svc,{svc}, total_svc_rps({total_svc_rps}) exceeds total_capacity_across_all_clusters({total_capacity_across_all_clusters}), max_load_per_service[{svc}],{max_load_per_service[svc]}, len(placement),{len(placement)}")
-            logger.error("!!! ERROR !!!")
+        total_demand = get_total_demand(svc)
+        total_cap = max_load_per_service[svc]*len(svc_to_placement[svc])
+        logger.info(f"Total capacity: {total_cap}, total demand: {total_demand}, svc,{svc}")
+        if total_demand > total_cap:
+            logger.error(f"!!! ERROR !!! Total demand({total_demand}) > total capcity({total_cap}), svc,{svc} , max_load_per_service[{svc}],{max_load_per_service[svc]}, len(placement),{len(placement)}")
             assert False
     logger.info("!!! before run_optimizer")
     logger.info(f"inter_cluster_latency: {inter_cluster_latency}")
@@ -619,15 +621,14 @@ def optimizer_entrypoint():
     logger.info(f"run_optimizer result: {desc}")
     optimizer_cnt += 1
     pct_df_history_fn = "routing_history.csv"
-    file_exists = os.path.isfile(pct_df_history_fn)
     if percentage_df.empty:
         logger.error(f"ERROR: run_optimizer FAIL (**{desc}**) return without updating percentage_df")
-        if file_exists:
+        if os.path.isfile(pct_df_history_fn):
             with open(pct_df_history_fn, "a") as f:
                 f.write(f"idx,{optimizer_cnt},fail,{desc}\n")
         return
     
-    logger.info(f"percentage_df is valid (not empty) ({ROUTING_RULE})")
+    logger.info(f"percentage_df is valid (check percentage_df.csv)")
     percentage_df.to_csv("percentage_df.csv", mode="w")
     
     # sim_percentage_df is only for pretty print
@@ -638,10 +639,23 @@ def optimizer_entrypoint():
     sim_percentage_df.to_csv("last_percentage_df.csv", mode="w")
     logger.info(f"sim_percentage_df:\n{sim_percentage_df.to_csv()}")
     
-    if file_exists == False:
+    if os.path.isfile(pct_df_history_fn) == False:
         sim_percentage_df.to_csv(pct_df_history_fn, mode="w")
     else:
         sim_percentage_df.to_csv(pct_df_history_fn, header=False, mode="a")
+    
+    endpoint_rps_fn = "endpoint_rps_history.csv"
+    if os.path.isfile(endpoint_rps_fn) == False:
+        with open(endpoint_rps_fn, "w") as f:
+            f.write("counter,region,service,endpoint, rps\n")
+    else:
+        with open(endpoint_rps_fn, "a") as f:
+            for region in endpoint_level_rps:
+                for svc in endpoint_level_rps[region]:
+                    for ep in endpoint_level_rps[region][svc]:
+                        temp = f"{optimizer_cnt}, {region}, {svc}, {ep}, {endpoint_level_rps[region][svc][ep]}"
+                        f.write(temp + "\n")
+    
     logger.info(f"sim_percentage_df_most_recent.csv, sim_percentage_df_history.csv updated")
     ''' end of optimizer_entrypoint '''
 
@@ -663,18 +677,18 @@ def fit_polynomial_regression(data, y_col_name, svc_name, ep_str, cid, degree):
     '''
     
     # '''plot'''
-    plt.figure()
-    plt.scatter(X, y, color='blue', alpha=0.1, label='Data')
-    X_plot = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
-    X_plot_transformed = np.hstack((X_plot**degree, np.ones(X_plot.shape)))
-    y_plot = model.predict(X_plot_transformed)
-    plt.plot(X_plot, y_plot, color='red', linewidth=2, label=f'Cubic Fit: $a \cdot x^{degree} + b$')
-    plt.xlabel(x_feature)
-    plt.ylabel(y_col_name)
-    plt.title(f'{ep_str} in {cid}')
-    plt.legend()
-    plt.savefig(f"latency-{svc_name}.pdf")
-    plt.show()
+    # plt.figure()
+    # plt.scatter(X, y, color='blue', alpha=0.1, label='Data')
+    # X_plot = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
+    # X_plot_transformed = np.hstack((X_plot**degree, np.ones(X_plot.shape)))
+    # y_plot = model.predict(X_plot_transformed)
+    # plt.plot(X_plot, y_plot, color='red', linewidth=2, label=f'Cubic Fit: $a \cdot x^{degree} + b$')
+    # plt.xlabel(x_feature)
+    # plt.ylabel(y_col_name)
+    # plt.title(f'{ep_str} in {cid}')
+    # plt.legend()
+    # plt.savefig(f"latency-{svc_name}.pdf")
+    # plt.show()
     
     return coefficients.to_dict()
     
@@ -796,7 +810,7 @@ def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
     # for (index1, span_df_row), (index2, inflight_df_row), (index2, rps_df_row) in zip(span_df.iterrows(), inflight_df.iterrows(), rps_df.iterrows()):
     for index, row in df.iterrows():
         if row["cluster_id"] == "SLATE_UNKNOWN_REGION" or row["svc_name"] == "consul":
-            logger.info(f"svc_name: {row['svc_name']}, cluster_id: {row['cluster_id']} is filtered out")
+            logger.debug(f"svc_name: {row['svc_name']}, cluster_id: {row['cluster_id']} is filtered out")
             continue
         # row: user-us-west-1@POST@/user.User/CheckUser:1|,user-us-west-1@POST@/user.User/CheckUser:14|
         # , is delimiter between rps_dict and inflight_dict
@@ -907,7 +921,7 @@ def is_trace_complete(single_trace):
 #                         break
 #                     span_exists.append(span.span_id)
 #                     if ignore_cur:
-#                         logger.debug(f"{cfg.log_prefix} span exist, ignore_cur, cid,{span.cluster_id}, tid,{span.trace_id}, span_id,{span.span_id}")
+#                         logger.debug(f"span exist, ignore_cur, cid,{span.cluster_id}, tid,{span.trace_id}, span_id,{span.span_id}")
 #                         continue
 #                     if span.cluster_id not in c_traces:
 #                         c_traces[span.cluster_id] = {}
@@ -937,6 +951,7 @@ def calc_max_load_per_service():
     
 
 def training_phase():
+    ts = time.time()
     global coef_dict
     global endpoint_level_rps
     global endpoint_level_inflight
@@ -949,43 +964,36 @@ def training_phase():
     global ep_str_callgraph_table
     global mode
     global train_done
+    global train_start
     global trainig_input_trace_file
     global max_load_per_service
     global degree
     
     if mode != "runtime":
-        logger.debug(f"{cfg.log_prefix} It is not runtime mode. Skip training. current mode: {mode}")
+        logger.debug(f"It is not runtime mode. Skip training. current mode: {mode}")
         return
-    
-    ## We only need to train once.
     if train_done:
-        logger.debug(f"{cfg.log_prefix} Training has been done already.")
+        logger.debug(f"Training was done. Training is required only once")
         return
-    
-    logger.debug(f"{cfg.log_prefix} Training starts.")
-        
-    ## Train has not been done yet.
-    '''Option 1: Generate dummy traces'''
-    # complete_traces = gen_trace.run(cfg.NUM_CLUSTER, num_traces=10)
-    
-    '''Option 2: Read trace string file'''
     if trainig_input_trace_file not in os.listdir() or os.path.getsize(trainig_input_trace_file) == 0:
         if trainig_input_trace_file not in os.listdir():
-            logger.debug(f"{cfg.log_prefix} ERROR: {profile_output_file} is not in the current directory.")
+            logger.debug(f"ERROR: {profile_output_file} is not in the current directory.")
         if os.path.getsize(trainig_input_trace_file) == 0:
-            logger.debug(f"{cfg.log_prefix} ERROR: {profile_output_file} is empty.")        
-        logger.debug(f"{cfg.log_prefix} Skip training.")
+            logger.debug(f"ERROR: {profile_output_file} is empty.")        
+        logger.debug(f"Retry training again. return...")
         return
-     
-    if trainig_input_trace_file not in os.listdir():
-        logger.error(f"!!! ERROR: {trainig_input_trace_file} is not in the current directory.")
+    if train_start:
+        logger.debug("Training started already.")
         return
+    
+    train_start = True
+    logger.info(f"Training starts.")
     complete_traces = trace_string_file_to_trace_data_structure(trainig_input_trace_file)
     for cid in complete_traces:
-        logger.info(f"{cfg.log_prefix} len(complete_traces[{cid}]): {len(complete_traces[cid])}")
+        logger.info(f"len(complete_traces[{cid}]): {len(complete_traces[cid])}")
     # complete_traces = check_and_move_to_complete_trace(all_traces)
     # for cid in complete_traces:
-    #     logger.info(f"{cfg.log_prefix} len(complete_traces[{cid}]): {len(complete_traces[cid])}")
+    #     logger.info(f"len(complete_traces[{cid}]): {len(complete_traces[cid])}")
     
     '''Time stitching'''
     for cid in complete_traces:
@@ -1000,7 +1008,7 @@ def training_phase():
     if len(stitched_traces) == 0:
         logger.error(f"!!! ERROR: len(stitched_traces) == 0")
     for cid in stitched_traces:
-        logger.info(f"{cfg.log_prefix} len(stitched_traces[{cid}]): {len(stitched_traces[cid])}")
+        logger.info(f"len(stitched_traces[{cid}]): {len(stitched_traces[cid])}")
     '''Create useful data structures from the traces'''
     # sp_callgraph_table = tst.traces_to_span_callgraph_table(stitched_traces)
     # tst.file_write_callgraph_table(sp_callgraph_table)
@@ -1093,6 +1101,11 @@ def training_phase():
     ''' It will be used as a constraint in the optimizer'''
     calc_max_load_per_service()
     train_done = True # train done!
+    duration = time.time() - ts
+    with open("train_done.txt", "w") as f:
+        f.write(f"duration,{duration}")
+    os.environ['train_done'] = '1'
+    logger.info(f"train_done. duration: {duration} sec")
     return
 
 def read_config_file():
@@ -1104,6 +1117,8 @@ def read_config_file():
     global CAPACITY
     global degree
     global inter_cluster_latency
+    global train_done
+    
     with open("env.txt", "r") as file:
         lines = file.readlines()
         for line in lines:
@@ -1132,6 +1147,7 @@ def read_config_file():
                     if line[1] != ROUTING_RULE:
                         logger.info(f'Update mode: {ROUTING_RULE} -> {line[1]}')
                         ROUTING_RULE = line[1]
+                        train_done = False
             elif line[0] == "capacity":
                 if CAPACITY != int(line[1]):
                     logger.info(f'Update CAPACITY: {CAPACITY} -> {line[1]}')
@@ -1166,7 +1182,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=write_spans_to_file, trigger="interval", seconds=5)
     
     ''' mode: runtime '''
-    scheduler.add_job(func=training_phase, trigger="interval", seconds=5)
+    scheduler.add_job(func=training_phase, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
         
     scheduler.start()
