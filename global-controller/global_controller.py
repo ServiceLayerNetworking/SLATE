@@ -52,6 +52,7 @@ endpoint_to_placement = dict()
 svc_to_placement = dict()
 percentage_df = None
 optimizer_cnt = 0
+endpoint_rps_cnt = 0
 inter_cluster_latency = dict()
 stats_mutex = Lock()
 endpoint_rps_history = list()
@@ -139,7 +140,7 @@ def get_local_routing_rule(src_svc, src_cid):
     global ep_str_callgraph_table
     global endpoint_to_placement
     if len(ep_str_callgraph_table) == 0:
-        logger.error(f"ERROR: ep_str_callgraph_table is empty.")
+        logger.debug(f"ERROR: ep_str_callgraph_table is empty.")
         return ""
     df = pd.DataFrame(columns=["src_endpoint", "dst_endpoint", "src_cid", "dst_cid", "weight"])
     for cg_key in ep_str_callgraph_table:
@@ -252,7 +253,7 @@ def parse_stats_into_spans(body, given_svc_name):
         ss = span_stat.split(" ")
         ## NOTE: THIS SHOUD BE UPDATED WHEN member fields in span class is updated.
         if len(ss) != 11:
-            logger.error(f"ERROR, len(ss) != 11, (len(ss):{len(ss)}, ss:{ss})")
+            logger.debug(f"ERROR, len(ss) != 11, (len(ss):{len(ss)}, ss:{ss})")
             # assert False
             continue
         region = ss[0]
@@ -511,7 +512,7 @@ def handleProxyLoad():
         # with open(f'csv_string-{svc}-{region}.txt', 'w') as f:
         #     f.write(csv_string)
     else:
-        logger.info(f"{region}, {svc}, csv_string is empty")
+        logger.debug(f"{region}, {svc}, csv_string is empty")
     return csv_string
 
 
@@ -644,18 +645,6 @@ def optimizer_entrypoint():
     else:
         sim_percentage_df.to_csv(pct_df_history_fn, header=False, mode="a")
     
-    endpoint_rps_fn = "endpoint_rps_history.csv"
-    if os.path.isfile(endpoint_rps_fn) == False:
-        with open(endpoint_rps_fn, "w") as f:
-            f.write("counter,region,service,endpoint, rps\n")
-    else:
-        with open(endpoint_rps_fn, "a") as f:
-            for region in endpoint_level_rps:
-                for svc in endpoint_level_rps[region]:
-                    for ep in endpoint_level_rps[region][svc]:
-                        temp = f"{optimizer_cnt}, {region}, {svc}, {ep}, {endpoint_level_rps[region][svc][ep]}"
-                        f.write(temp + "\n")
-    
     logger.info(f"sim_percentage_df_most_recent.csv, sim_percentage_df_history.csv updated")
     ''' end of optimizer_entrypoint '''
 
@@ -677,18 +666,18 @@ def fit_polynomial_regression(data, y_col_name, svc_name, ep_str, cid, degree):
     '''
     
     # '''plot'''
-    # plt.figure()
-    # plt.scatter(X, y, color='blue', alpha=0.1, label='Data')
-    # X_plot = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
-    # X_plot_transformed = np.hstack((X_plot**degree, np.ones(X_plot.shape)))
-    # y_plot = model.predict(X_plot_transformed)
-    # plt.plot(X_plot, y_plot, color='red', linewidth=2, label=f'Cubic Fit: $a \cdot x^{degree} + b$')
-    # plt.xlabel(x_feature)
-    # plt.ylabel(y_col_name)
-    # plt.title(f'{ep_str} in {cid}')
-    # plt.legend()
-    # plt.savefig(f"latency-{svc_name}.pdf")
-    # plt.show()
+    plt.figure()
+    plt.scatter(X, y, color='blue', alpha=0.1, label='Data')
+    X_plot = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
+    X_plot_transformed = np.hstack((X_plot**degree, np.ones(X_plot.shape)))
+    y_plot = model.predict(X_plot_transformed)
+    plt.plot(X_plot, y_plot, color='red', linewidth=2, label=f'Cubic Fit: $a \cdot x^{degree} + b$')
+    plt.xlabel(x_feature)
+    plt.ylabel(y_col_name)
+    plt.title(f'{ep_str} in {cid}')
+    plt.legend()
+    plt.savefig(f"latency-{svc_name}.pdf")
+    plt.show()
     
     return coefficients.to_dict()
     
@@ -1162,16 +1151,33 @@ def read_config_file():
                 oneway_latency = int(line[3])
                 if src not in inter_cluster_latency:
                     inter_cluster_latency[src] = dict()
-                if dst not in inter_cluster_latency:
-                    inter_cluster_latency[dst] = dict()
-                # if inter_cluster_latency[src][dst] != oneway_latency:
+                # if dst not in inter_cluster_latency:
+                #     inter_cluster_latency[dst] = dict()
                 inter_cluster_latency[src][dst] = oneway_latency
-                inter_cluster_latency[dst][src] = oneway_latency
+                # inter_cluster_latency[dst][src] = oneway_latency
                 logger.debug(f'Update inter_cluster_latency: {src} -> {dst}: {oneway_latency}')
             else:
                 logger.debug(f"ERROR: unknown config: {line}")
     logger.info(f"benchmark_name: {benchmark_name}, total_num_services: {total_num_services}, mode: {mode}, ROUTING_RULE: {ROUTING_RULE}")
 
+
+def record_endpoint_rps():
+    global endpoint_rps_cnt
+    global endpoint_level_rps
+    endpoint_rps_fn = "endpoint_rps_history.csv"
+    if os.path.isfile(endpoint_rps_fn) == False:
+        with open(endpoint_rps_fn, "w") as f:
+            f.write("counter,region,service,endpoint, rps\n")
+    else:
+        with open(endpoint_rps_fn, "a") as f:
+            for region in endpoint_level_rps:
+                for svc in endpoint_level_rps[region]:
+                    for ep in endpoint_level_rps[region][svc]:
+                        temp = f"{endpoint_rps_cnt},{region},{svc},{ep},{endpoint_level_rps[region][svc][ep]}"
+                        f.write(temp + "\n")
+    endpoint_rps_cnt += 1
+    
+    
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
     
@@ -1184,6 +1190,8 @@ if __name__ == "__main__":
     ''' mode: runtime '''
     scheduler.add_job(func=training_phase, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
+    
+    scheduler.add_job(func=record_endpoint_rps, trigger="interval", seconds=1)
         
     scheduler.start()
     atexit.register(lambda: scheduler.shutdown())

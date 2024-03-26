@@ -450,8 +450,8 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                 min_network_time_list.append(0)
                 max_network_time_list.append(0)
             else:
-                min_network_time_list.append(inter_cluster_latency[src_cid][dst_cid]*2)
-                max_network_time_list.append(inter_cluster_latency[src_cid][dst_cid]*2)
+                min_network_time_list.append(inter_cluster_latency[src_cid][dst_cid] + inter_cluster_latency[dst_cid][src_cid])
+                max_network_time_list.append(inter_cluster_latency[src_cid][dst_cid] + inter_cluster_latency[dst_cid][src_cid])
         except Exception as e:
             logger.error(f"!!! ERROR !!! inter_cluster_latency, {src_cid}, {dst_cid}, {type(e).__name__}, {e}")
             logger.error(inter_cluster_latency)
