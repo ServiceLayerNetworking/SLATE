@@ -435,6 +435,7 @@ def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, ma
             # dst_cid = int(var_name[1].split(cfg.DELIMITER)[1])
             src_cid = var_name[0].split(cfg.DELIMITER)[1]
             dst_cid = var_name[1].split(cfg.DELIMITER)[1]
+            assert src_cid == dst_cid
             src_cid_list.append(src_cid)
             dst_cid_list.append(dst_cid)
         else:
@@ -452,8 +453,8 @@ def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, ma
     compute_df["call_size"] = 0
     for index, row in compute_df.iterrows():
         # for cg_key in ep_str_callgraph_table:
-        logger.debug(f"Set max_load for {row['svc_name']}: {max_load_per_service[row['svc_name']]}")
-        compute_df.at[index, 'max_load'] = max_load_per_service[row["svc_name"]]
+        logger.debug(f"Set max_load for {row['svc_name']}: {max_load_per_service[row['src_cid']][row['svc_name']]}")
+        compute_df.at[index, 'max_load'] = max_load_per_service[row['src_cid']][row["svc_name"]]
         compute_df.at[index, 'min_load'] = 0
         compute_df.at[index, "min_compute_latency"] = 0
             
@@ -543,10 +544,11 @@ def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, m
     logger = logging.getLogger(__name__)
     columns = get_compute_df_column(ep_str_callgraph_table)
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
-    try:
-        fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_load_per_service)
-    except Exception as e:
-        logger.error(f"!!! ERROR !!! fill_compute_df failed: {type(e).__name__}, {e}")
+    # try:
+    fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_load_per_service)
+    # except Exception as e:
+        # logger.error(f"!!! ERROR !!! fill_compute_df failed: {type(e).__name__}, {e}")
+        # assert False
     for index, row in compute_df.iterrows():
         logger.debug(f'{row["svc_name"]}, {row["endpoint"]}')
         try:

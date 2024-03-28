@@ -83,14 +83,14 @@ class Span:
         unfold_dict = {k:v for k, v in self.__dict__.items() if not (k.startswith('__') and k.endswith('__'))}
         return unfold_dict
     
-    def get_colunm_name(self):
-        colname = "cluster_id,trace_id,span_id,parent_span_id,svc_name,method,url,st,et,rt,xt,ct,call_size"
-        for endpoint in self.num_inflight_dict:
-            colname += f",num_inflight_{endpoint}"
-        for endpoint in self.rps_dict:
-            colname += f",rps_{endpoint}"
-        return colname
-    
+    # def get_colunm_name(self):
+    #     colname = "cluster_id,trace_id,span_id,parent_span_id,svc_name,method,url,st,et,rt,xt,ct,call_size"
+    #     for endpoint in self.num_inflight_dict:
+    #         colname += f",num_inflight_{endpoint}"
+    #     for endpoint in self.rps_dict:
+    #         colname += f",rps_{endpoint}"
+    #     return colname
+        
     def __str__(self):
         temp = f"{self.cluster_id},{self.svc_name},{self.method},{self.url},{self.trace_id},{self.span_id},{self.parent_span_id},{self.st},{self.et},{self.rt},{self.xt},{self.ct},{self.call_size},"
         for endpoint in self.num_inflight_dict:
@@ -99,3 +99,7 @@ class Span:
         for endpoint in self.rps_dict:
             temp += f"{endpoint}:{self.rps_dict[endpoint]}|"
         return temp
+
+# This is not Span class function
+def get_columns(self):
+    return "cluster_id,svc_name,method,url,trace_id,span_id,parent_span_id,st,et,rt,xt,ct,call_size,inflight_dict,rps_dict"

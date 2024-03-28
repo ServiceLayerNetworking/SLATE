@@ -83,44 +83,6 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
         logger.debug(f"{cfg.log_prefix} mkdir {cfg.OUTPUT_DIR}")
-    
-    root_ep = dict()
-    for cg_key in ep_str_callgraph_table:
-        root_ep[cg_key] = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
-    # e.g., root_ep[cg_key]: 'metrics-fake-ingress@GET@/start'
-    for cg_key in root_ep:
-        logger.debug(f"cg_key: {cg_key}, root_ep: {root_ep[cg_key]}")
-        
-    if root_ep == "":
-        logger.error(f"!!! Skip run_optimizer. (reason: failed to find root_ep) root_ep: {root_ep}")
-        return pd.DataFrame(), f"reason: root_ep is empty"
-            
-    def get_root_node_rps(endpoint_level_rps, root_ep):
-        root_node_rps = dict()
-        for cg_key in root_ep:
-            for cid in endpoint_level_rps:
-                if cid not in root_node_rps:
-                    root_node_rps[cid] = dict()
-                for svc_name in endpoint_level_rps[cid]:
-                    for ep in endpoint_level_rps[cid][svc_name]:
-                        if ep == root_ep[cg_key]:
-                            root_node_rps[cid][ep] = endpoint_level_rps[cid][svc_name][ep]
-                            logger.info(f'root_span[{cid}]: {root_ep[cg_key]}, root_rps: {root_node_rps[cid][ep]}')
-        return root_node_rps
-    
-    root_node_rps = get_root_node_rps(endpoint_level_rps, root_ep)
-    no_rps = True
-    for cid in root_node_rps:
-        for ep in root_node_rps[cid]:
-            # As a minimum requirement, only one of all regions needs to have load in root endpoint.
-            if root_node_rps[cid][ep] != 0:
-                no_rps = False
-                break
-        if no_rps == False:
-            break
-    if no_rps == True:
-        logger.error(f'!!! Skip run_optimizer. (reason: all region has root_node_rps 0)')
-        return pd.DataFrame(), f"reason: all region have root_node_rps 0"
 
     def collapse_cid_in_endpoint_level_rps(endpoint_level_rps):
         collapsed_endpoint_level_rps = dict()
@@ -220,15 +182,16 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
 
     # In[31]:
     
-    root_node_max_rps = opt_func.get_root_node_max_rps(root_node_rps)
+    # root_node_max_rps = opt_func.get_root_node_max_rps(root_node_rps)
     compute_arc_var_name = opt_func.create_compute_arc_var_name(all_endpoints)
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
-    try:
-        compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_load_per_service)
-    except Exception as e:
-        logger.error(f'Exception: {type(e).__name__}, {e}')
-        logger.error(f'!!! ERROR !!! create_compute_df failed')
-        return pd.DataFrame(), f"Exception: {e}"
+    # try:
+    compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_load_per_service)
+    # except Exception as e:
+        # logger.error(f'Exception: {type(e).__name__}, {e}')
+        # logger.error(f'!!! ERROR !!! create_compute_df failed')
+        # assert False
+        # return pd.DataFrame(), f"Exception: {e}"
     compute_df.to_csv(f'compute_df.csv')
     if traffic_segmentation == False:
         original_compute_df = opt_func.create_compute_df(placement, original_callgraph, callsize_dict, original_NUM_REQUESTS, original_MAX_LOAD)
