@@ -24,6 +24,9 @@ import numpy as np
 import time
 import copy
 import warnings
+
+# Filter specific FutureWarning related to pandas concatenation.
+
 # import logging.config
 
 logging.config.dictConfig(cfg.LOGGING_CONFIG)
@@ -37,6 +40,9 @@ logging.getLogger('apscheduler').setLevel(logging.WARNING)
 logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
 logging.getLogger('apscheduler').setLevel(logging.DEBUG)
 
+warnings.filterwarnings("ignore", message="The behavior of DataFrame concatenation with empty or all-NA entries is deprecated")
+
+
 os.environ['train_done'] = '0'
 
 
@@ -46,7 +52,6 @@ endpoint_level_rps = {}
 service_level_rps = {}
 endpoint_to_cg_key = {}
 ep_str_callgraph_table = {}
-# sp_callgraph_table = {}
 all_endpoints = {}
 placement = {}
 coef_dict = {}
@@ -59,6 +64,11 @@ endpoint_rps_cnt = 0
 inter_cluster_latency = dict()
 stats_mutex = Lock()
 endpoint_rps_history = list()
+traffic_segmentation = 1
+objective = "avg_latency"
+
+'''waterfall'''
+region_pct_df = dict()
 
 '''profiling (training)'''
 list_of_span = list() # unorganized list of spanss
@@ -80,8 +90,8 @@ benchmark_set = ["metrics-app", "matmul-app", "hotelreservation"]
 total_num_services = 0
 ROUTING_RULE = "LOCAL" # It will be updated by read_config_file function.
 ROUTING_RULE_SET = ["LOCAL", "SLATE", "REMOTE", "MCLB", "WATERFALL"]
-CAPACITY = 0 # If it is runtime -> training_phase() -> calc_max_load_per_service() -> set max_load_per_service[svc] = CAPACITY
-max_load_per_service = dict() # key: service_name, value: max RPS
+CAPACITY = 0 # If it is runtime -> training_phase() -> max_capacity_per_service() -> set max_capacity_per_service[svc] = CAPACITY
+max_capacity_per_service = dict() # max_capacity_per_service[svc][region] = CAPACITY
 remaining_cap = dict()
 
 def set_endpoint_to_placement(all_endpoints):
@@ -472,53 +482,157 @@ def handleProxyLoad():
         '''
         logger.debug(f'ROUTING_RULE: {ROUTING_RULE}')
         if ROUTING_RULE == "LOCAL":
-            csv_string = get_local_routing_rule(svc, region)
+            return get_local_routing_rule(svc, region)
         elif ROUTING_RULE == "REMOTE":
-            csv_string = always_remote_routing_rule(svc, region)
+            return always_remote_routing_rule(svc, region)
         elif ROUTING_RULE == "MCLB":
-            csv_string = MCLB_routing_rule(svc, region)
+            return MCLB_routing_rule(svc, region)
         elif ROUTING_RULE == "SLATE" or ROUTING_RULE == "WATERFALL":
-            try:
-                # NOTE: remember percentage_df is set by 'optimizer_entrypoint' async function
-                if percentage_df.empty:
-                    logger.info(f"WARNING, Rollback to local routing. {region}, {svc}, percentage_df is empty. rollback to local routing")
-                    csv_string = get_local_routing_rule(svc, region)
-                else:
-                    logger.debug(f"{svc}, {region}, percentage_df is not empty")
-                    temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
-                    # temp_df = temp_df.loc[(temp_df['src_cid'] == region)]
-                    # logger.info(f"handleProxyLoad df after filtering, temp_df: {temp_df}")
-                    if len(temp_df) == 0:
-                        logger.debug(f"WARNING, Rollback to local routing. {region}, {svc}. percentage_df becomes empty after filtering.")
-                        csv_string = get_local_routing_rule(svc, region)
-                    else:
-                        ## Add_region_back_to_svc_name
-                        # temp_df['src_endpoint'] = temp_df['src_endpoint'].str.replace(r'([^@]+)', fr'\1-{temp_df["src_cid"]}', n=1, regex=True)
-                        # temp_df['dst_endpoint'] = temp_df['dst_endpoint'].str.replace(r'([^@]+)', fr'\1-{temp_df["dst_cid"]}', n=1, regex=True)
-                        temp_df = temp_df.drop(columns=['src_svc', "dst_svc", "flow", "total"])
-                        temp_df = temp_df.reset_index(drop=True)
-                        temp_df.to_csv(f'percentage_df-{svc}-{region}.csv')
-                        csv_string = temp_df.to_csv(header=False, index=False)
-                        logger.debug(f"new routing rule! percentage_df-{svc}-{region}.csv")
-            except Exception as e:
-                logger.error(f"!!! ERROR !!!: {e}")
-                csv_string = get_local_routing_rule(svc, region)
-        else:
+            # NOTE: remember percentage_df is set by 'optimizer_entrypoint' async function
+            if percentage_df.empty:
+                logger.warning(f"WARNING, Rollback to local routing. {region}, {svc}, percentage_df is empty. rollback to local routing")
+                return  get_local_routing_rule(svc, region)
+            else:
+                logger.debug(f"{svc}, {region}, percentage_df is not empty")
+                temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
+                if len(temp_df) == 0:
+                    logger.warning(f"WARNING, Rollback to local routing. {region}, {svc}. percentage_df becomes empty after filtering.")
+                    return get_local_routing_rule(svc, region)
+                with open(f'percentage_df-{svc}.csv', 'a') as f:
+                    f.write(temp_df.to_csv(header=False))
+                def verify_return_df(return_df):
+                    for index, row in return_df.iterrows():
+                        # assert row['weight'] >= 0
+                        # assert row['weight'] <= 1
+                        assert row['src_endpoint'] in all_endpoints[row['src_cid']][row['src_svc']]
+                        assert row['dst_endpoint'] in all_endpoints[row['dst_cid']][row['dst_svc']]
+                        assert row['src_endpoint'].split(cfg.ep_del)[0] == row['src_svc']
+                        assert row['dst_endpoint'].split(cfg.ep_del)[0] == row['dst_svc']
+                        assert row['src_cid'] == region
+                        
+                    return_df = return_df.drop(columns=['src_svc', "dst_svc", "flow", "total"])
+                    desired_order_of_columns = ['src_endpoint', 'dst_endpoint', 'src_cid', 'dst_cid', 'weight']
+                    # Select only the columns to keep from the DataFrame
+                    return_df = return_df.loc[:, desired_order_of_columns] 
+                    # make sure it has CORRECT order of columns to comply with wasm api
+                    return_df = return_df[desired_order_of_columns]
+                    assert list(return_df.columns) == desired_order_of_columns
+                    return return_df
+                
+                temp_df = verify_return_df(temp_df)
+                temp_df = temp_df.reset_index(drop=True)
+                csv_string = temp_df.to_csv(header=False, index=False)
+                assert csv_string != ""
+                global optimizer_cnt
+                logger.info(f"Enforcement, optimizer_cnt-{optimizer_cnt}, {svc} in {region}, {csv_string.strip()}")
+                return csv_string
+        else: # Invalid routing rule
             logger.error(f"ERROR: ROUTING_RULE is not supported yet. ROUTING_RULE: {ROUTING_RULE}")
             assert False
         ''' end of if mode == runtime '''
-    else:
+    else: # Invalid mode
         csv_string = get_local_routing_rule(svc, region)
         return csv_string
-    if csv_string != "":    
-        logger.debug(f'Enforcement: {ROUTING_RULE}, {svc} in {region}: {csv_string.strip()}')
-        # with open(f'csv_string-{svc}-{region}.txt', 'w') as f:
-        #     f.write(csv_string)
-    else:
-        logger.debug(f"{region}, {svc}, csv_string is empty")
-    return csv_string
+    assert False # This line shouldn't be reached
+
+def print_endpoint_level_inflight():
+    global endpoint_level_inflight
+    logger.info("endpoint_level_inflight")
+    for region in endpoint_level_inflight:
+        for svc in endpoint_level_inflight[region]:
+            for ep in endpoint_level_inflight[region][svc]:
+                logger.info(f"{region}, {svc} {ep} {endpoint_level_inflight[region][svc][ep]}")
+
+def print_endpoint_level_rps():
+    global endpoint_level_rps
+    logger.info("endpoint_level_rps")
+    for region in endpoint_level_rps:
+        for svc in endpoint_level_rps[region]:
+            for ep in endpoint_level_rps[region][svc]:
+                logger.info(f"endpoint_rps: {endpoint_level_rps[region][svc][ep]}, {region}, {svc}, {ep}")
+                
+def print_service_level_rps():
+    global service_level_rps
+    logger.info("service_level_rps")
+    for region in service_level_rps:
+        for svc in service_level_rps[region]:
+            logger.info(f"service_rps: {service_level_rps[region][svc]}, {region}, {svc}")
+
+def print_ep_str_callgraph_table():
+    global ep_str_callgraph_table
+    logger.info("ep_str_callgraph_table")
+    for cg_key in ep_str_callgraph_table:
+        for ep_str in ep_str_callgraph_table[cg_key]:
+            logger.info(f"{ep_str} -> {ep_str_callgraph_table[cg_key][ep_str]}")
+
+def get_total_rps_for_service(target_svc):
+    global endpoint_level_rps
+    rps = 0
+    for region in endpoint_level_rps:
+        for ep in endpoint_level_rps[region][target_svc]:
+            rps += endpoint_level_rps[region][target_svc][ep]
+    return rps
+
+def get_total_cap_for_service(target_svc):
+    global max_capacity_per_service
+    total_cap = 0
+    for svc in max_capacity_per_service:
+        for region in max_capacity_per_service[svc]:
+            if svc == target_svc:
+                total_cap += max_capacity_per_service[svc][region]
+    return total_cap
+
+def check_total_demand_less_than_total_capacity(region, svc):
+    total_demand = get_total_rps_for_service(svc)
+    total_cap = get_total_cap_for_service(svc)
+    logger.debug(f"Total capacity: {total_cap}, total demand: {total_demand}, svc,{svc}")
+    if total_demand > total_cap:
+        return False, total_demand, total_cap
+    return True, total_demand, total_cap
+
+def get_root_node_rps(root_ep):
+    root_node_rps = dict()
+    for cg_key in root_ep:
+        for cid in endpoint_level_rps:
+            if cid not in root_node_rps:
+                root_node_rps[cid] = dict()
+            for svc_name in endpoint_level_rps[cid]:
+                for ep in endpoint_level_rps[cid][svc_name]:
+                    if ep == root_ep[cg_key]:
+                        root_node_rps[cid][ep] = endpoint_level_rps[cid][svc_name][ep]
+                        logger.info(f'root_span[{cid}]: {root_ep[cg_key]}, root_rps: {root_node_rps[cid][ep]}')
+    return root_node_rps
 
 
+def check_root_node_rps_condition(root_node_rps):
+    root_node_rps_exists = False
+    for cid in root_node_rps:
+        for ep in root_node_rps[cid]:
+            if root_node_rps[cid][ep] != 0:
+                root_node_rps_exists = True
+    return root_node_rps_exists
+
+def sort_by_ingressgw_rps(ingress_gw_svc_name):
+    global endpoint_level_rps
+    region_rps_list = list()
+    for region in endpoint_level_rps:
+        for svc in endpoint_level_rps[region]:
+            for ep in endpoint_level_rps[region][svc]:
+                if svc == ingress_gw_svc_name:
+                    region_rps_list.append([region, endpoint_level_rps[region][svc][ep]])
+    region_rps_list.sort(key=lambda x: x[1], reverse=False) # reverse=False: ascending
+    order_of_optimization = [elem[0] for elem in region_rps_list]
+    return order_of_optimization
+
+def update_remaining_capacity(curr_remaining_capacity, percentage_df):
+    for index, row in percentage_df.iterrows():
+        dst_svc = row['dst_svc']
+        dst_region = row['dst_cid']
+        flow = row['flow']
+        if flow == 0:
+            continue
+        curr_remaining_capacity[dst_svc][dst_region] -= flow 
+    
 ## All variables are global variables
 def optimizer_entrypoint():
     global coef_dict
@@ -529,76 +643,21 @@ def optimizer_entrypoint():
     global svc_to_placement
     global endpoint_to_placement
     global endpoint_to_cg_key
-    # global sp_callgraph_table
     global ep_str_callgraph_table
     global percentage_df
     global ROUTING_RULE
     global traffic_segmentation
     global objective
-    global max_load_per_service
+    global max_capacity_per_service
     global mode
     global optimizer_cnt
     global degree
     global inter_cluster_latency
     global endpoint_rps_history
     global remaining_cap
+    global CAPACITY
     
-    optimizer_cnt += 1
-    
-    if mode != "runtime":
-        logger.info(f"run optimizer only in runtime mode. current mode: {mode}. return optimizer_entrypoint without executing optimizer...")
-        return
-    
-    if ROUTING_RULE != "SLATE" and ROUTING_RULE != "WATERFALL":
-        logger.info(f"run optimizer only in SLATE or WATERFALL ROUTING_RULE. current ROUTING_RULE: {ROUTING_RULE}. return optimizer_entrypoint without executing optimizer...")
-        return
-    
-    traffic_segmentation = 1
-    objective = "avg_latency"
-
-    logger.info(f"start run optimizer ROUTING_RULE:{ROUTING_RULE}")
-        
-    logger.debug("coef_dict")
-    logger.debug(coef_dict)
-    
-    logger.debug("endpoint_level_inflight")
-    for region in endpoint_level_inflight:
-        for svc in endpoint_level_inflight[region]:
-            for ep in endpoint_level_inflight[region][svc]:
-                logger.debug(f"{region}, {svc} {ep} {endpoint_level_inflight[region][svc][ep]}")
-                
-    logger.debug("endpoint_level_rps")
-    for region in endpoint_level_rps:
-        for svc in endpoint_level_rps[region]:
-            for ep in endpoint_level_rps[region][svc]:
-                logger.debug(f"endpoint_rps: {endpoint_level_rps[region][svc][ep]}, {region}, {svc}, {ep}")
-                
-    logger.info("service_level_rps")
-    for region in service_level_rps:
-        for svc in service_level_rps[region]:
-            logger.info(f"service_rps: {service_level_rps[region][svc]}, {region}, {svc}")
-            
-    # logger.debug(f'{service_level_rps}')
-    logger.debug("placement")
-    logger.debug(placement)
-    logger.debug("all_endpoints")
-    logger.debug(all_endpoints)
-    logger.debug("endpoint_to_cg_key")
-    logger.debug(endpoint_to_cg_key)
-    # logger.debug("sp_callgraph_table")
-    # logger.debug(sp_callgraph_table)
-    if len(ep_str_callgraph_table) == 0:
-        logger.error(f"!!! ERROR !!!: ep_str_callgraph_table is empty.")
-        return
-    logger.info("ep_str_callgraph_table")
-    for cg_key in ep_str_callgraph_table:
-        for ep_str in ep_str_callgraph_table[cg_key]:
-            logger.info(f"{ep_str} -> {ep_str_callgraph_table[cg_key][ep_str]}")
-    logger.debug(ep_str_callgraph_table)
-    logger.debug("traffic_segmentation")
-    logger.debug(traffic_segmentation)
-    logger.debug("objective")
-    logger.debug(objective)
+    update_max_capacity_per_service(CAPACITY)
     
     with open("optimizier_input.txt", "w") as f:
         f.write(f"coef_dict: {coef_dict}\n")
@@ -611,66 +670,43 @@ def optimizer_entrypoint():
         f.write(f"traffic_segmentation: {traffic_segmentation}\n")
         f.write(f"objective: {objective}\n")
         
-    def get_total_rps(target_svc):
-        global endpoint_level_rps
-        rps = 0
-        for region in endpoint_level_rps:
-            for ep in endpoint_level_rps[region][target_svc]:
-                rps += endpoint_level_rps[region][target_svc][ep]
-        return rps
-    
-    def get_total_cap(target_svc):
-        global max_load_per_service
-        total_cap = 0
-        for region in max_load_per_service:
-            for svc in max_load_per_service[region]:
-                if svc == target_svc:
-                    total_cap += max_load_per_service[region][svc]
-        return total_cap
-        
-    # total service rps across all clusters should be less than max_load_per_service[svc]*num_cluster
-    for region in max_load_per_service:
-        total_demand = 0
-        total_capacity = 0
-        for svc in max_load_per_service[region]:
-            total_demand = get_total_rps(svc)
-            total_cap = get_total_cap(svc)
-            logger.info(f"Total capacity: {total_cap}, total demand: {total_demand}, svc,{svc}")
-        if total_demand > total_cap:
-            logger.error(f"!!! ERROR !!! Total demand({total_demand}) > total capcity({total_cap}), svc,{svc} , max_load_per_service[{region}][{svc}],{max_load_per_service[region][svc]}, len(placement),{len(placement)}")
-            assert False
-    logger.info(f"!!! before run_optimizer {optimizer_cnt}")
-    logger.info(f"inter_cluster_latency: {inter_cluster_latency}")
-    
-    
+    if mode != "runtime":
+        logger.info(f"run optimizer only in runtime mode. current mode: {mode}. return optimizer_entrypoint without executing optimizer...")
+        return
+    if ROUTING_RULE != "SLATE" and ROUTING_RULE != "WATERFALL":
+        logger.info(f"run optimizer only in SLATE or WATERFALL ROUTING_RULE. current ROUTING_RULE: {ROUTING_RULE}. return optimizer_entrypoint without executing optimizer...")
+        return
+    if len(ep_str_callgraph_table) == 0:
+        logger.error(f"!!! ERROR !!!: ep_str_callgraph_table is empty.")
+        return
     root_ep = dict()
     for cg_key in ep_str_callgraph_table:
         root_ep[cg_key] = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
-    root_node_rps = dict()
-    for cg_key in root_ep:
-        for cid in endpoint_level_rps:
-            if cid not in root_node_rps:
-                root_node_rps[cid] = dict()
-            for svc_name in endpoint_level_rps[cid]:
-                for ep in endpoint_level_rps[cid][svc_name]:
-                    if ep == root_ep[cg_key]:
-                        root_node_rps[cid][ep] = endpoint_level_rps[cid][svc_name][ep]
-                        logger.info(f'root_span[{cid}]: {root_ep[cg_key]}, root_rps: {root_node_rps[cid][ep]}')
-    no_rps = False
-    for cid in root_node_rps:
-        for ep in root_node_rps[cid]:
-            if root_node_rps[cid][ep] != 0:
-                no_rps = True
-    if no_rps == False:
+    root_node_rps = get_root_node_rps(root_ep)
+    if check_root_node_rps_condition(root_node_rps) == False:
         logger.error(f'!!! Skip optimizer !!! root_node_rps of all callgraph in all region is 0')
         return
-    # root_node_max_rps = opt_func.get_root_node_max_rps(root_node_rps)
     
+    for svc in max_capacity_per_service:
+        for region in max_capacity_per_service[svc]:
+            ret, total_demand, total_cap = check_total_demand_less_than_total_capacity(region, svc)
+            if ret == False:
+                logger.error(f"!!! ERROR !!! Total demand({total_demand}) > total capcity({total_cap})")
+                logger.error(f"max_capacity_per_service[{svc}][{region}]: {max_capacity_per_service[svc][region]}")
+                new_capacity = int(total_demand/len(max_capacity_per_service[svc]))+10
+                logger.error(f"new_capacity,{svc}, {max_capacity_per_service[svc][region]} -> {new_capacity}")
+                max_capacity_per_service[svc][region] = new_capacity
+    
+    ## Passed all the basic requirement
+    optimizer_cnt += 1
+    logger.info(f"start run optimizer optimizer_cnt-{optimizer_cnt} ROUTING_RULE:{ROUTING_RULE}")
+    logger.info(f"before run_optimizer optimizer_cnt-{optimizer_cnt}")
+    # logger.info(f"inter_cluster_latency: {inter_cluster_latency}")
     if ROUTING_RULE == "SLATE":
-        for region in max_load_per_service:
-            for svc in max_load_per_service[region]:
-                max_load_per_service[region][svc] = 100000 # NOTE: No capacity threshold for SLATE
-        cur_percentage_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps, placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_load_per_service, degree, inter_cluster_latency)
+        for svc in max_capacity_per_service:
+            for region in max_capacity_per_service[svc]:
+                max_capacity_per_service[svc][region] = 100000 # NOTE: No capacity threshold for SLATE
+        cur_percentage_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps, placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_capacity_per_service, degree, inter_cluster_latency)
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
             '''
@@ -688,99 +724,83 @@ def optimizer_entrypoint():
             )
             '''
     elif ROUTING_RULE == "WATERFALL":
-        remaining_cap = copy.deepcopy(max_load_per_service) # reset remaining_cap
-
-        '''
-        idea: running optimizer one region by one region
-        The order of regions running optimizer is important.
-        '''
-        region_pct_df = dict()
-        
-        sort_by_ingressgw_rps = list()
-        for region in endpoint_level_rps:
-            for svc in endpoint_level_rps[region]:
-                for ep in endpoint_level_rps[region][svc]:
-                    if svc == 'metrics-fake-ingress':
-                        sort_by_ingressgw_rps.append([region, endpoint_level_rps[region][svc][ep]])
-        sort_by_ingressgw_rps.sort(key=lambda x: x[1], reverse=False) # reverse=False: ascending
-        # {"west": 300, "central": 50, "south": 300, "east": 50}, \
-        order_of_optimization = [elem[0] for elem in sort_by_ingressgw_rps]
-        ''' NOTE: fixed optimization order '''
+        global region_pct_df
+        '''Idea: running optimizer one region by one region. The order of regions running optimizer is important.'''
+        curr_remaining_capacity = copy.deepcopy(max_capacity_per_service) # reset curr_remaining_capacity
+        ## schedule lower rps first
+        # order_of_optimization = sort_by_ingressgw_rps('metrics-fake-ingress')
+        ## fixed optimization order
         # order_of_optimization = ['us-south-1', 'us-west-1', 'us-east-1', 'us-central-1']
         order_of_optimization = ['us-central-1', 'us-east-1', 'us-south-1', 'us-west-1']
         logger.info(f"order_of_optimization: {order_of_optimization}")
         for target_region in order_of_optimization:
+            target_region_ingress_gw_rps = 0
             region_endpoint_level_rps = copy.deepcopy(endpoint_level_rps)
             for other_region in region_endpoint_level_rps:
-                if other_region != target_region:
+                if other_region == target_region:
+                    target_region_ingress_gw_rps = region_endpoint_level_rps[target_region]['metrics-fake-ingress']
+                else:
                     for svc in region_endpoint_level_rps[other_region]:
                         for ep in region_endpoint_level_rps[other_region][svc]:
+                            # Other regions are set to 0 rps, so no optimization for other regions.
                             region_endpoint_level_rps[other_region][svc][ep] = 0
-            logger.info(f"run_optimizer {optimizer_cnt}, optimize region,{target_region}")
-            logger.info(f"run_optimizer {optimizer_cnt}, region_endpoint_level_rps: {region_endpoint_level_rps}")
-            pct_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, region_endpoint_level_rps, placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, remaining_cap, degree, inter_cluster_latency)
-            if not pct_df.empty:
-                region_pct_df[target_region] = pct_df
-                pct_df_columns = pct_df.columns
-                # logger.info(f"pct_df_columns: {pct_df_columns}")
-                df_str = pct_df.to_csv(header=False, index=False)
-                logger.info(f"run_optimizer {optimizer_cnt}, target_region: {target_region}")
-                logger.info(f"run_optimizer {optimizer_cnt}, df_str: {df_str}")
-                def update_remaining_cap(remaining_cap, percentage_df):
-                    for index, row in percentage_df.iterrows():
-                        src_svc = row['src_svc']
-                        src_region = row['src_cid']
-                        dst_svc = row['dst_svc']
-                        dst_region = row['dst_cid']
-                        flow = row['flow']
-                        if flow == 0:
-                            continue
-                        remaining_cap[dst_region][dst_svc] -= flow
-                prev_remaining_cap = copy.deepcopy(remaining_cap)
-                update_remaining_cap(remaining_cap, pct_df)
-                for region in remaining_cap:
-                    for svc in remaining_cap[region]:
-                        if remaining_cap[region][svc] < 0:
-                            logger.error(f"!!! ERROR !!!: remaining_cap[{region}][{svc}] < 0, {remaining_cap[region][svc]}")
-                            assert False
-                        logger.info(f"run_optimizer {optimizer_cnt}, region,{region}, svc,{svc}, remaining_cap: {prev_remaining_cap[region][svc]} ->  {remaining_cap[region][svc]}")
+            logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, optimize region,{target_region}")
+            logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, region_endpoint_level_rps: {region_endpoint_level_rps[target_region]}")
+            if target_region_ingress_gw_rps == 0:
+                logger.info(f"Skip optimizer optimizer_cnt-{optimizer_cnt} for {target_region}. target_region_ingress_gw_rps == 0")
             else:
-                # optimizer fails. use the previous pct_df for this region
-                logger.error(f"!!! ERROR !!!: run_optimizer {optimizer_cnt}, target_region: {target_region}, optimizer fails. {desc}. use the previous pct_df for this region")
-                logger.error(f"prev pct_df[{target_region}]: {region_pct_df[target_region]}")
-        '''merge all the optimizer output'''
-        concat_pct_df = pd.DataFrame(columns=pct_df_columns)
-        for region in region_pct_df:
-            concat_pct_df = pd.concat([concat_pct_df, region_pct_df[region]], ignore_index=True)
-        percentage_df = concat_pct_df.groupby(['src_svc', 'dst_svc', 'src_cid', 'dst_cid', 'src_endpoint', 'dst_endpoint']).agg({'flow': 'sum', 'total': 'max'}).reset_index()
-        percentage_df['weight'] = percentage_df['flow']/percentage_df['total']
+                pct_df, desc = opt.run_optimizer(coef_dict, endpoint_level_inflight, region_endpoint_level_rps, placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, curr_remaining_capacity, degree, inter_cluster_latency)
+                if not pct_df.empty:
+                    region_pct_df[target_region] = pct_df
+                    pct_df_columns = pct_df.columns
+                    df_str = pct_df.to_csv(header=False, index=False)
+                    logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, target_region: {target_region}")
+                    logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, df_str: {df_str}")        
+                    prev_remaining_capacity = copy.deepcopy(curr_remaining_capacity)
+                    update_remaining_capacity(curr_remaining_capacity, pct_df)
+                    for region in curr_remaining_capacity:
+                        for svc in curr_remaining_capacity[region]:
+                            if curr_remaining_capacity[region][svc] < 0:
+                                logger.error(f"!!! ERROR !!!: curr_remaining_capacity[{region}][{svc}] < 0, {curr_remaining_capacity[region][svc]}")
+                                assert False
+                            # logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, region,{region}, svc,{svc}, remaining_capacity: {prev_remaining_capacity[region][svc]} ->  {curr_remaining_capacity[region][svc]}")
+                else:
+                    logger.error(f"!!! ERROR !!! FAIL. run_optimizer optimizer_cnt-{optimizer_cnt}, target_region: {target_region}. {desc}")
+                    logger.error(f"use the previous pct_df for this region {target_region}")
+                             
+            '''merge all the optimizer output'''
+            concat_pct_df = pd.DataFrame(columns=pct_df_columns)
+            for region in region_pct_df:
+                concat_pct_df = pd.concat([concat_pct_df, region_pct_df[region]], ignore_index=True)
+                
+            percentage_df = concat_pct_df.groupby(['src_svc', 'dst_svc', 'src_cid', 'dst_cid', 'src_endpoint', 'dst_endpoint']).agg({'flow': 'sum', 'total': 'max'}).reset_index()
+            percentage_df['weight'] = percentage_df['flow']/percentage_df['total']
+            
+            
+            asdf = concat_pct_df.groupby(['src_svc', 'dst_svc', 'src_cid', 'dst_cid', 'src_endpoint', 'dst_endpoint']).agg({'flow': 'sum'}).reset_index()
+            asdf['total'] = concat_pct_df.groupby(['src_svc', 'dst_svc', 'src_cid', 'src_endpoint']).agg({'flow': 'sum'}).reset_index()['flow']
+            asdf['weight'] = asdf['flow']/asdf['total']
+            print(asdf)
         
-    logger.info(f"!!! after run_optimizer {optimizer_cnt}")
-    logger.info(f"run_optimizer {optimizer_cnt}, result: {desc}")
-    pct_df_history_fn = "routing_history.csv"
+    logger.info(f"after run_optimizer optimizer_cnt-{optimizer_cnt}")
+    logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, result: {desc}")
+    # percentage_df.to_csv("percentage_df.csv", mode="w")
+    fn = "routing_history.csv"
     if percentage_df.empty:
         logger.error(f"ERROR: run_optimizer FAIL (**{desc}**) return without updating percentage_df")
-        if os.path.isfile(pct_df_history_fn):
-            with open(pct_df_history_fn, "a") as f:
+        if os.path.isfile(fn):
+            with open(fn, "a") as f:
                 f.write(f"idx,{optimizer_cnt},fail,{desc}\n")
-        return
-    logger.info(f"percentage_df is valid (check percentage_df.csv)")
-    percentage_df.to_csv("percentage_df.csv", mode="w")
-    
-    # sim_percentage_df is only for printing
-    sim_percentage_df = percentage_df.copy()
-    sim_percentage_df = sim_percentage_df.drop(columns=['src_endpoint', "dst_endpoint"]).reset_index(drop=True)
-    # sim_percentage_df['counter'] = optimizer_cnt
-    sim_percentage_df.insert(loc=0, column="counter", value=optimizer_cnt) # same as previous line but inserting to the leftmost position of the dataframe
-    sim_percentage_df.to_csv("last_percentage_df.csv", mode="w")
+    else:
+        sim_percentage_df = percentage_df.copy()
+        sim_percentage_df = sim_percentage_df.drop(columns=['src_endpoint', "dst_endpoint"]).reset_index(drop=True)
+        sim_percentage_df.insert(loc=0, column="counter", value=optimizer_cnt)
+        if os.path.isfile(fn) == False:
+            sim_percentage_df.to_csv(fn, mode="w")
+        else:
+            sim_percentage_df.to_csv(fn, header=False, mode="a")
     logger.info(f"sim_percentage_df:\n{sim_percentage_df.to_csv()}")
     
-    if os.path.isfile(pct_df_history_fn) == False:
-        sim_percentage_df.to_csv(pct_df_history_fn, mode="w")
-    else:
-        sim_percentage_df.to_csv(pct_df_history_fn, header=False, mode="a")
-    
-    logger.info(f"sim_percentage_df_most_recent.csv, sim_percentage_df_history.csv updated")
     ''' end of optimizer_entrypoint '''
 
 def fit_polynomial_regression(data, y_col_name, svc_name, ep_str, cid, degree):
@@ -1020,64 +1040,18 @@ def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
             logger.error(f"!!! ERROR: len(complete_traces[{cid}]) == 0")
     return complete_traces
 
-
-# Deprecated
-def is_trace_complete(single_trace):
-    return True
-    # # TODO: Must be changed for other applications.
-    # if len(single_trace) == total_num_services: 
-    #     return True
-    # return False
-
-
-#  '''Deprecated'''
-# This function can be async
-# def check_and_move_to_complete_trace(traces_):
-#     c_traces = dict()
-#     for cid in traces_:
-#         for tid in traces_[cid]:
-#             single_trace = traces_[cid][tid]
-#             if is_trace_complete(single_trace) == True:
-#                 ########################################################
-#                 ## Weird behavior: In some traces, all spans have the same span id which is productpage's span id.
-#                 ## For now, to filter out them following code exists.
-#                 ## If the traces were good, it is redundant code.
-#                 span_exists = []
-#                 ignore_cur = False
-#                 for span in single_trace:
-#                     if span.span_id in span_exists:
-#                         ignore_cur = True
-#                         break
-#                     span_exists.append(span.span_id)
-#                     if ignore_cur:
-#                         logger.debug(f"span exist, ignore_cur, cid,{span.cluster_id}, tid,{span.trace_id}, span_id,{span.span_id}")
-#                         continue
-#                     if span.cluster_id not in c_traces:
-#                         c_traces[span.cluster_id] = {}
-#                     if span.trace_id not in c_traces[span.cluster_id]:
-#                         c_traces[span.cluster_id][span.trace_id] = {}
-#                     c_traces[span.cluster_id][span.trace_id] = traces_[span.cluster_id][span.trace_id].copy()
-#     return c_traces
-
-def calc_max_load_per_service():
-    global max_load_per_service
+def update_max_capacity_per_service(capacity):
+    global max_capacity_per_service
     global svc_to_placement
-    global benchmark_name
-    global CAPACITY
-    global remaining_cap
-    for region in endpoint_level_rps:
-        if region not in max_load_per_service:
-            max_load_per_service[region] = dict()
-        for svc in endpoint_level_rps[region]:
-            ''' 
-            TODO: it should be properly configured for each benchmark. currently, it is only configured for metrics-app
-            '''
+    for svc in svc_to_placement:
+        if svc not in max_capacity_per_service:
+            max_capacity_per_service[svc] = dict()
+        for region in svc_to_placement[svc]:
             if svc == "metrics-handler":
-                max_load_per_service[region][svc] = CAPACITY
+                max_capacity_per_service[svc][region] = capacity
             else:
-                max_load_per_service[region][svc] = 1000
-            logger.info(f"benchmark_name: {benchmark_name}, set max_load_per_service[{region}][{svc}] = {max_load_per_service[region][svc]}")
-    # remaining_cap = copy.deepcopy(max_load_per_service)
+                max_capacity_per_service[svc][region] = 1000
+            logger.debug(f"set max_capacity_per_service[{svc}][{region}] = {max_capacity_per_service[svc][region]}")
 
 def training_phase():
     ts = time.time()
@@ -1095,7 +1069,7 @@ def training_phase():
     global train_done
     global train_start
     global trainig_input_trace_file
-    global max_load_per_service
+    global max_capacity_per_service
     global degree
     
     if mode != "runtime":
@@ -1225,7 +1199,6 @@ def training_phase():
             logger.info(f'coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
     
     ''' It will be used as a constraint in the optimizer'''
-    calc_max_load_per_service()
     train_done = True # train done!
     duration = time.time() - ts
     with open("train_done.txt", "w") as f:
@@ -1278,9 +1251,7 @@ def read_config_file():
                 if CAPACITY != int(line[1]):
                     logger.info(f'Update CAPACITY: {CAPACITY} -> {line[1]}')
                     CAPACITY = int(line[1])
-                    if CAPACITY <= 0:
-                        logger.error(f"ERROR: CAPACITY is 0. set max_load_per_service[{svc}] to infinity")
-                        assert False
+                    assert CAPACITY > 0
             elif line[0] == "degree":
                 if degree != int(line[1]):
                     logger.info(f'Update degree: {degree} -> {line[1]}')

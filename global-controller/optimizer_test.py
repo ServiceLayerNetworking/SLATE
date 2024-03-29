@@ -68,7 +68,7 @@ svc_to_placement[svc_name] = set of cids
 
 endpoint_to_placement[ep] = set of cids
 
-max_load_per_service[svc_name] = max_load
+max_capacity_per_service[svc_name] = max_load
 
 traffic_segmentation = True/False
 
@@ -78,7 +78,7 @@ inter_cluster_latency['us-west']['us-east'] = 20 # this is oneway latency
 inter_cluster_latency['us-west']['us-central'] = 10
 '''
 
-def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_load_per_service, degree, inter_cluster_latency):
+def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_capacity_per_service, degree, inter_cluster_latency):
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -186,7 +186,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     compute_arc_var_name = opt_func.create_compute_arc_var_name(all_endpoints)
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
     # try:
-    compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_load_per_service)
+    compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service)
     # except Exception as e:
         # logger.error(f'Exception: {type(e).__name__}, {e}')
         # logger.error(f'!!! ERROR !!! create_compute_df failed')
@@ -940,9 +940,9 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         logger.info(f'FAIL: INFEASIBLE MODEL')
         return pd.DataFrame(), "reason: infeasible model"
     else:
-        logger.info(f"ooooooooooooooooooooooo")
-        logger.info(f"oooo SOLVED MODEL! oooo")
-        logger.info(f"ooooooooooooooooooooooo")
+        logger.debug(f"ooooooooooooooooooooooo")
+        logger.debug(f"oooo SOLVED MODEL! oooo")
+        logger.debug(f"ooooooooooooooooooooooo")
         request_flow = pd.DataFrame(columns=["From", "To", "Flow"])
         for arc in arcs:
             if aggregated_load[arc].x > 1e-6:

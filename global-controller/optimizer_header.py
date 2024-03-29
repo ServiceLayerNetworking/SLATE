@@ -413,7 +413,7 @@ def get_regression_pipeline(load_dict):
     return reg, df
     
 
-def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_load_per_service):
+def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_capacity_per_service):
     logger = logging.getLogger(__name__)
     endpoint_list = list()
     svc_name_list = list()
@@ -453,8 +453,8 @@ def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, ma
     compute_df["call_size"] = 0
     for index, row in compute_df.iterrows():
         # for cg_key in ep_str_callgraph_table:
-        logger.debug(f"Set max_load for {row['svc_name']}: {max_load_per_service[row['src_cid']][row['svc_name']]}")
-        compute_df.at[index, 'max_load'] = max_load_per_service[row['src_cid']][row["svc_name"]]
+        logger.debug(f"Set max_load for {row['svc_name']}: {max_capacity_per_service[row['svc_name']][row['src_cid']]}")
+        compute_df.at[index, 'max_load'] = max_capacity_per_service[row['svc_name']][row["src_cid"]]
         compute_df.at[index, 'min_load'] = 0
         compute_df.at[index, "min_compute_latency"] = 0
             
@@ -540,12 +540,12 @@ def fill_observation_in_compute_df(compute_df, callgraph_table):
     fill_latency_function(compute_df, callgraph_table)
     
 
-def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_load_per_service):
+def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service):
     logger = logging.getLogger(__name__)
     columns = get_compute_df_column(ep_str_callgraph_table)
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
     # try:
-    fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_load_per_service)
+    fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_capacity_per_service)
     # except Exception as e:
         # logger.error(f"!!! ERROR !!! fill_compute_df failed: {type(e).__name__}, {e}")
         # assert False
