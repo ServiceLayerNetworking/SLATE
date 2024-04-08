@@ -409,6 +409,7 @@ def get_all_endpoints(traces):
                 all_endpoints[cid][span.svc_name].add(span.endpoint_str)
     return all_endpoints
 
+
 # def traces_to_span_callgraph_table(traces):
 #     span_callgraph_table = dict()
 #     for cid in traces:

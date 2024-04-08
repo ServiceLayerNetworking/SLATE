@@ -48,8 +48,6 @@ cg_key = bfs_callgraph and append svc_name, method, url
 
 ep_str_callgraph_table[cg_key][parent_ep_str] = list of child_ep_str
 
-sp_callgraph_table[cg_key][parent_'span'] = list of child_'span'
-
 request_in_out_weight[cg_key][parent_ep_str][child_ep_str] = in_/out_ ratio
 
 latency_func[svc_name][endpoint] = fitted regression model
@@ -60,9 +58,9 @@ endpoint_level_rps[cid][svc_name][ep] = rps
 
 root_node_max_rps[root_node_endpoint] = rps
 
-all_endpoints[cid][svc_name] = endpoint
+# all_endpoints[cid][svc_name] = endpoint # deprecated
 
-placement[cid] = span.svc_name
+placement[cid] = set of svc_names
 
 svc_to_placement[svc_name] = set of cids
 
@@ -78,7 +76,7 @@ inter_cluster_latency['us-west']['us-east'] = 20 # this is oneway latency
 inter_cluster_latency['us-west']['us-central'] = 10
 '''
 
-def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, all_endpoints, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_capacity_per_service, degree, inter_cluster_latency):
+def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_capacity_per_service, degree, inter_cluster_latency):
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -183,7 +181,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     # In[31]:
     
     # root_node_max_rps = opt_func.get_root_node_max_rps(root_node_rps)
-    compute_arc_var_name = opt_func.create_compute_arc_var_name(all_endpoints)
+    compute_arc_var_name = opt_func.create_compute_arc_var_name(endpoint_level_rps)
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
     # try:
     compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service)
@@ -301,30 +299,30 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
     for index, row in compute_df.iterrows():
         lh = compute_latency[index]
         rh = 0
-        try:
-            coefs = row['coef']
-            logger.debug(f"target svc,endpoint: {row['svc_name']}, {row['endpoint']}")
-            logger.debug(coefs)
-            for dependent_ep in coefs:
-                if dependent_ep != 'intercept':
-                    dependent_arc_name = opt_func.get_compute_arc_var_name(dependent_ep, row['src_cid'])
-                    logger.debug(f'dependent_arc_name: {dependent_arc_name}')
-                    logger.debug(f'coefs[{dependent_ep}]: {coefs[dependent_ep]}')
-                    logger.debug(f'dependent_arc_name: {dependent_arc_name}')
-                    if degree == 4:
-                        # degree is 4 using compute_load2 = compute_load**2
-                        rh += coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2) 
-                    elif degree == 2:
-                        rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
-                    else:
-                        # degree is 1
-                        rh += coefs[dependent_ep] * (compute_load[dependent_arc_name])
-            rh += coefs['intercept']
-        except Exception as e:
-            logger.error(f"type(compute_load[{dependent_arc_name}]): {type(compute_load[dependent_arc_name])}")
-            logger.error(f"compute_load[{dependent_arc_name}]: {compute_load[dependent_arc_name]}")
-            logger.error(f'Exception: {type(e).__name__}, {e}')
-            return pd.DataFrame(), f"Exception: {e}"
+        # try:
+        coefs = row['coef']
+        logger.debug(f"target svc,endpoint: {row['svc_name']}, {row['endpoint']}")
+        logger.debug(coefs)
+        for dependent_ep in coefs:
+            if dependent_ep != 'intercept':
+                dependent_arc_name = opt_func.get_compute_arc_var_name(dependent_ep, row['src_cid'])
+                logger.debug(f'dependent_arc_name: {dependent_arc_name}')
+                logger.debug(f'coefs[{dependent_ep}]: {coefs[dependent_ep]}')
+                logger.debug(f'dependent_arc_name: {dependent_arc_name}')
+                if degree == 4:
+                    # degree is 4 using compute_load2 = compute_load**2
+                    rh += coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2) 
+                elif degree == 2:
+                    rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
+                else:
+                    # degree is 1
+                    rh += coefs[dependent_ep] * (compute_load[dependent_arc_name])
+        rh += coefs['intercept']
+        # except Exception as e:
+        #     logger.error(f"type(compute_load[{dependent_arc_name}]): {type(compute_load[dependent_arc_name])}")
+        #     logger.error(f"compute_load[{dependent_arc_name}]: {compute_load[dependent_arc_name]}")
+        #     logger.error(f'Exception: {type(e).__name__}, {e}')
+        #     return pd.DataFrame(), f"Exception: {e}"
         # logger.debug(f"index: {index}")
         # logger.debug(f"lh: {lh}")
         # logger.debug(f"rh: {rh}")
@@ -500,7 +498,8 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         for key in callgraph:
             assert key not in svc_order
             svc_order[key] = dict()
-            opt_func.get_svc_order(callgraph, key, "ingress_gw", svc_order, idx=0)
+            root_svc_name = "ingress_gw" # NOTE: IT IS HARDCODED!!
+            opt_func.get_dfs_svc_order(callgraph, key, root_svc_name, svc_order, idx=0)
         for key in svc_order:
             logger.debug(f'svc_order[{key}]: {svc_order[key]}')
 
@@ -526,7 +525,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         unpack_list = dict()
         for key in callgraph:
             unpack_list[key] = list()
-            opt_func.unpack_callgraph(callgraph, key, root_node[key], unpack_list[key])
+            opt_func.unpack_callgraph_in_dfs_order(callgraph, key, root_node[key], unpack_list[key])
         for key in unpack_list:
             logger.debug(f'unpack_list[{key}]: {unpack_list[key]}')
         path_dict = dict()
@@ -739,9 +738,9 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
 
     ## Constraint 3: flow conservation
     # Start node in-out flow conservation
-    for cid in all_endpoints:
-        for svc_name in all_endpoints[cid]:
-            for ep_str in all_endpoints[cid][svc_name]:
+    for cid in endpoint_level_rps:
+        for svc_name in endpoint_level_rps[cid]:
+            for ep_str in endpoint_level_rps[cid][svc_name]:
                 # start_node = f'{ep_str}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
                 start_node = opt_func.get_start_node_name(ep_str, cid)
                 lh = gp.quicksum(aggregated_load.select('*', start_node))
@@ -952,6 +951,7 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
         logger.debug("asdf request_flow")
         logger.debug(request_flow)
         percentage_df = opt_func.translate_to_percentage(request_flow)
+        percentage_df.to_csv(f'percentage_df.csv')
         logger.debug("asdf percentage_df")
         logger.debug(percentage_df)
         # opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)

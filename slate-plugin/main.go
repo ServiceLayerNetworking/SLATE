@@ -279,6 +279,7 @@ func (p *pluginContext) OnTick() {
 
 	reqBody := fmt.Sprintf("reqCount\n%d\n\ninflightStats\n%s\nrequestStats\n%s", reqCount, inflightStats, requestStatsStr)
 	proxywasm.LogCriticalf("<OnTick>\nreqBody:\n%s", reqBody)
+
 	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
 		[]byte(fmt.Sprintf("%d\n%s\n%s", reqCount, inflightStats, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 
@@ -532,6 +533,7 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 		metrics-fake-ingress@GET@/start, metrics-handler@GET@/detectAnomalies, us-east-1, us-west-1, 0.9
 	*/
 	// method@path -> region -> pct
+	proxywasm.LogCriticalf("received http call response: %s", bodyLines)
 	distrs := map[string]map[string]string{}
 	for _, line := range bodyLines {
 		if line == "" {

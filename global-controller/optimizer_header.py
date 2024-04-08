@@ -1107,12 +1107,16 @@ all_combination["A"]: [[0,0,0,0], [0,0,0,1], ... ]
 '''
 
 ## recursive, dfs
-def unpack_callgraph(callgraph, key, cur_node, unpack_list):
+# A->B->C
+#     ->D
+# unpack_list = [[A,B], [B,C], [B,D]]
+# unpack_list will have DFS order
+def unpack_callgraph_in_dfs_order(callgraph, key, cur_node, unpack_list):
     if len(callgraph[key][cur_node]) == 0:
         return
     for child_node in callgraph[key][cur_node]:
         unpack_list.append([cur_node, child_node])
-        unpack_callgraph(callgraph, key, child_node, unpack_list)
+        unpack_callgraph_in_dfs_order(callgraph, key, child_node, unpack_list)
 
 
 def is_root(cg, query_node):
@@ -1148,7 +1152,16 @@ And the order matters in svc_order.
 The order in svc_order MUST be same as the order in combination data structure.
 '''
 ## recursive, dfs (depth first search)
-def get_svc_order(callgraph, key, parent_svc, svc_order, idx):
+# A->B->C
+#     ->D
+# svc_order = {cg_key_1: 
+#                       {A: 0}, {B: 1}, {C: 2}, {D: 3}
+#              }
+# svc_order[cg_key_1][A] = 0
+# svc_order[cg_key_1][B] = 1
+# svc_order[cg_key_1][C] = 2
+# svc_order[cg_key_1][D] = 3
+def get_dfs_svc_order(callgraph, key, parent_svc, svc_order, idx):
     if len(callgraph[key][parent_svc]) == 0:
         # logger.debug(f'{parent_svc} is leaf')
         svc_order[key][parent_svc] = idx
@@ -1156,7 +1169,7 @@ def get_svc_order(callgraph, key, parent_svc, svc_order, idx):
     svc_order[key][parent_svc] = idx
     for child_svc in callgraph[key][parent_svc]:
         idx += 1
-        get_svc_order(callgraph, key, child_svc, svc_order, idx)
+        get_dfs_svc_order(callgraph, key, child_svc, svc_order, idx)
 
 
 ## for loop traverse
