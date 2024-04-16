@@ -42,7 +42,7 @@ func (*vmContext) NewPluginContext(contextID uint32) types.PluginContext {
 	return &pluginContext{
 		contextID: contextID,
 		queue: make(RequestPriorityQueue, 0),
-		inflightCapacity: 50,
+		inflightCapacity: 1,
 		serviceName: svc,
 	}
 }
@@ -81,25 +81,13 @@ type httpContext struct {
 
 // Override types.DefaultHttpContext.
 func (ctx *httpContext) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
-	// ignore requests that originate from the sidecar (requests that are not destined for the sidecar)
-	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
+	reqAuthority, err := proxywasm.GetHttpRequestHeader(":authority")
 	if err != nil {
-		proxywasm.LogCriticalf("failed to get trace id: %v", err)
+		proxywasm.LogCriticalf("Couldn't get :authority request header: %v", err)
 		return types.ActionContinue
 	}
-	traceCountBytes, _,  err := proxywasm.GetSharedData(keyTraceCount(string(traceId)))
-	if err != nil {
-		// no trace count, this is a new trace
-		traceCountBytes = make([]byte, 8)
-	}
-	traceCount := binary.LittleEndian.Uint64(traceCountBytes)
-	traceCount++
-	binary.LittleEndian.PutUint64(traceCountBytes, traceCount)
-	if err := proxywasm.SetSharedData(keyTraceCount(string(traceId)), traceCountBytes, 0); err != nil {
-		proxywasm.LogCriticalf("failed to set shared data: %v", err)
-		return types.ActionContinue
-	}
-	if traceCount != 1 {
+	dst := strings.Split(reqAuthority, ":")[0]
+	if !strings.HasPrefix(ctx.pluginCtx.serviceName, dst) && !strings.HasPrefix(dst, "172") {
 		return types.ActionContinue
 	}
 
@@ -123,7 +111,10 @@ func (ctx *httpContext) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 	inflight := binary.LittleEndian.Uint64(inflightBytes)
 	if inflight >= ctx.pluginCtx.inflightCapacity {
 		// pause request
-		prio := uint64(time.Now().UnixMilli() - int64(reqStartTime))
+		prio := uint64(time.Now().UnixMicro() - int64(reqStartTime))
+		// if testing just queue
+		// prio := uint64(time.Now().UnixMilli())
+		proxywasm.LogCriticalf("pausing request with contextID=%v, priority=%v", ctx.contextID, prio)
 		ctx.pluginCtx.queue.Push(&PausedRequest{
 			value: ctx.contextID,
 			priority: prio,
@@ -131,51 +122,37 @@ func (ctx *httpContext) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 		return types.ActionPause
 	} else {
 		// inflight capacity not reached, increment inflight and continue
+		proxywasm.LogCriticalf("inflight capacity not reached, increment inflight")
 		inflight++
 		binary.LittleEndian.PutUint64(inflightBytes, inflight)
 		if err := proxywasm.SetSharedData(KEY_INFLIGHT_REQUESTS, inflightBytes, cas); err != nil {
 			// inflight was updated, redo
 			return ctx.OnHttpRequestHeaders(numHeaders, endOfStream)
 		}
+		proxywasm.LogCriticalf("incremented inflight to %v, httpCtx: %v", inflight, ctx.contextID)
 		return types.ActionContinue
 	
 	}
 }
 
 func (ctx *httpContext) OnHttpResponseHeaders(numHeaders int, endOfStream bool) types.Action {
-	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
-	if err != nil {
-		proxywasm.LogCriticalf("failed to get trace id: %v", err)
-		return types.ActionContinue
-	}
-	traceCountBytes, _,  err := proxywasm.GetSharedData(keyTraceCount(string(traceId)))
-	if err != nil {
-		// cant happen
-		proxywasm.LogCriticalf("[FATAL] failed to get trace count: %v", err)
-		return types.ActionContinue
-	}
-	traceCount := binary.LittleEndian.Uint64(traceCountBytes)
-	traceCount--
-	binary.LittleEndian.PutUint64(traceCountBytes, traceCount)
-	if err := proxywasm.SetSharedData(keyTraceCount(string(traceId)), traceCountBytes, 0); err != nil {
-		proxywasm.LogCriticalf("failed to set shared data: %v", err)
-		return types.ActionContinue
-	}
-	// this is not the response for the original request
-	if traceCount != 0 {
+	if server, err := proxywasm.GetHttpResponseHeader("server"); err == nil && server == "istio-envoy" {
+		// proxywasm.LogCriticalf("ignoring response from envoy")
 		return types.ActionContinue
 	}
 
+	proxywasm.LogCriticalf("OnRespHeaders, httpCtx: %v, queue size: %v", ctx.contextID, len(ctx.pluginCtx.queue))
 	// For deciding which paused request to resume, we can use a max heap keyed on request flight time.
 	if len(ctx.pluginCtx.queue) > 0 {
 		item := ctx.pluginCtx.queue.Pop().(*PausedRequest)
-		proxywasm.LogCriticalf("resume request with contextID=%v", item.value)
+		proxywasm.LogCriticalf("resume request with contextID=%v, prio=%v", item.value, item.priority)
 		proxywasm.SetEffectiveContext(item.value)
 		// todo do we have to modify inflight count here? There's no difference if we just trade a response for a request.
 		// basically, does this end up calling OnHttpRequestHeaders again? if not, we don't need to do anything/
 		proxywasm.ResumeHttpRequest()
 	} else {
 		// decrement inflight count
+		proxywasm.LogCriticalf("decrement inflight")
 		inflightBytes, cas, err := proxywasm.GetSharedData(KEY_INFLIGHT_REQUESTS)
 		if err != nil {
 			proxywasm.LogCriticalf("failed to get shared data: %v", err)
@@ -190,8 +167,4 @@ func (ctx *httpContext) OnHttpResponseHeaders(numHeaders int, endOfStream bool) 
 		}
 	}
 	return types.ActionContinue
-}
-
-func keyTraceCount(traceId string) string {
-	return strings.Join([]string{traceId, "count"}, "_")
 }
