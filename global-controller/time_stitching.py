@@ -423,19 +423,33 @@ def get_all_endpoints(traces):
 #                 span_callgraph_table[cg_key] = span_cg
 #     return span_callgraph_table
 
+
+import hashlib
+
+def static_hash(value):
+    value_bytes = str(value).encode('utf-8')
+    hash_object = hashlib.sha256()
+    hash_object.update(value_bytes)
+    return hash_object.hexdigest()
+
+
 def traces_to_endpoint_str_callgraph_table(traces):
     endpoint_callgraph_table = dict()
+    cg_key_hashmap = dict()
     for cid in traces:
         for tid in traces[cid]:
             single_trace = traces[cid][tid]
             ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(single_trace)
             cg_key = get_callgraph_key(ep_str_cg)
+            hash_key = static_hash(cg_key)
+            cg_key_hashmap[hash_key[:8]] = cg_key
             # print(f'cg_key: {cg_key}')
-            if cg_key not in endpoint_callgraph_table:
-                logger.info(f"new callgraph key: {cg_key} in cluster {cid}")
+            # if cg_key not in endpoint_callgraph_table:
+            if hash_key not in endpoint_callgraph_table:
+                logger.info(f"new callgraph key: {hash_key}, {cg_key} in cluster {cid}")
                 # NOTE: It is currently overwriting for the existing cg_key
-                endpoint_callgraph_table[cg_key] = ep_str_cg
-    return endpoint_callgraph_table
+                endpoint_callgraph_table[hash_key] = ep_str_cg
+    return endpoint_callgraph_table, cg_key_hashmap
 
 def file_write_callgraph_table(sp_callgraph_table):
     with open(f"{cfg.OUTPUT_DIR}/callgraph_table.csv", 'w') as file:

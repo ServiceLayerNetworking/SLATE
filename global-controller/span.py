@@ -1,5 +1,7 @@
 # import pandas as pd
 import config as cfg
+import logging
+logging.config.dictConfig(cfg.LOGGING_CONFIG)
 
 # def pre_recorded_trace_object(TRACE_PATH):
 #     df = pd.read_csv(TRACE_PATH)
@@ -49,7 +51,12 @@ class Endpoint:
 
 
 class Span:
-    def __init__(self, method="METHOD", url="URL", svc_name="SVC", cluster_id="CID", trace_id="TRACE_ID", span_id="SPAN_ID", parent_span_id="PARENT_SPAN_ID", st=-1, et=-1, callsize=-1, rps_dict={str(Endpoint("svc_A","GET","/recommendation")):0, str(Endpoint("svc_A","POST","/hotel")):0}, num_inflight_dict={str(Endpoint("svc_A","GET","/recommendation")):0, str(Endpoint("svc_A","POST","/hotel")):0}):
+    def __init__(self, method="METHOD", url="URL", svc_name="SVC", cluster_id="CID",\
+        trace_id="TRACE_ID", span_id="SPAN_ID", parent_span_id="PARENT_SPAN_ID", \
+        st=-1, et=-1, xt=-1, callsize=-1, \
+        rps_dict={str(Endpoint("svc_A","GET","/recommendation")):0, str(Endpoint("svc_A","POST","/hotel")):0}, \
+        num_inflight_dict={str(Endpoint("svc_A","GET","/recommendation")):0, str(Endpoint("svc_A","POST","/hotel")):0}):
+        logger = logging.getLogger(__name__)
         self.method = method
         self.url = url
         self.svc_name = svc_name
@@ -64,8 +71,12 @@ class Span:
         self.st = st
         self.et = et
         self.rt = et - st
+        self.xt = xt
         if self.rt < 0:
-            print(f"class Span, negative response time, {self.rt}")
+            logger.error(f"ERROR: class Span, negative response time, {self.rt}")
+            assert False
+        if self.xt < 0:
+            logger.error(f"ERROR: class Span, negative exclusive time, {self.xt}")
             assert False
         self.xt = 0 # exclusive time
         self.ct = 0 # critical time

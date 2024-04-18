@@ -4,7 +4,6 @@
 # In[31]:
 import sys
 sys.dont_write_bytecode = True
-import logging
 
 import time
 import pandas as pd
@@ -24,6 +23,7 @@ from pprint import pprint
 import span as sp
 from global_controller import app
 
+import logging
 logging.config.dictConfig(cfg.LOGGING_CONFIG)
 
 random.seed(1234)
@@ -76,7 +76,19 @@ inter_cluster_latency['us-west']['us-east'] = 20 # this is oneway latency
 inter_cluster_latency['us-west']['us-central'] = 10
 '''
 
-def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_capacity_per_service, degree, inter_cluster_latency):
+# def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_capacity_per_service, degree, inter_cluster_latency):
+def run_optimizer(coef_dict, \
+        endpoint_level_rps, \
+        placement, \
+        svc_to_placement, \
+        endpoint_to_placement, \
+        ep_str_callgraph_table, \
+        traffic_segmentation, \
+        objective, \
+        ROUTING_RULE, \
+        max_capacity_per_service, \
+        degree, \
+        inter_cluster_latency):
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -115,14 +127,14 @@ def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, pl
                     request_in_out_weight[cg_key][parent_ep][child_ep] = dict()
                 parent_svc_name = parent_ep.split(cfg.ep_del)[0]
                 child_svc_name = child_ep.split(cfg.ep_del)[0]
-                logger.info(f'parent_svc_name: {parent_svc_name}, parent_ep: {parent_ep}, {collapsed_endpoint_level_rps[parent_svc_name]}')
-                logger.info(f'child_svc_name: {child_svc_name}, child_ep: {child_ep}, {collapsed_endpoint_level_rps[child_svc_name]}')
+                logger.debug(f'parent_svc_name: {parent_svc_name}, parent_ep: {parent_ep}, {collapsed_endpoint_level_rps[parent_svc_name]}')
+                logger.debug(f'child_svc_name: {child_svc_name}, child_ep: {child_ep}, {collapsed_endpoint_level_rps[child_svc_name]}')
                 
                 in_ = collapsed_endpoint_level_rps[parent_svc_name][parent_ep]
                 out_ = collapsed_endpoint_level_rps[child_svc_name][child_ep]
                 # TODO: request_in_out_weight[cg_key][parent_ep][child_ep] = in_/out_
                 request_in_out_weight[cg_key][parent_ep][child_ep] = 1
-                logger.info(f'request_in_out_weight: {request_in_out_weight[cg_key][parent_ep][child_ep]}, parent_ep: {parent_ep}, child_ep: {child_ep}, in_: {in_}, out_: {out_}')
+                logger.debug(f'request_in_out_weight: {request_in_out_weight[cg_key][parent_ep][child_ep]}, parent_ep: {parent_ep}, child_ep: {child_ep}, in_: {in_}, out_: {out_}')
     ##############################################
     # TODO: Problem: how should we the endpoint to each call graph? Otherwise, by simply using the endpoint, we are not able to find root endpoint of the call graph.
     # norm_inout_weight = dict()
