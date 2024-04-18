@@ -354,7 +354,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 				if coin <= total {
 					// proxywasm.LogCriticalf("OnHttpRequestHeaders, coin,%f, total,%f, targetRegion,%s", coin, total, targetRegion)
 					proxywasm.AddHttpRequestHeader("x-slate-routeto", targetRegion)
-					proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: x-slate-routefrom, %s, x-slate-routeto set to %s (%.2f%% chance)", region, targetRegion, pct*100)
+					proxywasm.LogCriticalf("OnHttpRequestHeaders coin success: %s%s, x-slate-routefrom, %s, x-slate-routeto set to %s (%.2f%% chance)", reqMethod, reqPath, region, targetRegion, pct*100)
 					break
 				}
 			}
