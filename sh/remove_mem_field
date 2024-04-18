@@ -23,4 +23,5 @@ remove_memory_field() {
 
 
 # Usage:
-remove_memory_field default slate-controller
+# remove_memory_field default slate-controller
+remove_memory_field default asdf

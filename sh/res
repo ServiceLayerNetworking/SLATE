@@ -1,0 +1,5 @@
+kubectl rollout restart deploy slate-controller
+kubectl rollout restart deploy slateingress-us-west-1
+kubectl rollout restart deploy slateingress-us-east-1
+kubectl rollout restart deploy slateingress-us-central-1
+kubectl rollout restart deploy slateingress-us-south-1

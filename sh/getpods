@@ -1,0 +1,1 @@
+watch -n 1 kubectl get pod -l=region=us-south-1

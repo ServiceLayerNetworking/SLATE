@@ -1,0 +1,1 @@
+watch -n 1 kubectl top pod -l=region=us-west-1

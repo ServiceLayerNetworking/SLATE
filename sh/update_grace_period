@@ -19,4 +19,5 @@ update_grace_period() {
 
 
 # Usage:
-update_grace_period default slate-controller
+# update_grace_period default slate-controller
+update_grace_period default asdf
