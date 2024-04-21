@@ -41,6 +41,12 @@ spec:
   - name: east
     labels:
       region: us-east-1
+  - name: central
+    labels:
+      region: us-central-1
+  - name: south
+    labels:
+      region: us-south-1
 ---
 # Subset routing: if x-slate-destination is east, route to us-east, if west, route to west, if not set, random.
 apiVersion: networking.istio.io/v1alpha3
@@ -71,6 +77,26 @@ spec:
     - destination:
         host: frontend
         subset: west
+        port:
+          number: 5000
+  - match:
+    - headers:
+        x-slate-destination:
+          exact: south
+    route:
+    - destination:
+        host: frontend
+        subset: south
+        port:
+          number: 5000
+  - match:
+    - headers:
+        x-slate-destination:
+          exact: central
+    route:
+    - destination:
+        host: frontend
+        subset: central
         port:
           number: 5000
   - route:
@@ -108,6 +134,30 @@ spec:
       region: us-west-1
   environmentVariables:
     ISTIO_META_REGION: "us-west-1"
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ProxyConfig
+metadata:
+  name: south-proxyconfig
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      region: us-south-1
+  environmentVariables:
+    ISTIO_META_REGION: "us-south-1"
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ProxyConfig
+metadata:
+  name: central-proxyconfig
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      region: us-central-1
+  environmentVariables:
+    ISTIO_META_REGION: "us-central-1"
 ---
 apiVersion: v1
 kind: ConfigMap

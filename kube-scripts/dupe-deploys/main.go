@@ -4,8 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	v13 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
+	// v13 "k8s.io/api/core/v1"
+	// "k8s.io/apimachinery/pkg/api/resource"
 	"strings"
 
 	v12 "k8s.io/api/apps/v1"
@@ -94,9 +94,9 @@ func main() {
 			if *sharedspancontext {
 				originalDeployment.Spec.Template.Annotations["sidecar.istio.io/bootstrapOverride"] = "shared-span-bootstrap-config"
 			}
-			originalDeployment.Spec.Template.Spec.Containers[0].Resources.Limits = map[v13.ResourceName]resource.Quantity{
-				v13.ResourceCPU: resource.MustParse("5"),
-			}
+			// originalDeployment.Spec.Template.Spec.Containers[0].Resources.Limits = map[v13.ResourceName]resource.Quantity{
+			// 	v13.ResourceCPU: resource.MustParse("5"),
+			// }
 			//fmt.Printf("new annotations: %v\n", originalDeployment.Annotations)
 			_, err = deploymentsClient.Update(context.TODO(), originalDeployment, v1.UpdateOptions{})
 			if err != nil {
