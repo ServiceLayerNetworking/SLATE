@@ -59,6 +59,7 @@ ep_str_callgraph_table = {}
 temp_counter = 0
 prev_ts = time.time()
 load_coef_flag = False
+init_done = False
 
 placement = {}
 coef_dict = {}
@@ -80,9 +81,9 @@ first_write_flag_for_profiled_trace=True
 region_pct_df = dict()
 
 '''waterfall2'''
-parent_of_bottleneck_service = "frontend"
+parent_of_bottleneck_service = ""
 # bottleneck_service = "a"
-bottleneck_service = "slateingress"
+bottleneck_service = ""
 
 '''profiling (training)'''
 list_of_span = list() # unorganized list of spanss
@@ -321,11 +322,17 @@ def parse_stats_into_spans(body, given_svc_name):
             inflight = ep_load.split(",")[2]
             rps_dict[str(endpoint)] = rps
             inflight_dict[str(endpoint)] = inflight
-        spans.append(sp.Span(method, path, serviceName, region, \
+        response_time = endTime - startTime
+        if response_time < 0:
+            logger.info(f"response time is negative")
+            logger.info(f"Skip this span: {serviceName}, {method}, {path}, {response_time}")
+            continue
+        temp_span = sp.Span(method, path, serviceName, region, \
             traceId, spanId, parentSpanId, \
             startTime, endTime, bodySize, \
             rps_dict=rps_dict, \
-            num_inflight_dict=inflight_dict))
+            num_inflight_dict=inflight_dict)
+        spans.append(temp_span)
         # logger.info(f"new span parsed. serviceName: {serviceName}, bodySize: {bodySize}")
     return spans
 
@@ -694,7 +701,7 @@ def get_root_node_rps(ep_str_callgraph_table, aggregated_rps):
         root_ep[hashed_cg_key] = opt_func.find_root_node(ep_str_callgraph_table[hashed_cg_key])
     root_node_rps = dict()
     if len(root_ep) != 0:
-        logger.info('root_node_rps,hashed_cg_key,region,svc_name,endpoint,rps')
+        logger.debug('root_node_rps,hashed_cg_key,region,svc_name,endpoint,rps')
         for hashed_cg_key in root_ep:
             for cid in aggregated_rps:
                 for svc_name in aggregated_rps[cid]:
@@ -705,7 +712,7 @@ def get_root_node_rps(ep_str_callgraph_table, aggregated_rps):
                             if svc_name not in root_node_rps[cid]:
                                 root_node_rps[cid][svc_name] = dict()
                             root_node_rps[cid][svc_name][ep] = aggregated_rps[cid][svc_name][ep]
-                            logger.info(f'root_node_rps,{hashed_cg_key},{cid},{svc_name},{ep},{root_node_rps[cid][svc_name][ep]}')
+                            logger.debug(f'root_node_rps,{hashed_cg_key},{cid},{svc_name},{ep},{root_node_rps[cid][svc_name][ep]}')
     return root_node_rps
 
 
@@ -793,13 +800,10 @@ def get_svc_level_topology():
 
 def fill_local_first(src_region, remaining_src_region_src_svc_rps, waterfall_load_balance, src_svc="slate-ingress", dst_svc="frontend"):
     global max_capacity_per_service
-    logger.info(f"fill_local_first starts")
+    global optimizer_cnt
     dst_region = src_region
-    logger.info(f"src_region: {src_region}")
-    logger.info(f"dst_region: {dst_region}")
-    logger.info(f"src_svc: {src_svc}")
-    logger.info(f"curr max_capacity_per_service[{dst_svc}][{dst_region}]: {max_capacity_per_service[dst_svc][dst_region]}")
-    logger.info(f"curr remaining_src_region_src_svc_rps[{src_region}]: {remaining_src_region_src_svc_rps[src_region]}")
+    src_original_demand = remaining_src_region_src_svc_rps[src_region]
+    dst_original_cap = max_capacity_per_service[dst_svc][dst_region]
     if max_capacity_per_service[dst_svc][dst_region] >= remaining_src_region_src_svc_rps[src_region]:
         max_capacity_per_service[dst_svc][dst_region] -= remaining_src_region_src_svc_rps[src_region]
         waterfall_load_balance[src_region][dst_region] = remaining_src_region_src_svc_rps[src_region]
@@ -808,53 +812,46 @@ def fill_local_first(src_region, remaining_src_region_src_svc_rps, waterfall_loa
         remaining_src_region_src_svc_rps[src_region] -= max_capacity_per_service[dst_svc][dst_region]
         waterfall_load_balance[src_region][dst_region] = max_capacity_per_service[dst_svc][dst_region]
         max_capacity_per_service[dst_svc][dst_region] = 0
-    logger.info(f"schedule {src_region}->{dst_region}, {waterfall_load_balance[src_region][dst_region]}")
-    logger.info(f"reduced max_capacity_per_service[{dst_svc}][{dst_region}]: {max_capacity_per_service[dst_svc][dst_region]}")
-    logger.info(f"reduced remaining_src_region_src_svc_rps[{src_region}]: {remaining_src_region_src_svc_rps[src_region]}")
-    logger.info(f"fill_local_first for {src_region}, {src_svc} is done.")
+    logger.info(f"{optimizer_cnt},waterfall2,{src_svc},{dst_svc},{src_region},{dst_region},{waterfall_load_balance[src_region][dst_region]}")
+    logger.debug(f"{optimizer_cnt},waterfall2,src remaining_src_region_src_svc_rps[{src_region}]: {src_original_demand},{remaining_src_region_src_svc_rps[src_region]}")
+    logger.debug(f"{optimizer_cnt},waterfall2,dst max_capacity_per_service[{dst_svc}][{dst_region}]: {dst_original_cap},{max_capacity_per_service[dst_svc][dst_region]}")
     return waterfall_load_balance
     
 def waterfall_heurstic(src_region, remaining_src_region_src_svc_rps, waterfall_load_balance, src_svc="slate-ingress", dst_svc="frontend"):
     global max_capacity_per_service
-    logger.info("waterfall_heuristic starts")
-    logger.info(f"src_region: {src_region}")
     sorted_dst_region_list = sort_region_by_network_latency(src_region)
-    logger.info(f"sorted_dst_region_list: {sorted_dst_region_list}")
     for dst_region in sorted_dst_region_list:
         if dst_region in svc_to_placement[dst_svc]:
-            logger.info(f"dst_region: {dst_region}")
             assert max_capacity_per_service[dst_svc][dst_region] >= 0
             if max_capacity_per_service[dst_svc][dst_region] == 0:
-                logger.info(f"Skip scheduling to dst_region,{dst_region} since max_capacity_per_service[{dst_svc}][{dst_region}] == 0")
                 continue
             if max_capacity_per_service[dst_svc][dst_region] >= remaining_src_region_src_svc_rps[src_region]:
                 # it will be last iteration
-                logger.info(f"curr max_capacity_per_service[{dst_svc}][{dst_region}]: {max_capacity_per_service[dst_svc][dst_region]}")
+                original_cap = max_capacity_per_service[dst_svc][dst_region]
                 max_capacity_per_service[dst_svc][dst_region] -= remaining_src_region_src_svc_rps[src_region]
-                logger.info(f"schedule {src_region}->{dst_region}, {remaining_src_region_src_svc_rps[src_region]}")
-                logger.info(f"reduced max_capacity_per_service[{dst_svc}][{dst_region}]: {max_capacity_per_service[dst_svc][dst_region]}")
+                logger.info(f"{optimizer_cnt},waterfall2,{src_svc},{dst_svc},{src_region},{dst_region},{remaining_src_region_src_svc_rps[src_region]}")
                 if src_region not in waterfall_load_balance:
                     waterfall_load_balance[src_region] = dict()
                 waterfall_load_balance[src_region][dst_region] = remaining_src_region_src_svc_rps[src_region]
+                src_orignal_demand = remaining_src_region_src_svc_rps[src_region]
                 remaining_src_region_src_svc_rps[src_region] = 0
-                logger.info(f"reduced remaining_src_region_src_svc_rps[{src_region}]: {remaining_src_region_src_svc_rps[src_region]}")
-                logger.info(f"waterfall for {src_region}, {src_svc} is done. break and return")
+                logger.debug(f"{optimizer_cnt},waterfall2,src remaining_src_region_src_svc_rps[{src_region}]: {src_orignal_demand},{remaining_src_region_src_svc_rps[src_region]}")
+                logger.debug(f"{optimizer_cnt},waterfall2,dst max_capacity_per_service[{dst_svc}][{dst_region}]: {original_cap},{max_capacity_per_service[dst_svc][dst_region]}")
                 break
             else:
-                logger.info(f"max_capacity_per_service[{dst_svc}][{dst_region}] < remaining_src_region_src_svc_rps[{src_region}]({remaining_src_region_src_svc_rps[src_region]})")
+                logger.debug(f"{optimizer_cnt},waterfall2,max_capacity_per_service[{dst_svc}][{dst_region}] < remaining_src_region_src_svc_rps[{src_region}]({remaining_src_region_src_svc_rps[src_region]})")
                 if src_region not in waterfall_load_balance:
                     waterfall_load_balance[src_region] = dict()
                 waterfall_load_balance[src_region][dst_region] = max_capacity_per_service[dst_svc][dst_region]
-                logger.info(f"schedule {src_region}->{dst_region}, {max_capacity_per_service[dst_svc][dst_region]}")
-                logger.info(f"curr remaining_src_region_src_svc_rps[{src_region}]: {remaining_src_region_src_svc_rps[src_region]}")
+                src_original_demand = remaining_src_region_src_svc_rps[src_region]
                 remaining_src_region_src_svc_rps[src_region] -= max_capacity_per_service[dst_svc][dst_region]
-                logger.info(f"reduced remaining_src_region_src_svc_rps[{src_region}]: {remaining_src_region_src_svc_rps[src_region]}")
-                logger.info(f"curr max_capacity_per_service[{dst_svc}][{dst_region}]: {max_capacity_per_service[dst_svc][dst_region]}")
+                dst_original_cap = max_capacity_per_service[dst_svc][dst_region]
                 max_capacity_per_service[dst_svc][dst_region] = 0
-                logger.info(f"reduced max_capacity_per_service[{dst_svc}][{dst_region}]: {max_capacity_per_service[dst_svc][dst_region]}")
-                logger.info(f"reduced remaining_src_region_src_svc_rps[{src_region}]: {remaining_src_region_src_svc_rps[src_region]}")
+                logger.info(f"{optimizer_cnt},waterfall2,{src_region},{dst_region},{dst_original_cap},{max_capacity_per_service[dst_svc][dst_region]}")
+                logger.debug(f"{optimizer_cnt},waterfall2,src remaining_src_region_src_svc_rps[{src_region}]: {src_original_demand},{remaining_src_region_src_svc_rps[src_region]}")
+                logger.debug(f"{optimizer_cnt},waterfall2,dst max_capacity_per_service[{dst_svc}][{dst_region}]: {max_capacity_per_service[dst_svc][dst_region]}")
                 if remaining_src_region_src_svc_rps[src_region] == 0:
-                    logger.info(f"waterfall for {src_region}, {src_svc} is done. break and return")
+                    logger.debug(f"{optimizer_cnt},waterfall2 for {src_region}, {src_svc} is done. break and return")
                     break
     return waterfall_load_balance
 
@@ -1029,24 +1026,26 @@ def optimizer_entrypoint():
                     if src_region not in waterfall_load_balance:
                         waterfall_load_balance[src_region] = dict()
                     if remaining_src_region_src_svc_rps[src_region] > 0:
-                        logger.info(f"{src_region} cluster did not consume all rps locally. remaining_src_region_src_svc_rps[{src_region}]: {remaining_src_region_src_svc_rps[src_region]}")
-                        logger.info(f"Continue spill over")
+                        # logger.info(f"{src_region} cluster did not consume all rps locally. remaining_src_region_src_svc_rps[{src_region}]: {remaining_src_region_src_svc_rps[src_region]}")
+                        logger.debug(f"Continue spill over")
                         waterfall_load_balance = waterfall_heurstic(src_region, remaining_src_region_src_svc_rps, waterfall_load_balance, parent_of_bottleneck_service, bottleneck_service)
-                        logger.info(f"waterfall_load_balance for {parent_of_bottleneck_service}: {waterfall_load_balance}")
+                        logger.debug(f"waterfall_load_balance for {parent_of_bottleneck_service}: {waterfall_load_balance}")
             records = list()
             for src_region in waterfall_load_balance:
                 for dst_region in waterfall_load_balance[src_region]:
-                    flow = waterfall_load_balance[src_region][dst_region]
                     # total = get_total_rps_for_service(parent_of_bottleneck_service, aggregated_rps) # THIS IS BUG
-                    total = get_total_rps_for_service_in_region(parent_of_bottleneck_service, src_region, aggregated_rps)
-                    weight = flow / total
                     # apply the same svc level routing policy to all endpoints
                     for hashed_cg_key in ep_str_callgraph_table:
                         for parent_ep_str in ep_str_callgraph_table[hashed_cg_key]:
                             for child_ep_str in ep_str_callgraph_table[hashed_cg_key][parent_ep_str]:
                                 src_svc = parent_ep_str.split(cfg.ep_del)[0]
                                 dst_svc = child_ep_str.split(cfg.ep_del)[0]
+                                logger.debug(f"waterfall2,src_svc: {src_svc}, dst_svc: {dst_svc}, pb, {parent_of_bottleneck_service}, b, {bottleneck_service}")
                                 if src_svc == parent_of_bottleneck_service and dst_svc == bottleneck_service:
+                                    flow = waterfall_load_balance[src_region][dst_region]
+                                    total = get_total_rps_for_service_in_region(parent_of_bottleneck_service, src_region, aggregated_rps)
+                                    weight = flow / total
+                                    logger.debug(f"waterfall2,{parent_of_bottleneck_service},{bottleneck_service},{src_region},{dst_region},{flow},{total},{weight}")
                                     '''Find endpoint dependency belonging to this source svc and destination svc pair
                                     This is needed because wasm dataplane is not able to handle svc level routing policy...'''
                                     row = [parent_of_bottleneck_service, bottleneck_service, parent_ep_str, child_ep_str, src_region, dst_region, flow, total, weight]
@@ -1079,11 +1078,30 @@ def optimizer_entrypoint():
                                     row = [src_svc, dst_svc_local_routing, parent_ep_str, dst_ep_local_routing, src_cid, dst_cid, flow_local_routing, total_local_routing, weight_local_routing]
                                     logger.debug(f"local_routing_df row: {row}")
                                     records.append(row)
-                                    
+            
+            # add SOURCE to root node (i.e. slateingress)
+            for dst_cid in agg_root_node_rps:
+                for dst_svc in agg_root_node_rps[dst_cid]:
+                    for dst_endpoint in agg_root_node_rps[dst_cid][dst_svc]:
+                        root_node_rps = agg_root_node_rps[dst_cid][dst_svc][dst_endpoint]
+                        src_endpoint = "SOURCE"
+                        src_svc = "SOURCE"
+                        src_cid = "XXXX"
+                        weight_local_routing = 1
+                        flow_local_routing = root_node_rps
+                        total_local_routing = root_node_rps
+                        row = [src_svc, dst_svc, src_endpoint, dst_endpoint, src_cid, dst_cid, flow_local_routing, total_local_routing, weight_local_routing]
+                        records.append(row)
+                        
             # NOTE: row and columns MUST have the same order.
             waterfall_pct_df_col = ["src_svc", "dst_svc", "src_endpoint", "dst_endpoint", "src_cid", "dst_cid", "flow", "total", "weight"]
             percentage_df = pd.DataFrame(records, columns=waterfall_pct_df_col)
-            logger.info(f"waterfall_pct_df.to_csv(): {percentage_df.to_csv()}")
+                        
+            waterfall_percentage_df = percentage_df.copy()
+            # waterfall_percentage_df = waterfall_percentage_df.drop(columns=["src_endpoint", "dst_endpoint"]).reset_index(drop=True)
+            # waterfall_percentage_df = waterfall_percentage_df.drop(columns=["flow"]).reset_index(drop=True)
+            waterfall_percentage_df = waterfall_percentage_df.drop_duplicates(subset=["src_svc", "dst_svc", "src_cid", "dst_cid", "src_endpoint", "dst_endpoint", "flow", "total", "weight"], keep='last')
+            logger.info(f"waterfall_percentage_df.to_csv(): {waterfall_percentage_df.to_csv()}")
             desc = "waterfall2"
         else: # overload scenario
             logger.info(f"total_dst_cap({total_dst_cap}) < total_src_rps({total_src_rps})")
@@ -1486,15 +1504,26 @@ def init_max_capacity_per_service(capacity):
                 else:
                     max_capacity_per_service[svc][region] = 1000
             elif benchmark_name == "hotelreservation":
-                max_capacity_per_service['slateingress'][region] = 2000
-                max_capacity_per_service['frontend'][region] = 1000
-                max_capacity_per_service['recommendation'][region] = 1000
-                max_capacity_per_service['profile'][region] = 2000
-                max_capacity_per_service['rate'][region] = 500
-                max_capacity_per_service['geo'][region] = 1000
-                max_capacity_per_service['search'][region] = 600
-                max_capacity_per_service['reservation'][region] = 600
-                max_capacity_per_service['user'][region] = 1200
+                
+                max_capacity_per_service['slateingress'][region] = capacity
+                max_capacity_per_service['frontend'][region] = capacity
+                max_capacity_per_service['recommendation'][region] = capacity
+                max_capacity_per_service['profile'][region] = capacity
+                max_capacity_per_service['rate'][region] = capacity
+                max_capacity_per_service['geo'][region] = capacity
+                max_capacity_per_service['search'][region] = capacity
+                max_capacity_per_service['reservation'][region] = capacity
+                max_capacity_per_service['user'][region] = capacity
+                
+                # max_capacity_per_service['slateingress'][region] = 1000
+                # max_capacity_per_service['frontend'][region] = 1000
+                # max_capacity_per_service['recommendation'][region] = 1500
+                # max_capacity_per_service['profile'][region] = 1000
+                # max_capacity_per_service['rate'][region] = 1000
+                # max_capacity_per_service['geo'][region] = 1000
+                # max_capacity_per_service['search'][region] = 1000
+                # max_capacity_per_service['reservation'][region] = 1000
+                # max_capacity_per_service['user'][region] = 1200
             else:
                 logger.error("!!! ERROR !!!: benchmark_name is not supported.")
                 assert False
@@ -1529,6 +1558,8 @@ def initialize_global_datastructure(stitched_traces):
     global trainig_input_trace_file
     global max_capacity_per_service
     global degree
+    global init_done
+    assert init_done == False
     all_endpoints = tst.get_all_endpoints(stitched_traces)
     endpoint_to_placement = set_endpoint_to_placement(all_endpoints)
     svc_to_placement = set_svc_to_placement(all_endpoints)
@@ -1608,7 +1639,11 @@ def training_phase():
     global trainig_input_trace_file
     global max_capacity_per_service
     global degree
+    global init_done
     if not check_file_exist(trainig_input_trace_file):
+        return
+
+    if init_done:
         return
     if load_coef_flag: # load_coef_flag=True assumes that time stitching is done
         stitched_traces = trace_string_file_to_trace_data_structure(load_coef_flag)
@@ -1621,6 +1656,7 @@ def training_phase():
             stitched_traces[region] = stitched_traces["us-west-1"].copy()
                         
     initialize_global_datastructure(stitched_traces=stitched_traces)
+    init_done = True
     
     if mode != "runtime":
         logger.debug(f"It is not runtime mode. Skip training. current mode: {mode}")
@@ -1675,6 +1711,7 @@ def read_config_file():
     global degree
     global inter_cluster_latency
     global train_done
+    global parent_of_bottleneck_service
     global bottleneck_service
     global load_coef_flag
     
@@ -1686,10 +1723,17 @@ def read_config_file():
                 if benchmark_name != line[1]:
                     logger.info(f'Update benchmark_name: {benchmark_name} -> {line[1]}')
                     benchmark_name = line[1]
-                    if benchmark_name == "usecase3-compute-diff":
+                    ###################################################################
+                    if benchmark_name == "usecase1-howmuch" or benchmark_name == "usecase1-whichcluster" or benchmark_name == "usecase1-orderofevent" or benchmark_name == "usecase1-cascading":
+                        parent_of_bottleneck_service = "frontend"
+                        bottleneck_service = "a"
+                    elif benchmark_name == "usecase3-compute-diff":
                         bottleneck_service = "compute-node"
-                    if benchmark_name == "hotelreservation":
-                        bottleneck_service = "slateingress"
+                    elif benchmark_name == "hotelreservation":
+                        parent_of_bottleneck_service = "slateingress"
+                        bottleneck_service = "frontend"
+                    logger.info(f"parent_of_bottleneck_service: {parent_of_bottleneck_service}, bottleneck_service: {bottleneck_service}")
+                    ###################################################################
                     
             elif line[0] == "total_num_services":
                 if total_num_services != int(line[1]):
@@ -1789,17 +1833,18 @@ def aggregated_rps_routine():
     global prev_ts
     aggregated_rps = aggregate_rps_by_region(per_pod_ep_rps)
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
-    record_endpoint_rps(aggregated_rps, temp_counter)
-    
-    logger.info("-"*80)
-    logger.info(f"aggregated_rps_routine, temp_counter-{temp_counter}, gap: {time.time()-prev_ts}")
-    prev_ts = time.time()
-    for region in agg_root_node_rps:
-        for svc in agg_root_node_rps[region]:
-            for endpoint in agg_root_node_rps[region][svc]:
-                logger.info(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
-    logger.info("-"*80)
-    temp_counter += 1
+    if check_root_node_rps_condition(agg_root_node_rps) or temp_counter > 0:
+        record_endpoint_rps(aggregated_rps, temp_counter)
+        
+        logger.info("-"*80)
+        logger.info(f"aggregated_rps_routine, temp_counter-{temp_counter}, gap: {time.time()-prev_ts}")
+        prev_ts = time.time()
+        for region in agg_root_node_rps:
+            for svc in agg_root_node_rps[region]:
+                for endpoint in agg_root_node_rps[region][svc]:
+                    logger.info(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
+        logger.info("-"*80)
+        temp_counter += 1
 
     
 if __name__ == "__main__":

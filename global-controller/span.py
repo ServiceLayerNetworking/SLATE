@@ -74,6 +74,7 @@ class Span:
         self.xt = xt
         if self.rt < 0:
             logger.error(f"ERROR: class Span, negative response time, {self.rt}")
+            logger.error(self.__str__())
             assert False
         if self.xt < 0:
             logger.error(f"ERROR: class Span, negative exclusive time, {self.xt}")
