@@ -10,7 +10,6 @@ import span as sp
 import time_stitching as tst
 import pandas as pd
 from sklearn.model_selection import train_test_split
-import gen_trace
 from IPython.display import display
 from pprint import pprint
 import random
@@ -711,7 +710,10 @@ def get_root_node_rps(ep_str_callgraph_table, aggregated_rps):
                                 root_node_rps[cid] = dict()
                             if svc_name not in root_node_rps[cid]:
                                 root_node_rps[cid][svc_name] = dict()
-                            root_node_rps[cid][svc_name][ep] = aggregated_rps[cid][svc_name][ep]
+                            ## scalability test    
+                            # root_node_rps[cid][svc_name][ep] = aggregated_rps[cid][svc_name][ep]
+                            root_node_rps[cid][svc_name][ep] = 1000
+                            
                             logger.debug(f'root_node_rps,{hashed_cg_key},{cid},{svc_name},{ep},{root_node_rps[cid][svc_name][ep]}')
     return root_node_rps
 
@@ -723,6 +725,8 @@ def check_root_node_rps_condition(agg_root_node_rps):
             for ep in agg_root_node_rps[cid][svc]:
                 if agg_root_node_rps[cid][svc][ep] != 0:
                     agg_root_node_rps_exists = True
+                else:
+                    logger.info("root node rps is 0")
     return agg_root_node_rps_exists
 
 def sort_region_by_ingressgw_rps(ingress_gw_svc_name, aggregated_rps):
@@ -1811,7 +1815,8 @@ def aggregate_rps_by_region(per_pod_ep_rps):
             for endpoint in per_pod_ep_rps[region][svc]:
                 if endpoint not in aggregate[region][svc]: aggregate[region][svc][endpoint] = 0
                 for podname in per_pod_ep_rps[region][svc][endpoint]:
-                    aggregate[region][svc][endpoint] += per_pod_ep_rps[region][svc][endpoint][podname]
+                    ## scalability test
+                    aggregate[region][svc][endpoint] += 100
     # logger.info("-"*80)
     # for region in per_pod_ep_rps:
     #     for svc in per_pod_ep_rps[region]:
@@ -1832,13 +1837,31 @@ def aggregated_rps_routine():
     global agg_root_node_rps
     global temp_counter
     global prev_ts
+    
+    for region in all_endpoints:
+        for svc_name in all_endpoints[region]:
+            for endpoint in all_endpoints[region][svc_name]:
+                for podname in placement[region]:
+                    if region not in per_pod_ep_rps:
+                        per_pod_ep_rps[region] = dict()
+                    if svc_name not in per_pod_ep_rps[region]:
+                        per_pod_ep_rps[region][svc_name] = dict()
+                    if endpoint not in per_pod_ep_rps[region][svc_name]:
+                        per_pod_ep_rps[region][svc_name][endpoint] = dict()
+                    podname_list = ["pod_a", "pod_b", "pod_c", "pod_d"]
+                    for podname in podname_list:
+                        per_pod_ep_rps[region][svc_name][endpoint][podname] = 100
     aggregated_rps = aggregate_rps_by_region(per_pod_ep_rps)
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
-    if check_root_node_rps_condition(agg_root_node_rps) or temp_counter > 0:
+    logger.info(f"aggregated_rps: {aggregated_rps}")
+    logger.info(f"agg_root_node_rps: {agg_root_node_rps}")
+    ## scalability test
+    # if check_root_node_rps_condition(agg_root_node_rps) or temp_counter > 0:
+    if True:
         record_endpoint_rps(aggregated_rps, temp_counter)
         
         logger.info("-"*80)
-        logger.info(f"aggregated_rps_routine, temp_counter-{temp_counter}, gap: {time.time()-prev_ts}")
+        # logger.info(f"aggregated_rps_routine, temp_counter-{temp_counter}, gap: {time.time()-prev_ts}")
         prev_ts = time.time()
         for region in agg_root_node_rps:
             for svc in agg_root_node_rps[region]:
@@ -1849,19 +1872,8 @@ def aggregated_rps_routine():
 
     
 if __name__ == "__main__":
-    scheduler = BackgroundScheduler()
-    
-    ''' update mode '''
-    scheduler.add_job(func=read_config_file, trigger="interval", seconds=1)
-    
-    ''' mode: profile '''
-    scheduler.add_job(func=write_spans_to_file, trigger="interval", seconds=5)
-    
-    ''' mode: runtime '''
-    time.sleep(3)
-    scheduler.add_job(func=training_phase, trigger="interval", seconds=1)
-    scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
-    scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
-    scheduler.start()
-    atexit.register(lambda: scheduler.shutdown())
-    app.run(host='0.0.0.0', port=8080)
+    read_config_file()
+    write_spans_to_file()
+    training_phase()
+    aggregated_rps_routine()
+    optimizer_entrypoint()

@@ -58,7 +58,7 @@ endpoint_level_rps[cid][svc_name][ep] = rps
 
 root_node_max_rps[root_node_endpoint] = rps
 
-all_endpoints[cid][svc_name] = set of endpoint
+# all_endpoints[cid][svc_name] = endpoint # deprecated
 
 placement[cid] = set of svc_names
 
@@ -236,19 +236,29 @@ def run_optimizer(coef_dict, \
     Constraint equation:
         endpoint latency == (coef[ep_1]*scheduled_load[ep_1]) + (coef[ep_2]*scheduled_load[ep_2]) + intercept
     '''
+
     normalized_total_rps = dict()
     for svc_name in compute_df['svc_name'].unique():
-        if svc_name not in normalized_total_rps:
-            normalized_total_rps[svc_name] = 0
         svc_df = compute_df[compute_df['svc_name'] == svc_name]
         cid_of_svc = svc_df['src_cid'].unique()
         for cid in cid_of_svc:
-            svc_cid_df = svc_df['src_cid'] == cid
-            for ep in svc_cid_df['endpoint'].unique(): # all endpoints of the svc
-                arc_name = opt_func.get_compute_arc_var_name(ep, cid)
-                normalized_total_rps[svc_name] += compute_load[arc_name]
-        logger.info(f'normalized_total_rps[{svc_name}]: {normalized_total_rps[svc_name]}')
-        
+            svc_cid_df = svc_df[svc_df['src_cid'] == cid]
+            try:
+                for ep in svc_cid_df['endpoint'].unique(): # all endpoints of the svc
+                    arc_name = opt_func.get_compute_arc_var_name(ep, cid)
+                    if svc_name not in normalized_total_rps:
+                        normalized_total_rps[svc_name] = dict()
+                    if cid not in normalized_total_rps[svc_name]:
+                        normalized_total_rps[svc_name][cid] = 0
+                    normalized_total_rps[svc_name][cid] += compute_load[arc_name]
+            except Exception as e:
+                logger.error(f'Exception: {type(e).__name__}, {e}')
+                logger.error(f'{svc_cid_df}')
+                assert False
+    for svc_name in normalized_total_rps:
+        for cid in normalized_total_rps[svc_name]:
+            # print(f"normalized_total_rps,{svc_name},{cid},{normalized_total_rps[svc_name][cid]}")
+            a=1
     for index, row in compute_df.iterrows():
         lh = compute_latency[index]
         rh = 0
@@ -262,14 +272,23 @@ def run_optimizer(coef_dict, \
                 logger.debug(f'dependent_arc_name: {dependent_arc_name}')
                 logger.debug(f'coefs[{dependent_ep}]: {coefs[dependent_ep]}')
                 logger.debug(f'dependent_arc_name: {dependent_arc_name}')
-                if degree == 4:
-                    # degree is 4 using compute_load2 = compute_load**2
-                    rh += coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2) 
-                elif degree == 2:
-                    rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
-                else:
-                    # degree is 1
-                    rh += coefs[dependent_ep] * (compute_load[dependent_arc_name])
+                
+                ###################################################################
+                print(f"normalized_total_rps[{row['svc_name']}][{row['src_cid']}]: {normalized_total_rps[row['svc_name']][row['src_cid']]}")
+                total_rps_in_this_svc_in_this_cluster = normalized_total_rps[row['svc_name']][row['src_cid']]
+                # rh += coefs[dependent_ep] * (total_rps_in_this_svc_in_this_cluster ** 2)
+                rh += coefs[dependent_ep] * (total_rps_in_this_svc_in_this_cluster)
+                ###################################################################
+                
+                # if degree == 1:
+                #     rh += coefs[dependent_ep] * (compute_load[dependent_arc_name])
+                # elif degree == 2:
+                #     rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
+                # elif degree == 4:
+                #     rh += coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2) 
+                # else:
+                #     logger.error(f"degree {degree} is not supported")
+                #     assert False
         rh += coefs['intercept']
         constraint_file.write(f"{lh}\n")
         constraint_file.write("==\n")
