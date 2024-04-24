@@ -565,7 +565,8 @@ def handleProxyLoad():
             return MCLB_routing_rule(svc, region)
         elif ROUTING_RULE == "WATERFALL2":
             # TODO: waterfall result conversion
-            if svc == "frontend" and not percentage_df.empty:
+            # if svc == "frontend" and not percentage_df.empty:
+            if not percentage_df.empty:
                 logger.debug(f"{svc}, {region}, percentage_df is not empty")
                 temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
                 if len(temp_df) == 0:
@@ -576,12 +577,11 @@ def handleProxyLoad():
                 temp_df = temp_df.reset_index(drop=True)
                 csv_string = temp_df.to_csv(header=False, index=False)
                 assert csv_string != ""
-                logger.debug(f"Enforcement, {ROUTING_RULE}, optimizer_cnt-{optimizer_cnt}, {full_podname} in {region}")
-                logger.debug(f"{csv_string.strip()}")
+                logger.debug(f"Enforcement, {ROUTING_RULE}, optimizer_cnt-{optimizer_cnt}, {full_podname} in {region}\n{csv_string.strip()}")
             else:
                 _, csv_string = local_and_failover_routing_rule(svc, region)
-                logger.debug(f"Enforcement, {ROUTING_RULE}, optimizer_cnt-{optimizer_cnt}, {full_podname} in {region}, {csv_string.strip()}")
                 
+            # logger.info(f"Enforcement, {ROUTING_RULE}, optimizer_cnt-{optimizer_cnt}, {full_podname} in {region}, {csv_string.strip()}")
             with open(f'percentage_df-{svc}.csv', 'a') as f:
                 f.write(csv_string)
             return csv_string
@@ -1080,28 +1080,28 @@ def optimizer_entrypoint():
                                     records.append(row)
             
             # add SOURCE to root node (i.e. slateingress)
-            for dst_cid in agg_root_node_rps:
-                for dst_svc in agg_root_node_rps[dst_cid]:
-                    for dst_endpoint in agg_root_node_rps[dst_cid][dst_svc]:
-                        root_node_rps = agg_root_node_rps[dst_cid][dst_svc][dst_endpoint]
-                        src_endpoint = "SOURCE"
-                        src_svc = "SOURCE"
-                        src_cid = "XXXX"
-                        weight_local_routing = 1
-                        flow_local_routing = root_node_rps
-                        total_local_routing = root_node_rps
-                        row = [src_svc, dst_svc, src_endpoint, dst_endpoint, src_cid, dst_cid, flow_local_routing, total_local_routing, weight_local_routing]
-                        records.append(row)
+            # for dst_cid in agg_root_node_rps:
+            #     for dst_svc in agg_root_node_rps[dst_cid]:
+            #         for dst_endpoint in agg_root_node_rps[dst_cid][dst_svc]:
+            #             root_node_rps = agg_root_node_rps[dst_cid][dst_svc][dst_endpoint]
+            #             src_endpoint = "SOURCE"
+            #             src_svc = "SOURCE"
+            #             src_cid = "XXXX"
+            #             weight_local_routing = 1
+            #             flow_local_routing = root_node_rps
+            #             total_local_routing = root_node_rps
+            #             row = [src_svc, dst_svc, src_endpoint, dst_endpoint, src_cid, dst_cid, flow_local_routing, total_local_routing, weight_local_routing]
+            #             records.append(row)
                         
             # NOTE: row and columns MUST have the same order.
-            waterfall_pct_df_col = ["src_svc", "dst_svc", "src_endpoint", "dst_endpoint", "src_cid", "dst_cid", "flow", "total", "weight"]
-            percentage_df = pd.DataFrame(records, columns=waterfall_pct_df_col)
+            col = ["src_svc", "dst_svc", "src_endpoint", "dst_endpoint", "src_cid", "dst_cid", "flow", "total", "weight"]
+            percentage_df = pd.DataFrame(records, columns=col)
+            
+            
+            waterfall_percentage_df_for_print = percentage_df.drop_duplicates(subset=["src_svc", "dst_svc", "src_cid", "dst_cid", "src_endpoint", "dst_endpoint", "flow", "total", "weight"], keep='last')
+            logger.info(f"waterfall_percentage_df_for_print.to_csv(): {waterfall_percentage_df_for_print.to_csv()}")
+            
                         
-            waterfall_percentage_df = percentage_df.copy()
-            # waterfall_percentage_df = waterfall_percentage_df.drop(columns=["src_endpoint", "dst_endpoint"]).reset_index(drop=True)
-            # waterfall_percentage_df = waterfall_percentage_df.drop(columns=["flow"]).reset_index(drop=True)
-            waterfall_percentage_df = waterfall_percentage_df.drop_duplicates(subset=["src_svc", "dst_svc", "src_cid", "dst_cid", "src_endpoint", "dst_endpoint", "flow", "total", "weight"], keep='last')
-            logger.info(f"waterfall_percentage_df.to_csv(): {waterfall_percentage_df.to_csv()}")
             desc = "waterfall2"
         else: # overload scenario
             logger.info(f"total_dst_cap({total_dst_cap}) < total_src_rps({total_src_rps})")
