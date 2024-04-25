@@ -80,7 +80,10 @@ def get_callsize_dict(cg, depth):
     callsize_dict = dict()
     for parent in cg:
         for child in cg[parent]:
-            assert depth[parent] < depth[child]
+            # if depth[parent] < depth[child]:
+            if depth[parent] > depth[child]:
+                print(f"parent[{parent}] depth[{depth[parent]}] < child[{child}] depth[{depth[child]}]")
+                assert False
             logger.debug(f"depth[{parent}]")
             callsize_dict[(parent,child)] = ((depth[parent]+1)*10)
     return callsize_dict

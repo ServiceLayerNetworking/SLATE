@@ -24,6 +24,7 @@ import time
 import copy
 import warnings
 import json
+import hashlib
 
 # Filter specific FutureWarning related to pandas concatenation.
 
@@ -711,8 +712,7 @@ def get_root_node_rps(ep_str_callgraph_table, aggregated_rps):
                             if svc_name not in root_node_rps[cid]:
                                 root_node_rps[cid][svc_name] = dict()
                             ## scalability test    
-                            # root_node_rps[cid][svc_name][ep] = aggregated_rps[cid][svc_name][ep]
-                            root_node_rps[cid][svc_name][ep] = 1000
+                            root_node_rps[cid][svc_name][ep] = aggregated_rps[cid][svc_name][ep]
                             
                             logger.debug(f'root_node_rps,{hashed_cg_key},{cid},{svc_name},{ep},{root_node_rps[cid][svc_name][ep]}')
     return root_node_rps
@@ -878,7 +878,7 @@ def write_optimizer_output(optimizer_cnt, percentage_df, desc, fn):
         
 
 ## All variables are global variables
-def optimizer_entrypoint():
+def optimizer_entrypoint(degree, fanout):
     global coef_dict
     global endpoint_level_inflight
     # global endpoint_level_rps
@@ -895,7 +895,7 @@ def optimizer_entrypoint():
     global max_capacity_per_service
     global mode
     global optimizer_cnt
-    global degree
+    # global degree
     global inter_cluster_latency
     global CAPACITY
     global train_done
@@ -993,7 +993,8 @@ def optimizer_entrypoint():
             ROUTING_RULE, \
             max_capacity_per_service, \
             degree, \
-            inter_cluster_latency)
+            inter_cluster_latency, \
+            fanout)
         logger.info(f"run_optimizer done, runtime: {time.time()-ts} seconds")
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
@@ -1420,19 +1421,27 @@ def trace_string_file_to_trace_data_structure(load_coef_flag):
             # path = ep.split("@")[2]
         
         if load_coef_flag:
-            span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
-                row["trace_id"], row["span_id"], row["parent_span_id"], \
-                    st=float(row["st"]), et=float(row["et"]), xt=int(row["xt"]), \
-                        callsize=int(row["call_size"]), \
-                            rps_dict=rps_dict, \
-                                num_inflight_dict=num_inflight_dict)
+            exclusive_time = int(row["xt"])
+            # span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
+            #     row["trace_id"], row["span_id"], row["parent_span_id"], \
+            #         st=float(row["st"]), et=float(row["et"]), xt=, \
+            #             callsize=int(row["call_size"]), \
+            #                 rps_dict=rps_dict, \
+            #                     num_inflight_dict=num_inflight_dict)
         else:
-            span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
+            exclusive_time = -1
+            # span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
+            #     row["trace_id"], row["span_id"], row["parent_span_id"], \
+            #         st=float(row["st"]), et=float(row["et"]), xt=-1, \
+            #             callsize=int(row["call_size"]), \
+            #                 rps_dict=rps_dict, \
+            #                     num_inflight_dict=num_inflight_dict)
+        span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
                 row["trace_id"], row["span_id"], row["parent_span_id"], \
-                    st=float(row["st"]), et=float(row["et"]), xt=-1, \
-                        callsize=int(row["call_size"]), \
-                            rps_dict=rps_dict, \
-                                num_inflight_dict=num_inflight_dict)
+                st=float(row["st"]), et=float(row["et"]), xt=exclusive_time, \
+                callsize=int(row["call_size"]), \
+                rps_dict=rps_dict, \
+                num_inflight_dict=num_inflight_dict)
         spans.append(span)
         
     # Convert list of span to traces data structure
@@ -1529,8 +1538,11 @@ def init_max_capacity_per_service(capacity):
                 # max_capacity_per_service['reservation'][region] = 1000
                 # max_capacity_per_service['user'][region] = 1200
             else:
-                logger.error("!!! ERROR !!!: benchmark_name is not supported.")
-                assert False
+                for region in all_endpoints:
+                    for svc in all_endpoints[region]:
+                        if svc not in max_capacity_per_service:
+                            max_capacity_per_service[svc] = dict()
+                        max_capacity_per_service[svc][region] = capacity
             logger.debug(f"set max_capacity_per_service[{svc}][{region}] = {max_capacity_per_service[svc][region]}")
 
 def check_file_exist(file_path):
@@ -1653,7 +1665,7 @@ def training_phase():
     if load_coef_flag: # load_coef_flag=True assumes that time stitching is done
         stitched_traces = trace_string_file_to_trace_data_structure(load_coef_flag)
     else:
-        traces = trace_string_file_to_trace_data_structure(load_coef_flag=load_coef_flag)
+        traces = trace_string_file_to_trace_data_structure(load_coef_flag)
         complete_traces = filter_incomplete_traces(traces)
         stitched_traces = tst.stitch_time(complete_traces)
     for region in ["us-east-1", "us-south-1", "us-central-1"]:
@@ -1816,7 +1828,8 @@ def aggregate_rps_by_region(per_pod_ep_rps):
                 if endpoint not in aggregate[region][svc]: aggregate[region][svc][endpoint] = 0
                 for podname in per_pod_ep_rps[region][svc][endpoint]:
                     ## scalability test
-                    aggregate[region][svc][endpoint] += 100
+                    # aggregate[region][svc][endpoint] += 100
+                    aggregate[region][svc][endpoint] += per_pod_ep_rps[region][svc][endpoint][podname]
     # logger.info("-"*80)
     # for region in per_pod_ep_rps:
     #     for svc in per_pod_ep_rps[region]:
@@ -1848,9 +1861,9 @@ def aggregated_rps_routine():
                         per_pod_ep_rps[region][svc_name] = dict()
                     if endpoint not in per_pod_ep_rps[region][svc_name]:
                         per_pod_ep_rps[region][svc_name][endpoint] = dict()
-                    podname_list = ["pod_a", "pod_b", "pod_c", "pod_d"]
+                    podname_list = ["pod1", "pod2", "pod3", "pod4"]
                     for podname in podname_list:
-                        per_pod_ep_rps[region][svc_name][endpoint][podname] = 100
+                        per_pod_ep_rps[region][svc_name][endpoint][podname] = random.randint(50, 1000)
     aggregated_rps = aggregate_rps_by_region(per_pod_ep_rps)
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
     logger.info(f"aggregated_rps: {aggregated_rps}")
@@ -1870,10 +1883,176 @@ def aggregated_rps_routine():
         logger.info("-"*80)
         temp_counter += 1
 
+def gen(num_cluster, num_callgraph, depth, fanout):
+    global coef_dict
+    global endpoint_level_inflight
+    global placement
+    global all_endpoints
+    global svc_to_placement
+    global endpoint_to_placement
+    global ep_str_callgraph_table
+    global mode
+    global train_done
+    global traffic_segmentation
+    global ROUTING_RULE
+    global max_capacity_per_service
+    global degree
+    global inter_cluster_latency
+    global objective
     
+    mode = "runtime"
+    train_done = True
+    
+    
+    def create_node_name():
+        input_string = str(random.randint(1,1000000))
+        byte_string = input_string.encode("utf-8")
+        md5_hash = hashlib.md5(byte_string).hexdigest()
+        return str(md5_hash)[:4]
+    
+    def generate_tree(root_name, depth, fanout):
+        def create_subtree(current_depth, parent_name):
+            if current_depth == depth:
+                return {parent_name: []}
+            temp_children = [f"{parent_name}-{i}" for i in range(1, fanout + 1)]
+            # print("parent_name")
+            # print(parent_name)
+            # print("temp_children")
+            # print(temp_children)
+            children = list()
+            for temp_node in temp_children:
+                tokens_in_node_name = temp_node.split('-')
+                # new_node_name = ""
+                # for i in range(len(tokens_in_node_name)):
+                #     new_node_name += int(tokens_in_node_name[i])*(len(tokens_in_node_name)-i)
+                new_node_name = create_node_name()
+                children.append(str(new_node_name))
+            # print("parent_name")
+            # print(parent_name)
+            # print("children")
+            # print(children)
+            subtree = {parent_name: children}
+            for child in children:
+                subtree.update(create_subtree(current_depth + 1, child))
+                break
+            return subtree
+        tree = create_subtree(1, root_name)
+        return tree
+    
+    temp_ep_str_callgraph_table = dict()
+    root_name = create_node_name()  # Root node's name
+    temp_ep_str_callgraph_table = generate_tree(root_name, depth, fanout)
+    
+    replicated_temp_ep_str_callgraph_table = dict()
+    for idx in range(num_callgraph):
+        replicated_temp_ep_str_callgraph_table[str(idx)] = copy.deepcopy(temp_ep_str_callgraph_table)
+    
+    ep_str_callgraph_table = dict()
+    for cg_key in replicated_temp_ep_str_callgraph_table:
+        if cg_key not in ep_str_callgraph_table:
+            ep_str_callgraph_table[cg_key] = dict()
+        for temp_parent, temp_children in temp_ep_str_callgraph_table.items():
+            parent = f"s{temp_parent}@m{cg_key}@e{cg_key}"
+            for temp_child in temp_children:
+                child = f"s{temp_child}@m{cg_key}@e{cg_key}"
+                if parent not in ep_str_callgraph_table[cg_key]:
+                    ep_str_callgraph_table[cg_key][parent] = list()
+                if child not in ep_str_callgraph_table[cg_key]:
+                    ep_str_callgraph_table[cg_key][child] = list() # in case it is leaf node
+                ep_str_callgraph_table[cg_key][parent].append(child)
+    print("temp_ep_str_callgraph_table")
+    pprint(temp_ep_str_callgraph_table)
+    print("replicated_temp_ep_str_callgraph_table")
+    pprint(replicated_temp_ep_str_callgraph_table)
+    print("ep_str_callgraph_table")
+    pprint(ep_str_callgraph_table)
+    
+    cluster_list = list()
+    for i in range(num_cluster):
+        cluster_list.append(f"cluster{i}")
+    logger.info("cluster_list")
+    logger.info(cluster_list)
+    
+    all_endpoints = dict()
+    for cid in cluster_list:
+        for cg_key in ep_str_callgraph_table:
+            for parent_endpoint in ep_str_callgraph_table[cg_key]:
+                parent_svc = parent_endpoint.split("@")[0]
+                if cid not in all_endpoints:
+                    all_endpoints[cid] = dict()
+                if parent_svc not in all_endpoints[cid]:
+                    all_endpoints[cid][parent_svc] = set()
+                all_endpoints[cid][parent_svc].add(parent_endpoint)
+    logger.info("all_endpoints")
+    logger.info(all_endpoints)
+    
+    coef_dict = dict()
+    for cid in all_endpoints:
+        for svc_name in all_endpoints[cid]:
+            if svc_name not in coef_dict:
+                coef_dict[svc_name] = dict()
+            for ep_str in all_endpoints[cid][svc_name]:
+                coef_dict[svc_name][ep_str] = dict()
+                coef_dict[svc_name][ep_str]["intercept"] = 0
+                coef_dict[svc_name][ep_str][ep_str] = 1
+    logger.info("coef_dict")
+    logger.info(coef_dict)
+    
+    placement = dict()
+    for cid in all_endpoints:
+        if cid not in placement:
+            placement[cid] = set()
+        for svc_name in all_endpoints[cid]:
+            placement[cid].add(svc_name)
+    logger.info("placement")
+    logger.info(placement)
+    
+    endpoint_to_placement = set_endpoint_to_placement(all_endpoints)
+    print("endpoint_to_placement")
+    pprint(endpoint_to_placement)
+    pprint(len(endpoint_to_placement))
+    
+    svc_to_placement = set_svc_to_placement(all_endpoints)
+    print("svc_to_placement")
+    pprint(svc_to_placement)
+    pprint(len(svc_to_placement))
+    exit()
+    traffic_segmentation = True
+    objective = "avg_latency"
+    ROUTING_RULE = "SLATE"
+    degree = 2
+    
+    for region in all_endpoints:
+        for svc in all_endpoints[region]:
+            if svc not in max_capacity_per_service:
+                max_capacity_per_service[svc] = dict()
+            max_capacity_per_service[svc][region] = 100000
+    logger.info("max_capacity_per_service")
+    logger.info(max_capacity_per_service)
+    
+    
+    for src_cid in cluster_list:
+        if src_cid not in inter_cluster_latency:
+            inter_cluster_latency[src_cid] = dict()
+        for dst_cid in cluster_list:
+            if src_cid != dst_cid:
+                inter_cluster_latency[src_cid][dst_cid] = random.randint(5, 50)
+            else:
+                inter_cluster_latency[src_cid][dst_cid] = 0
+    logger.info("inter_cluster_latency")
+    logger.info(inter_cluster_latency)
+    
+import sys
 if __name__ == "__main__":
-    read_config_file()
-    write_spans_to_file()
-    training_phase()
+    # read_config_file()
+    # write_spans_to_file()
+    # training_phase()
+    num_cluster = int(sys.argv[1])
+    num_callgraph = int(sys.argv[2])
+    depth = int(sys.argv[3])
+    fanout = int(sys.argv[4])
+    degree = int(sys.argv[5])
+    # print(f"num_cluster: {num_cluster}, num_callgraph: {num_callgraph}, depth: {depth}, fanout: {fanout}")
+    gen(num_cluster, num_callgraph, depth, fanout)
     aggregated_rps_routine()
-    optimizer_entrypoint()
+    optimizer_entrypoint(degree, fanout)

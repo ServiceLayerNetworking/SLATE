@@ -22,7 +22,8 @@ LOGGING_CONFIG = {
     },
     'handlers': {
         'default': {
-            'level': 'INFO',
+            'level': 'ERROR',
+            # 'level': 'INFO',
             'formatter': 'standard',
             'class': 'logging.StreamHandler',
         },

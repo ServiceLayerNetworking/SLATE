@@ -75,3 +75,10 @@ __main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capac
 __main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
 __main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
 __main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+optimizer_header - find_root_node(line:1203) - ERROR: too many root node in callgraph
+optimizer_header - find_root_node(line:1204) - {'s0-e0': ['1-0', '2-0'], '1-0': [], '2-0': [], 's1-e0': ['3-0', '4-0'], '3-0': [], '4-0': [], 's2-e0': ['5-0', '6-0'], '5-0': [], '6-0': []}

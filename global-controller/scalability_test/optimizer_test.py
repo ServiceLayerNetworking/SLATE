@@ -58,7 +58,7 @@ endpoint_level_rps[cid][svc_name][ep] = rps
 
 root_node_max_rps[root_node_endpoint] = rps
 
-# all_endpoints[cid][svc_name] = endpoint # deprecated
+all_endpoints[cid][svc_name] = list of endpoints
 
 placement[cid] = set of svc_names
 
@@ -71,6 +71,10 @@ max_capacity_per_service[svc_name] = max_load
 traffic_segmentation = True/False
 
 objective = "avg_latency"/"end_to_end_latency"/"egress_cost"/"multi_objective"
+
+coef_dict[svc_name][ep_str][feature] = coef_value
+
+feature: "intercept" or endpoint
 
 inter_cluster_latency['us-west']['us-east'] = 20 # this is oneway latency
 inter_cluster_latency['us-west']['us-central'] = 10
@@ -88,7 +92,8 @@ def run_optimizer(coef_dict, \
         ROUTING_RULE, \
         max_capacity_per_service, \
         degree, \
-        inter_cluster_latency):
+        inter_cluster_latency, \
+        fanout):
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -113,7 +118,7 @@ def run_optimizer(coef_dict, \
         return collapsed_endpoint_level_rps
     
     collapsed_endpoint_level_rps = collapse_cid_in_endpoint_level_rps(endpoint_level_rps)
-    logger.info(f'collapsed_endpoint_level_rps: {collapsed_endpoint_level_rps}')
+    logger.debug(f'collapsed_endpoint_level_rps: {collapsed_endpoint_level_rps}')
     # This is used in flow_conservation-nonleaf_endnode constraint
     request_in_out_weight = dict()
     for cg_key in ep_str_callgraph_table:
@@ -171,6 +176,11 @@ def run_optimizer(coef_dict, \
     depth_dict = dict()
     for cg_key in ep_str_callgraph_table:
         depth_dict[cg_key] = opt_func.get_depth_in_graph(ep_str_callgraph_table[cg_key])
+    # print("depth_dict")
+    # print(depnum_endpointth_dict)
+    max_depth = 0
+    for cg_key in depth_dict:
+        max_depth = max(max_depth, max(depth_dict[cg_key].values()))
     ## callsize_dict
     ## key: (parent_svc,child_svc), value: callsize of the link (= depth+1)
     callsize_dict = dict()
@@ -274,21 +284,23 @@ def run_optimizer(coef_dict, \
                 logger.debug(f'dependent_arc_name: {dependent_arc_name}')
                 
                 ###################################################################
-                print(f"normalized_total_rps[{row['svc_name']}][{row['src_cid']}]: {normalized_total_rps[row['svc_name']][row['src_cid']]}")
-                total_rps_in_this_svc_in_this_cluster = normalized_total_rps[row['svc_name']][row['src_cid']]
-                # rh += coefs[dependent_ep] * (total_rps_in_this_svc_in_this_cluster ** 2)
-                rh += coefs[dependent_ep] * (total_rps_in_this_svc_in_this_cluster)
-                ###################################################################
-                
-                # if degree == 1:
-                #     rh += coefs[dependent_ep] * (compute_load[dependent_arc_name])
-                # elif degree == 2:
-                #     rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
-                # elif degree == 4:
-                #     rh += coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2) 
-                # else:
-                #     logger.error(f"degree {degree} is not supported")
-                #     assert False
+                use_normalized_rps = False
+                if use_normalized_rps:
+                    print(f"normalized_total_rps[{row['svc_name']}][{row['src_cid']}]: {normalized_total_rps[row['svc_name']][row['src_cid']]}")
+                    total_rps_in_this_svc_in_this_cluster = normalized_total_rps[row['svc_name']][row['src_cid']]
+                    rh += coefs[dependent_ep] * (total_rps_in_this_svc_in_this_cluster ** 2)
+                    # rh += coefs[dependent_ep] * (total_rps_in_this_svc_in_this_cluster)
+                    ###################################################################
+                else:    
+                    if degree == 1:
+                        rh += coefs[dependent_ep] * (compute_load[dependent_arc_name])
+                    elif degree == 2:
+                        rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
+                    elif degree == 4:
+                        rh += coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2) 
+                    else:
+                        logger.error(f"degree {degree} is not supported")
+                        assert False
         rh += coefs['intercept']
         constraint_file.write(f"{lh}\n")
         constraint_file.write("==\n")
@@ -731,8 +743,14 @@ def run_optimizer(coef_dict, \
     # opt_func.print_gurobi_var(gurobi_model)
     # opt_func.print_gurobi_constraint(gurobi_model)
     gurobi_model.setParam('NonConvex', 2)
+    solver_start_time = time.time()
     gurobi_model.optimize()
-    solve_end_time = time.time()
+    num_cluster = len(placement)
+    num_svc = len(svc_to_placement)
+    num_endpoint = len(endpoint_to_placement)
+    solver_time = time.time()-solver_start_time
+    num_callgraph = len(ep_str_callgraph_table)
+    print(f"solver_time,{num_cluster},{num_callgraph},{max_depth},{fanout},{num_svc},{num_endpoint},{solver_time}")
     opt_func.log_timestamp("MODEL OPTIMIZE")
 
     ## Not belonging to optimizer critical path
