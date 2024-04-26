@@ -878,7 +878,7 @@ def write_optimizer_output(optimizer_cnt, percentage_df, desc, fn):
         
 
 ## All variables are global variables
-def optimizer_entrypoint(degree, fanout):
+def optimizer_entrypoint(degree_, fanout):
     global coef_dict
     global endpoint_level_inflight
     # global endpoint_level_rps
@@ -992,7 +992,7 @@ def optimizer_entrypoint(degree, fanout):
             objective, \
             ROUTING_RULE, \
             max_capacity_per_service, \
-            degree, \
+            degree_, \
             inter_cluster_latency, \
             fanout)
         logger.info(f"run_optimizer done, runtime: {time.time()-ts} seconds")
@@ -1623,13 +1623,13 @@ def check_negative_coef(coef_dict):
                     if coef_dict[svc_name][ep_str][feature_ep] < 0:
                         coef_dict[svc_name][ep_str][feature_ep] = 0
                         # coef_dict[svc_name][ep_str]['intercept'] = 1
-                        print(f"WARNING!!!: coef_dict[{svc_name}][{ep_str}] coefficient is negative. Set it to 0.")
+                        logger.info(f"WARNING!!!: coef_dict[{svc_name}][{ep_str}] coefficient is negative. Set it to 0.")
                     else: 
                         if coef_dict[svc_name][ep_str]['intercept'] < 0:
                             # a is positive but intercept is negative
                             coef_dict[svc_name][ep_str]['intercept'] = 1
-                            print(f"WARNING: coef_dict[{svc_name}][{ep_str}], coefficient is positive.")
-                            print(f"WARNING: But, coef_dict[{svc_name}][{ep_str}], intercept is negative. Set it to 0.")
+                            logger.info(f"WARNING: coef_dict[{svc_name}][{ep_str}], coefficient is positive.")
+                            logger.info(f"WARNING: But, coef_dict[{svc_name}][{ep_str}], intercept is negative. Set it to 0.")
                             
                             
 def set_zero_coef(coef_dict):
@@ -1915,10 +1915,10 @@ def gen(num_cluster, num_callgraph, depth, fanout):
             if current_depth == depth:
                 return {parent_name: []}
             temp_children = [f"{parent_name}-{i}" for i in range(1, fanout + 1)]
-            # print("parent_name")
-            # print(parent_name)
-            # print("temp_children")
-            # print(temp_children)
+            # logger.info("parent_name")
+            # logger.info(parent_name)
+            # logger.info("temp_children")
+            # logger.info(temp_children)
             children = list()
             for temp_node in temp_children:
                 tokens_in_node_name = temp_node.split('-')
@@ -1927,10 +1927,10 @@ def gen(num_cluster, num_callgraph, depth, fanout):
                 #     new_node_name += int(tokens_in_node_name[i])*(len(tokens_in_node_name)-i)
                 new_node_name = create_node_name()
                 children.append(str(new_node_name))
-            # print("parent_name")
-            # print(parent_name)
-            # print("children")
-            # print(children)
+            # logger.info("parent_name")
+            # logger.info(parent_name)
+            # logger.info("children")
+            # logger.info(children)
             subtree = {parent_name: children}
             for child in children:
                 subtree.update(create_subtree(current_depth + 1, child))
@@ -1960,12 +1960,12 @@ def gen(num_cluster, num_callgraph, depth, fanout):
                 if child not in ep_str_callgraph_table[cg_key]:
                     ep_str_callgraph_table[cg_key][child] = list() # in case it is leaf node
                 ep_str_callgraph_table[cg_key][parent].append(child)
-    print("temp_ep_str_callgraph_table")
-    pprint(temp_ep_str_callgraph_table)
-    print("replicated_temp_ep_str_callgraph_table")
-    pprint(replicated_temp_ep_str_callgraph_table)
-    print("ep_str_callgraph_table")
-    pprint(ep_str_callgraph_table)
+    logger.info("temp_ep_str_callgraph_table")
+    logger.info(temp_ep_str_callgraph_table)
+    logger.info("replicated_temp_ep_str_callgraph_table")
+    logger.info(replicated_temp_ep_str_callgraph_table)
+    logger.info("ep_str_callgraph_table")
+    logger.info(ep_str_callgraph_table)
     
     cluster_list = list()
     for i in range(num_cluster):
@@ -2004,19 +2004,16 @@ def gen(num_cluster, num_callgraph, depth, fanout):
             placement[cid] = set()
         for svc_name in all_endpoints[cid]:
             placement[cid].add(svc_name)
-    logger.info("placement")
-    logger.info(placement)
     
     endpoint_to_placement = set_endpoint_to_placement(all_endpoints)
-    print("endpoint_to_placement")
-    pprint(endpoint_to_placement)
-    pprint(len(endpoint_to_placement))
+    logger.info("endpoint_to_placement")
+    logger.info(endpoint_to_placement)
+    logger.info(len(endpoint_to_placement))
     
     svc_to_placement = set_svc_to_placement(all_endpoints)
-    print("svc_to_placement")
-    pprint(svc_to_placement)
-    pprint(len(svc_to_placement))
-    exit()
+    logger.info("svc_to_placement")
+    logger.info(svc_to_placement)
+    logger.info(len(svc_to_placement))
     traffic_segmentation = True
     objective = "avg_latency"
     ROUTING_RULE = "SLATE"
@@ -2051,8 +2048,8 @@ if __name__ == "__main__":
     num_callgraph = int(sys.argv[2])
     depth = int(sys.argv[3])
     fanout = int(sys.argv[4])
-    degree = int(sys.argv[5])
-    # print(f"num_cluster: {num_cluster}, num_callgraph: {num_callgraph}, depth: {depth}, fanout: {fanout}")
+    degree_ = int(sys.argv[5])
+    # logger.info(f"num_cluster: {num_cluster}, num_callgraph: {num_callgraph}, depth: {depth}, fanout: {fanout}")
     gen(num_cluster, num_callgraph, depth, fanout)
     aggregated_rps_routine()
-    optimizer_entrypoint(degree, fanout)
+    optimizer_entrypoint(degree_, fanout)

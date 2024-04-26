@@ -750,7 +750,7 @@ def run_optimizer(coef_dict, \
     num_endpoint = len(endpoint_to_placement)
     solver_time = time.time()-solver_start_time
     num_callgraph = len(ep_str_callgraph_table)
-    print(f"solver_time,{num_cluster},{num_callgraph},{max_depth},{fanout},{num_svc},{num_endpoint},{solver_time}")
+    print(f"solver_time,{num_cluster},{num_callgraph},{max_depth},{fanout},{num_svc},{num_endpoint},{degree},{solver_time}")
     opt_func.log_timestamp("MODEL OPTIMIZE")
 
     ## Not belonging to optimizer critical path
