@@ -434,22 +434,24 @@ def static_hash(value):
 
 
 def traces_to_endpoint_str_callgraph_table(traces):
-    endpoint_callgraph_table = dict()
+    ep_str_callgraph_table = dict()
     cg_key_hashmap = dict()
     for cid in traces:
         for tid in traces[cid]:
             single_trace = traces[cid][tid]
             ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(single_trace)
             cg_key = get_callgraph_key(ep_str_cg)
-            hash_key = static_hash(cg_key)
-            cg_key_hashmap[hash_key[:8]] = cg_key
+            if cg_key == False:
+                continue
+            hash_key = static_hash(cg_key)[:8]
+            cg_key_hashmap[hash_key] = cg_key
             # print(f'cg_key: {cg_key}')
-            # if cg_key not in endpoint_callgraph_table:
-            if hash_key not in endpoint_callgraph_table:
+            # if cg_key not in ep_str_callgraph_table:
+            if hash_key not in ep_str_callgraph_table:
                 logger.info(f"new callgraph key: {hash_key}, {cg_key} in cluster {cid}")
                 # NOTE: It is currently overwriting for the existing cg_key
-                endpoint_callgraph_table[hash_key] = ep_str_cg
-    return endpoint_callgraph_table, cg_key_hashmap
+                ep_str_callgraph_table[hash_key] = ep_str_cg
+    return ep_str_callgraph_table, cg_key_hashmap
 
 def file_write_callgraph_table(sp_callgraph_table):
     with open(f"{cfg.OUTPUT_DIR}/callgraph_table.csv", 'w') as file:
@@ -503,6 +505,8 @@ def find_root_span(cg):
 
 def get_callgraph_key(cg):
     root_node = opt_func.find_root_node(cg)
+    if root_node == False:
+        return False
     # logger.info(f"[TIME_ST] get_callgraph_key root_node: {root_node}")
     cg_key = list()
     bfs_callgraph(root_node, cg_key, cg)

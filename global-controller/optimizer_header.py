@@ -1198,11 +1198,12 @@ def find_root_node(cg):
             root_node.append(parent_node)
     if len(root_node) == 0:
         logger.error(f'ERROR: cannot find root node in callgraph')
-        assert False
+        return False
     if len(root_node) > 1:
         logger.error(f'ERROR: too many root node in callgraph')
+        logger.error(f"root_node: {root_node}")
         logger.error(cg)
-        assert False
+        return False
     return root_node[0]
 
     

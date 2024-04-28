@@ -712,8 +712,9 @@ def run_optimizer(coef_dict, \
     # opt_func.print_gurobi_var(gurobi_model)
     # opt_func.print_gurobi_constraint(gurobi_model)
     gurobi_model.setParam('NonConvex', 2)
+    ts = time.time()
     gurobi_model.optimize()
-    solve_end_time = time.time()
+    solver_runtime = time.time() - ts
     opt_func.log_timestamp("MODEL OPTIMIZE")
 
     ## Not belonging to optimizer critical path
@@ -764,6 +765,7 @@ def run_optimizer(coef_dict, \
         logger.debug(percentage_df)
         # opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)
         logger.info(f'Successful run')
+        logger.warning(f"solver runtime: {solver_runtime}")
         return percentage_df, "model solved"
 
 

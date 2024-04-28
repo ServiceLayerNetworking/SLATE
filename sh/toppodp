@@ -1,0 +1,1 @@
+kubectl top pods -A --containers | grep istio-proxy | grep Mi

@@ -1019,7 +1019,9 @@ def optimizer_entrypoint():
                             waterfall_load_balance[src_region] = dict()
                         waterfall_load_balance = fill_local_first(src_region, remaining_src_region_src_svc_rps, waterfall_load_balance, parent_of_bottleneck_service, bottleneck_service)
             
-            order_of_optimization = ['us-central-1', 'us-south-1', 'us-east-1', 'us-west-1']
+            # order_of_optimization = ['us-central-1', 'us-south-1', 'us-east-1', 'us-west-1']
+            order_of_optimization = list(aggregated_rps.keys())
+            random.shuffle(order_of_optimization)
             # for src_region in aggregated_rps:
             for src_region in order_of_optimization:
                 if parent_of_bottleneck_service in aggregated_rps[src_region]:
@@ -1140,6 +1142,8 @@ def optimizer_entrypoint():
                         endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['frontend']
                     elif benchmark_name == "hotelreservation":
                         endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['slateingress']
+                    elif benchmark_name == "alibaba":
+                        endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['sslateingress']
                     else:
                         logger.error(f"!!! ERROR !!!: benchmark_name is not supported. benchmark_name: {benchmark_name}")
                         assert False
@@ -1272,6 +1276,7 @@ def fit_linear_regression(data, y_col_name):
 
 def load_coef():
     loaded_coef = dict()
+    # col = ["svc_name","endpoint","feature","value"]
     df = pd.read_csv(f"coef.csv")
     for svc_name in df["svc_name"].unique():
         if svc_name not in loaded_coef:
@@ -1363,6 +1368,7 @@ filter incomplete traces
 def trace_string_file_to_trace_data_structure(load_coef_flag):
     global trainig_input_trace_file
     col = ["cluster_id","svc_name","method","path","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size","inflight_dict","rps_dict"]
+    
     try:
         df = pd.read_csv(trainig_input_trace_file, names=col, header=None)
     except Exception as e:
@@ -1399,8 +1405,13 @@ def trace_string_file_to_trace_data_structure(load_coef_flag):
             # svc_name = ep.split("@")[0] # user-us-west-1
             # method = ep.split("@")[1] # POST
             # path = ep.split("@")[2] # /user.User/CheckUser
-            
-        rps_list = row["rps_dict"].split("|")[:-1]
+        
+        try:
+            rps_list = row["rps_dict"].split("|")[:-1]
+        except Exception as e:
+            logger.error(f"!!! ERROR !!!: failed to split rps_dict with error: {e}")
+            logger.error(f"!!! ERROR !!!: row: {row}")
+            assert False
         for ep_rps in rps_list:
             temp = ep_rps.split(":")
             # logger.debug(f"len(temp): {len(temp)}")
@@ -1414,21 +1425,25 @@ def trace_string_file_to_trace_data_structure(load_coef_flag):
             # svc_name = ep.split("@")[0]
             # method = ep.split("@")[1]
             # path = ep.split("@")[2]
-        
-        if load_coef_flag:
-            span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
-                row["trace_id"], row["span_id"], row["parent_span_id"], \
-                    st=float(row["st"]), et=float(row["et"]), xt=int(row["xt"]), \
-                        callsize=int(row["call_size"]), \
-                            rps_dict=rps_dict, \
-                                num_inflight_dict=num_inflight_dict)
-        else:
-            span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
-                row["trace_id"], row["span_id"], row["parent_span_id"], \
-                    st=float(row["st"]), et=float(row["et"]), xt=-1, \
-                        callsize=int(row["call_size"]), \
-                            rps_dict=rps_dict, \
-                                num_inflight_dict=num_inflight_dict)
+        try:
+            if load_coef_flag:
+                span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
+                    row["trace_id"], row["span_id"], row["parent_span_id"], \
+                        st=float(row["st"]), et=float(row["et"]), xt=int(row["xt"]), \
+                            callsize=int(row["call_size"]), \
+                                rps_dict=rps_dict, \
+                                    num_inflight_dict=num_inflight_dict)
+            else:
+                span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
+                    row["trace_id"], row["span_id"], row["parent_span_id"], \
+                        st=float(row["st"]), et=float(row["et"]), xt=-1, \
+                            callsize=int(row["call_size"]), \
+                                rps_dict=rps_dict, \
+                                    num_inflight_dict=num_inflight_dict)
+        except Exception as e:
+            logger.error(f"!!! ERROR !!!: failed to create span with error: {e}")
+            logger.error(f"!!! ERROR !!!: row: {row}")
+            assert False
         spans.append(span)
         
     # Convert list of span to traces data structure
@@ -1504,7 +1519,6 @@ def init_max_capacity_per_service(capacity):
                 else:
                     max_capacity_per_service[svc][region] = 1000
             elif benchmark_name == "hotelreservation":
-                
                 max_capacity_per_service['slateingress'][region] = capacity
                 max_capacity_per_service['frontend'][region] = capacity
                 max_capacity_per_service['recommendation'][region] = capacity
@@ -1525,9 +1539,12 @@ def init_max_capacity_per_service(capacity):
                 # max_capacity_per_service['reservation'][region] = 1000
                 # max_capacity_per_service['user'][region] = 1200
             else:
-                logger.error("!!! ERROR !!!: benchmark_name is not supported.")
-                assert False
-            logger.debug(f"set max_capacity_per_service[{svc}][{region}] = {max_capacity_per_service[svc][region]}")
+                for region in all_endpoints:
+                    for svc in all_endpoints[region]:
+                        if svc not in max_capacity_per_service:
+                            max_capacity_per_service[svc] = dict()
+                        max_capacity_per_service[svc][region] = capacity
+                        logger.debug(f"set max_capacity_per_service[{svc}][{region}] = {max_capacity_per_service[svc][region]}")
 
 def check_file_exist(file_path):
     if file_path not in os.listdir() or os.path.getsize(file_path) == 0:
@@ -1641,10 +1658,15 @@ def training_phase():
     global max_capacity_per_service
     global degree
     global init_done
-    if not check_file_exist(trainig_input_trace_file):
-        return
+    # if not check_file_exist(trainig_input_trace_file):
+    #     return
 
     if init_done:
+        return
+    if mode == "'before_start'":
+        return
+    if os.path.isfile(trainig_input_trace_file) == False:
+        logger.warning(f"WARNING {trainig_input_trace_file} does not exist.")
         return
     if load_coef_flag: # load_coef_flag=True assumes that time stitching is done
         stitched_traces = trace_string_file_to_trace_data_structure(load_coef_flag)
@@ -1725,7 +1747,7 @@ def read_config_file():
                     logger.info(f'Update benchmark_name: {benchmark_name} -> {line[1]}')
                     benchmark_name = line[1]
                     ###################################################################
-                    if benchmark_name == "usecase1-howmuch" or benchmark_name == "usecase1-whichcluster" or benchmark_name == "usecase1-orderofevent" or benchmark_name == "usecase1-cascading":
+                    if benchmark_name == "usecase1-howmuch" or benchmark_name == "usecase1-whichcluster" or benchmark_name == "usecase1-orderofevent" or benchmark_name == "usecase1-cascading" or benchmark_name == "alibaba":
                         parent_of_bottleneck_service = "frontend"
                         bottleneck_service = "a"
                     elif benchmark_name == "usecase3-compute-diff":
@@ -1733,6 +1755,9 @@ def read_config_file():
                     elif benchmark_name == "hotelreservation":
                         parent_of_bottleneck_service = "slateingress"
                         bottleneck_service = "frontend"
+                    elif benchmark_name == "alibaba":
+                        parent_of_bottleneck_service = "sslateingress"
+                        bottleneck_service = "s6f83"
                     logger.info(f"parent_of_bottleneck_service: {parent_of_bottleneck_service}, bottleneck_service: {bottleneck_service}")
                     ###################################################################
                     
