@@ -399,8 +399,8 @@ def get_regression_pipeline(load_dict):
     return reg, df
     
 
-# def fill_compute_df(compute_df, compute_arc_var_name, max_capacity_per_service, degree, endpoint_level_rps, agg_total_endpoint_rps):
-def fill_compute_df(compute_df, compute_arc_var_name, max_capacity_per_service, degree, endpoint_level_rps):
+def fill_compute_df(compute_df, compute_arc_var_name, max_capacity_per_service, degree, endpoint_level_rps, agg_total_endpoint_rps, endpoint_to_placement):
+# def fill_compute_df(compute_df, compute_arc_var_name, max_capacity_per_service, degree, endpoint_level_rps):
     logger = logging.getLogger(__name__)
     endpoint_list = list()
     svc_name_list = list()
@@ -462,8 +462,14 @@ def fill_compute_df(compute_df, compute_arc_var_name, max_capacity_per_service, 
         # gurobi_model.addConstrs((gp.quicksum(aggregated_load.select('*', n_)) <= max_tput[n_] for n_ in max_tput_key), name="service_capacity")
         ###################################################################
         
-        compute_df.at[index, 'max_load'] = max_capacity_per_service[row['svc_name']][row["src_cid"]]
-        # compute_df.at[index, 'max_load'] = agg_total_endpoint_rps[row['endpoint']]
+        # compute_df.at[index, 'max_load'] = max_capacity_per_service[row['svc_name']][row["src_cid"]]
+        local_load = endpoint_level_rps[row['src_cid']][row['svc_name']][row['endpoint']]
+        for remote_region in endpoint_to_placement[row['endpoint']]:
+            remote_load = endpoint_level_rps[remote_region][row['svc_name']][row['endpoint']]
+            if local_load < remote_load:
+                compute_df.at[index, 'max_load'] = agg_total_endpoint_rps[row['endpoint']]
+                break
+            compute_df.at[index, 'max_load'] = endpoint_level_rps[row['src_cid']][row['svc_name']][row['endpoint']]
         compute_df.at[index, "max_compute_latency"] = compute_df.at[index, 'max_load']**degree
         
         # compute_df.at[index, "max_load"] = GRB.INFINITY
@@ -551,14 +557,14 @@ def fill_observation_in_compute_df(compute_df, callgraph_table):
     fill_latency_function(compute_df, callgraph_table)
     
 
-# def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service, degree, endpoint_level_rps, agg_total_endpoint_rps):
-def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service, degree, endpoint_level_rps):
+def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service, degree, endpoint_level_rps, agg_total_endpoint_rps, endpoint_to_placement):
+# def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service, degree, endpoint_level_rps):
     logger = logging.getLogger(__name__)
     columns = ["svc_name", "src_cid", "dst_cid", "call_size", "max_load", "min_load", "observed_x", "observed_y", "coef", "min_compute_latency", "max_compute_latency"]
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
     # try:
-    # fill_compute_df(compute_df, compute_arc_var_name, max_capacity_per_service, degree, endpoint_level_rps, agg_total_endpoint_rps)
-    fill_compute_df(compute_df, compute_arc_var_name, max_capacity_per_service, degree, endpoint_level_rps)
+    fill_compute_df(compute_df, compute_arc_var_name, max_capacity_per_service, degree, endpoint_level_rps, agg_total_endpoint_rps, endpoint_to_placement)
+    # fill_compute_df(compute_df, compute_arc_var_name, max_capacity_per_service, degree, endpoint_level_rps)
     # except Exception as e:
         # logger.error(f"!!! ERROR !!! fill_compute_df failed: {type(e).__name__}, {e}")
         # assert False

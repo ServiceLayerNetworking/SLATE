@@ -94,7 +94,8 @@ def run_optimizer(coef_dict, \
         degree, \
         inter_cluster_latency, \
         fanout, \
-        total_root_node_rps):
+        total_root_node_rps, \
+            agg_total_endpoint_rps):
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -196,7 +197,8 @@ def run_optimizer(coef_dict, \
     compute_arc_var_name = opt_func.create_compute_arc_var_name(endpoint_level_rps)
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
     # try:
-    compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service, degree, endpoint_level_rps)
+    # compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service, degree, endpoint_level_rps)
+    compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service, degree, endpoint_level_rps, agg_total_endpoint_rps, endpoint_to_placement)
     # except Exception as e:
         # logger.error(f'Exception: {type(e).__name__}, {e}')
         # logger.error(f'!!! ERROR !!! create_compute_df failed')
@@ -431,6 +433,8 @@ def run_optimizer(coef_dict, \
                     network_df.at[index, 'max_network_load'] = 0
                 else:
                     network_df.at[index, 'max_network_load'] = total_root_node_rps
+                    
+                    
                 # print(f"src_compute_max_load: {src_compute_max_load}")
         except Exception as e:
             logger.error(f'Exception: {type(e).__name__}, {e}')
@@ -796,10 +800,44 @@ def run_optimizer(coef_dict, \
 
     opt_func.log_timestamp("gurobi add constraints and model update")
     gurobi_model.update()
-    # gurobi_model.setParam('Threads', 64)
+    gurobi_model.setParam('NonConvex', 2) ## required
+    
+    ## 64 or 128 makes the solver slower....
+    ## default(32) is fastest weirdly.
+    # gurobi_model.setParam('Threads', 128)
+    
+    # MIPFocus = 0: Balanced approach (default). Gurobi tries to balance finding feasible solutions and proving optimality.
+    # MIPFocus = 1: Focus is on finding the best feasible solution quickly. This mode is useful when you only need an optimal or near-optimal solution, and you do not need to prove it is the best.
+    # MIPFocus = 2: Focus is on proving optimality. This mode is used when you believe the solver is spending too much time in finding better solutions, instead of proving optimality.
+    # MIPFocus = 3: Focus is on improving the lower bound. Helpful when the objective value is not improving significantly but you are far from proving optimality.
     # gurobi_model.setParam('MIPFocus', 2)
-    gurobi_model.setParam('NonConvex', 2)
-    gurobi_model.setParam('Method', 3)
+    
+    
+    ## It does not make difference
+    # Method = 0: Primal Simplex
+    # Method = 1: Dual Simplex
+    # Method = 2: Barrier (interior point method)
+    # Method = 3: Concurrent (Gurobi will run multiple solvers in parallel and choose the best result)
+    # Method = 4: Deterministic Concurrent (similar to Concurrent but in a deterministic way)
+    # gurobi_model.setParam('Method', 4)
+    
+    ## It does not make difference
+    # gurobi_model.setParam('Heuristics', 0.0)
+    # gurobi_model.setParam('Heuristics', 0.1)
+    # gurobi_model.setParam('Heuristics', 0.5)
+    # gurobi_model.setParam('Heuristics', 1.0)
+    
+    ## It does not make difference
+    # gurobi_model.setParam('Crossover', 1)
+    
+    ## It makes the solver faster. why...? I think it is hard deadline only
+    # gurobi_model.setParam('TimeLimit', 100.0)
+
+    ## It does not make difference
+    # for var in compute_load:
+    #     var.BranchPriority = 10  # Higher priority
+    # for var in network_load:
+    #     var.BranchPriority = 10  # Higher priority
 
     
     solver_start_time = time.time()
