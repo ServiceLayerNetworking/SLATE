@@ -20,6 +20,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
 from sklearn.metrics import r2_score
 import span as sp
+from gurobipy import GRB
 import pprint
 import hashlib
 
@@ -347,24 +348,6 @@ def is_ingress_gw(target_svc, callgraph):
     return True
 
 
-def get_compute_df_column(ep_str_callgraph_table):
-    columns = ["svc_name", "src_cid", "dst_cid", "call_size", "max_load", "min_load", "observed_x", "observed_y", "coef", "min_compute_latency"]
-        
-    # for cg_key in ep_str_callgraph_table:
-    #     columns.append("max_load_"+cg_key)
-    # for cg_key in ep_str_callgraph_table:
-    #     columns.append("min_load_"+cg_key)
-    # for cg_key in ep_str_callgraph_table:
-    #     columns.append("observed_x_"+cg_key)
-    # for cg_key in ep_str_callgraph_table:
-    #     columns.append("observed_y_"+cg_key)
-    # for cg_key in ep_str_callgraph_table:
-    #     columns.append("latency_function_"+cg_key)
-    # for cg_key in ep_str_callgraph_table:
-    #     columns.append("min_compute_latency_"+cg_key)
-    return columns
-
-
 # Old version
 # def get_regression_pipeline(endpoint_load_dict):
 #     numeric_features = list()
@@ -416,7 +399,7 @@ def get_regression_pipeline(load_dict):
     return reg, df
     
 
-def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_capacity_per_service):
+def fill_compute_df(compute_df, compute_arc_var_name, max_capacity_per_service, degree):
     logger = logging.getLogger(__name__)
     endpoint_list = list()
     svc_name_list = list()
@@ -457,9 +440,14 @@ def fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, ma
     for index, row in compute_df.iterrows():
         # for cg_key in ep_str_callgraph_table:
         logger.debug(f"Set max_load for {row['svc_name']}: {max_capacity_per_service[row['svc_name']][row['src_cid']]}")
-        compute_df.at[index, 'max_load'] = max_capacity_per_service[row['svc_name']][row["src_cid"]]
         compute_df.at[index, 'min_load'] = 0
         compute_df.at[index, "min_compute_latency"] = 0
+        
+        compute_df.at[index, 'max_load'] = max_capacity_per_service[row['svc_name']][row["src_cid"]]
+        compute_df.at[index, "max_compute_latency"] = max_capacity_per_service[row['svc_name']][row["src_cid"]]**degree
+        
+        # compute_df.at[index, "max_load"] = GRB.INFINITY
+        # compute_df.at[index, "max_compute_latency"] = GRB.INFINITY
             
             
 def get_observed_y(callgraph, load_list, compute_df):
@@ -543,12 +531,12 @@ def fill_observation_in_compute_df(compute_df, callgraph_table):
     fill_latency_function(compute_df, callgraph_table)
     
 
-def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service):
+def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service, degree):
     logger = logging.getLogger(__name__)
-    columns = get_compute_df_column(ep_str_callgraph_table)
+    columns = ["svc_name", "src_cid", "dst_cid", "call_size", "max_load", "min_load", "observed_x", "observed_y", "coef", "min_compute_latency", "max_compute_latency"]
     compute_df = pd.DataFrame(columns=columns, index=compute_arc_var_name)
     # try:
-    fill_compute_df(compute_df, compute_arc_var_name, ep_str_callgraph_table, max_capacity_per_service)
+    fill_compute_df(compute_df, compute_arc_var_name, max_capacity_per_service, degree)
     # except Exception as e:
         # logger.error(f"!!! ERROR !!! fill_compute_df failed: {type(e).__name__}, {e}")
         # assert False

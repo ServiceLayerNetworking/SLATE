@@ -176,11 +176,15 @@ def run_optimizer(coef_dict, \
     depth_dict = dict()
     for cg_key in ep_str_callgraph_table:
         depth_dict[cg_key] = opt_func.get_depth_in_graph(ep_str_callgraph_table[cg_key])
-    # print("depth_dict")
     # print(depnum_endpointth_dict)
     max_depth = 0
     for cg_key in depth_dict:
         max_depth = max(max_depth, max(depth_dict[cg_key].values()))
+    max_depth += 1
+    
+    num_callgraph = len(ep_str_callgraph_table)
+    num_cluster = len(placement)
+    
     ## callsize_dict
     ## key: (parent_svc,child_svc), value: callsize of the link (= depth+1)
     callsize_dict = dict()
@@ -191,7 +195,7 @@ def run_optimizer(coef_dict, \
     compute_arc_var_name = opt_func.create_compute_arc_var_name(endpoint_level_rps)
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
     # try:
-    compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service)
+    compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service, degree)
     # except Exception as e:
         # logger.error(f'Exception: {type(e).__name__}, {e}')
         # logger.error(f'!!! ERROR !!! create_compute_df failed')
@@ -220,7 +224,7 @@ def run_optimizer(coef_dict, \
 
     compute_latency = dict()
     compute_load = dict()
-    compute_latency = gppd.add_vars(gurobi_model, compute_df, name="compute_latency", lb="min_compute_latency")
+    compute_latency = gppd.add_vars(gurobi_model, compute_df, name="compute_latency", lb="min_compute_latency", ub="max_compute_latency")
     compute_load = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge", ub="max_load")
     '''
     compute_load2 = compute_load**2
@@ -229,10 +233,11 @@ def run_optimizer(coef_dict, \
     latency = compute_load**4 + b -> this is what we want eventually. 
     This is walkaround solution because gurobi does not support more than quadratic.
     '''
-    compute_load2 = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge2")
-    for index, row in compute_df.iterrows():
-        if degree == 4:
-            gurobi_model.addConstr(compute_load2[index] == compute_load[index]**2, name=f'for_higher_degree-{index}')
+    if degree == 4:
+        compute_load2 = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge2")
+        for index, row in compute_df.iterrows():
+            if degree == 4:
+                gurobi_model.addConstr(compute_load2[index] == compute_load[index]**2, name=f'for_higher_degree-{index}')
         
     gurobi_model.update()
     constraint_file = open(f'constraint.log', 'w')
@@ -247,30 +252,34 @@ def run_optimizer(coef_dict, \
         endpoint latency == (coef[ep_1]*scheduled_load[ep_1]) + (coef[ep_2]*scheduled_load[ep_2]) + intercept
     '''
 
-    normalized_total_rps = dict()
-    for svc_name in compute_df['svc_name'].unique():
-        svc_df = compute_df[compute_df['svc_name'] == svc_name]
-        cid_of_svc = svc_df['src_cid'].unique()
-        for cid in cid_of_svc:
-            svc_cid_df = svc_df[svc_df['src_cid'] == cid]
-            try:
-                for ep in svc_cid_df['endpoint'].unique(): # all endpoints of the svc
-                    arc_name = opt_func.get_compute_arc_var_name(ep, cid)
-                    if svc_name not in normalized_total_rps:
-                        normalized_total_rps[svc_name] = dict()
-                    if cid not in normalized_total_rps[svc_name]:
-                        normalized_total_rps[svc_name][cid] = 0
-                    normalized_total_rps[svc_name][cid] += compute_load[arc_name]
-            except Exception as e:
-                logger.error(f'Exception: {type(e).__name__}, {e}')
-                logger.error(f'{svc_cid_df}')
-                assert False
-    for svc_name in normalized_total_rps:
-        for cid in normalized_total_rps[svc_name]:
-            # print(f"normalized_total_rps,{svc_name},{cid},{normalized_total_rps[svc_name][cid]}")
-            a=1
+    # normalized_total_rps = dict()
+    # norm_rps = gppd.add_vars(gurobi_model, compute_df, name="norm_rps", lb=0, ub="max_load")
+    # for svc_name in compute_df['svc_name'].unique():
+    #     svc_df = compute_df[compute_df['svc_name'] == svc_name]
+    #     cid_of_svc = svc_df['src_cid'].unique()
+    #     for cid in cid_of_svc:
+    #         svc_cid_df = svc_df[svc_df['src_cid'] == cid]
+    #         for ep in svc_cid_df['endpoint'].unique(): # all endpoints of the svc
+    #             arc_name = opt_func.get_compute_arc_var_name(ep, cid)
+    #             if svc_name not in normalized_total_rps:
+    #                 normalized_total_rps[svc_name] = dict()
+    #             if cid not in normalized_total_rps[svc_name]:
+    #                 normalized_total_rps[svc_name][cid] = 0
+    #             normalized_total_rps[svc_name][cid] += (compute_load[arc_name]/num_callgraph)
+    #     # try:
+    #     #     gurobi_model.addConstr(norm_rps[arc_name] == normalized_total_rps[svc_name][cid], name=f'norm_rps-{index}')
+    #     # except Exception as e:
+    #     #     logger.error(f'Exception: {type(e).__name__}, {e}')
+    #     #     logger.error(f'arc_name: {arc_name}')
+    #     #     assert False
+                
     for index, row in compute_df.iterrows():
-        lh = compute_latency[index]
+        if degree == 0:
+            max_rps = max_capacity_per_service[row['svc_name']][row['src_cid']]*num_cluster
+            print(f"max_rps: {max_rps}")
+            lh = compute_latency[index]*(max_rps-compute_load[index])
+        else:
+            lh = compute_latency[index]
         rh = 0
         # try:
         coefs = row['coef']
@@ -287,12 +296,14 @@ def run_optimizer(coef_dict, \
                 use_normalized_rps = False
                 if use_normalized_rps:
                     print(f"normalized_total_rps[{row['svc_name']}][{row['src_cid']}]: {normalized_total_rps[row['svc_name']][row['src_cid']]}")
-                    total_rps_in_this_svc_in_this_cluster = normalized_total_rps[row['svc_name']][row['src_cid']]
-                    rh += coefs[dependent_ep] * (total_rps_in_this_svc_in_this_cluster ** 2)
-                    # rh += coefs[dependent_ep] * (total_rps_in_this_svc_in_this_cluster)
-                    ###################################################################
-                else:    
-                    if degree == 1:
+                    # total_rps_in_this_svc_in_this_cluster = normalized_total_rps[row['svc_name']][row['src_cid']]
+                    rh += coefs[dependent_ep] * (norm_rps ** degree)
+                ###################################################################
+                else:
+                    if degree == 0:
+                        ## mm1 model
+                        rh += coefs[dependent_ep] + (max_rps - compute_load[dependent_arc_name])
+                    elif degree == 1:
                         rh += coefs[dependent_ep] * (compute_load[dependent_arc_name])
                     elif degree == 2:
                         rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
@@ -308,8 +319,9 @@ def run_optimizer(coef_dict, \
         constraint_file.write("-"*80)
         constraint_file.write("\n")
         gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
+        # print(f"lh: {lh}")
+        # print(f"rh: {rh}")
     gurobi_model.update()
-
 
     logger.debug(f'{svc_to_placement}')
     ## Define names of the variables for network arc in gurobi
@@ -334,7 +346,7 @@ def run_optimizer(coef_dict, \
             var_name = opt_func.get_network_arc_var_name(opt_func.source_node_name, root_node, opt_func.NONE_CID, dst_cid)
             network_arc_var_name.append(var_name)
     
-    columns=["src_svc", "src_cid", "dst_svc", "dst_cid", "min_network_time", "max_network_time", "max_load", "min_load", "min_egress_cost", "max_egress_cost"]
+    columns=["src_svc", "src_cid", "dst_svc", "dst_cid", "min_network_time", "max_network_time", "max_network_load", "min_network_load", "min_egress_cost", "max_egress_cost"]
     network_df = pd.DataFrame(
         columns=columns,
         data={
@@ -346,6 +358,8 @@ def run_optimizer(coef_dict, \
     dst_svc_list = list()
     src_cid_list = list()
     dst_cid_list = list()
+    src_endpoint_list = list()
+    dst_endpoint_list = list()
     min_network_time_list = list()
     max_network_time_list = list()
     min_egress_cost_list = list()
@@ -359,6 +373,8 @@ def run_optimizer(coef_dict, \
             # dst_cid = int(var_name[1].split(cfg.DELIMITER)[1])
             src_cid = var_name[0].split(cfg.DELIMITER)[1]
             dst_cid = var_name[1].split(cfg.DELIMITER)[1]
+            src_endpoint = var_name[0].split("#")[0]
+            dst_endpoint = var_name[1].split("#")[0]
         else:
             logger.error("var_name MUST be tuple datatype")
             assert False
@@ -366,6 +382,8 @@ def run_optimizer(coef_dict, \
         dst_svc_list.append(dst)
         src_cid_list.append(src_cid)
         dst_cid_list.append(dst_cid)
+        src_endpoint_list.append(src_endpoint)
+        dst_endpoint_list.append(dst_endpoint)
         # min_network_time_list.append(opt_func.get_network_latency(src_cid, dst_cid)*2)
         # max_network_time_list.append(opt_func.get_network_latency(src_cid, dst_cid)*2)
         try:
@@ -387,27 +405,46 @@ def run_optimizer(coef_dict, \
     network_df["dst"] = dst_svc_list
     network_df["src_cid"] = src_cid_list
     network_df["dst_cid"] = dst_cid_list
+    network_df["src_endpoint"] = src_endpoint_list
+    network_df["dst_endpoint"] = dst_endpoint_list
     network_df["min_network_time"] = min_network_time_list
     network_df["max_network_time"] = max_network_time_list
-    # for index, row in network_df.iterrows():
-    #     network_df.at[index, 'max_load'] = MAX_LOAD[key]
-    #     if row["src_svc"] == opt_func.source_node_name:
-    #         network_df.at[index, 'max_load'] = MAX_LOAD[key]
-    #     else:
-    #         network_df.at[index, 'max_load'] = 0
-    #     network_df.at[index, 'min_load'] = 0
     network_df["min_egress_cost"] = min_egress_cost_list
     network_df["max_egress_cost"] = max_egress_cost_list
+    network_df['min_network_load'] = 0
+    
+    for index, row in network_df.iterrows():
+        src_compute = compute_df[(compute_df['src_cid'] == row['src_cid']) & (compute_df['endpoint'] == row['src_endpoint'])]
+        try:
+            if row['src_cid'] == "XXXX":
+                # print(f"asdf {row['src']}, {row['dst_cid']}")
+                # print(max_capacity_per_service[row['src']][row['dst_cid']])
+                network_df.at[index, 'max_network_load'] = 100*num_cluster + 1000
+            else:
+                src_compute_max_load = src_compute['max_load'].values[0]
+                network_df.at[index, 'max_network_load'] = src_compute_max_load
+                print(f"{index}: {src_compute_max_load}")
+        except Exception as e:
+            logger.error(f'Exception: {type(e).__name__}, {e}')
+            logger.error(f'index: {index}')
+            logger.error(f'src_compute: {src_compute}')
+            logger.error(f'src_compute_max_load: {src_compute_max_load}')
+            assert False
 
     network_df.to_csv(f'network_df.csv')
     network_latency = dict()
     network_load = dict()
-    network_egress_cost = dict()
     network_latency = gppd.add_vars(gurobi_model, network_df, name="network_latency", lb="min_network_time", ub="max_network_time")
-    network_load = gppd.add_vars(gurobi_model, network_df, name="load_for_network_edge")
-    network_egress_cost = gppd.add_vars(gurobi_model, network_df, name="network_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
+    
+    network_load = gppd.add_vars(gurobi_model, network_df, name="load_for_network_edge", lb='min_network_load', ub='max_network_load')
+    
+    if objective == "multi_objective" or objective == "egress_cost":
+        network_egress_cost = dict()
+        network_egress_cost = gppd.add_vars(gurobi_model, network_df, name="network_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
+        network_egress_cost_sum = 0
+        network_egress_cost_sum += sum(network_egress_cost.multiply(network_load))
+        total_egress_sum = network_egress_cost_sum
     gurobi_model.update()
-
     # avg_latency
     network_latency_sum = 0
     compute_latency_sum = 0
@@ -416,9 +453,6 @@ def run_optimizer(coef_dict, \
     total_latency_sum = network_latency_sum + compute_latency_sum
 
     # egress_cost
-    network_egress_cost_sum = 0
-    network_egress_cost_sum += sum(network_egress_cost.multiply(network_load))
-    total_egress_sum = network_egress_cost_sum
     gurobi_model.update()
     
     #############################################################
@@ -743,39 +777,40 @@ def run_optimizer(coef_dict, \
     # opt_func.print_gurobi_var(gurobi_model)
     # opt_func.print_gurobi_constraint(gurobi_model)
     gurobi_model.setParam('NonConvex', 2)
+    
     solver_start_time = time.time()
     gurobi_model.optimize()
-    num_cluster = len(placement)
-    num_svc = len(svc_to_placement)
-    num_endpoint = len(endpoint_to_placement)
     solver_time = time.time()-solver_start_time
-    num_callgraph = len(ep_str_callgraph_table)
-    print(f"solver_time,{num_cluster},{num_callgraph},{max_depth},{fanout},{num_svc},{num_endpoint},{degree},{solver_time}")
+    
     opt_func.log_timestamp("MODEL OPTIMIZE")
 
     ## Not belonging to optimizer critical path
-    ts = time.time()
     varInfo = [(v.varName, v.LB, v.UB) for v in gurobi_model.getVars() ]
     df_var = pd.DataFrame(varInfo) # convert to pandas dataframe
     df_var.columns=['Variable Name','LB','UB'] # Add column headers
-    num_var = len(df_var)
+    df_var.to_csv(f'variable.csv')
     constrInfo = [(c.constrName, gurobi_model.getRow(c), c.Sense, c.RHS) for c in gurobi_model.getConstrs() ]
     df_constr = pd.DataFrame(constrInfo)
     df_constr.columns=['Constraint Name','Constraint equation', 'Sense','RHS']
-    num_constr = len(df_constr)
-    df_var.to_csv(f'variable.csv')
     df_constr.to_csv(f'constraint.csv')
-    substract_time = time.time() - ts
+    
+    num_svc = len(svc_to_placement)
+    num_endpoint = len(endpoint_to_placement)
+    num_var = len(df_var)
+    num_constr = len(df_constr)
+    print(f"solver_time,{num_cluster},{num_callgraph},{max_depth},{fanout},{num_svc},{num_endpoint},{degree},{num_var},{num_constr},{solver_time}")
+    
     opt_func.log_timestamp("get var and constraint")
     if gurobi_model.Status != GRB.OPTIMAL:
-        logger.info(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
-        logger.info(f"XXXX INFEASIBLE MODEL! XXXX")
-        logger.info(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        logger.error(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        logger.error(f"XXXX INFEASIBLE MODEL! XXXX")
+        logger.error(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
         if cfg.DISPLAY:
             logger.debug(df_constr)
         gurobi_model.computeIIS()
         gurobi_model.write("gurobi_model.ilp")
         logger.error('\nThe following constraints and variables are in the IIS:')
+        logger.error("Output: gurobi_model.ilp")
         # for c in gurobi_model.getConstrs():
         #     if c.IISConstr: logger.debug(f'\t{c.constrname}: {gurobi_model.getRow(c)} {c.Sense} {c.RHS}')
         for v in gurobi_model.getVars():
