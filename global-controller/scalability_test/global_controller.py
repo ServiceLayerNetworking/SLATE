@@ -12,7 +12,6 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from IPython.display import display
 from pprint import pprint
-import random
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
 import datetime
@@ -25,6 +24,8 @@ import copy
 import warnings
 import json
 import hashlib
+import random
+random.seed(10)
 
 # Filter specific FutureWarning related to pandas concatenation.
 
@@ -286,6 +287,7 @@ def write_optimizer_output(optimizer_cnt, percentage_df, desc, fn):
         else:
             sim_percentage_df.to_csv(fn, header=False, mode="a")
         sim_percentage_df = sim_percentage_df.reset_index(drop=True)
+        sim_percentage_df.to_csv("sim_percentage_df.csv")
         logger.info(f"sim_percentage_df:\n{sim_percentage_df.to_csv()}")
         
 
@@ -316,9 +318,6 @@ def optimizer_entrypoint(degree_, fanout):
     global parent_of_bottleneck_service
     global aggregated_rps
     global agg_root_node_rps
-    # aggregated_rps = aggregate_rps_by_region()
-    # record_endpoint_rps(aggregated_rps)
-    # agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
     
     if mode != "runtime":
         logger.info(f"run optimizer only in runtime mode. current mode: {mode}. return optimizer_entrypoint without executing optimizer...")
@@ -384,23 +383,34 @@ def optimizer_entrypoint(degree_, fanout):
     )
     '''
     if ROUTING_RULE == "SLATE":
-        if benchmark_name == "usecase1-cascading":
-            logger.info(f"WARNING: Keep the capacity threshold for SLATE for usecase1-cascading")
-        else:
-            # NOTE: No capacity threshold for SLATE
-            logger.info(f"WARNING: No capacity threshold in SLATE. latency curve will cover things")
-            aggregated_rps_per_region = dict()
-            for region in aggregated_rps:
-                aggregated_rps_per_region[region] = dict()
-                for svc in aggregated_rps[region]:
-                    aggregated_rps_per_region[region][svc] = 0
-                    for ep in aggregated_rps[region][svc]:
-                        aggregated_rps_per_region[region][svc] += aggregated_rps[region][svc][ep]
-            for svc in max_capacity_per_service:
-                for region in max_capacity_per_service[svc]:
-                    max_capacity_per_service[svc][region] = aggregated_rps_per_region[region][svc]*num_cluster
-        ts = time.time()
+        # NOTE: No capacity threshold for SLATE
+        logger.info(f"WARNING: No capacity threshold in SLATE. latency curve will cover things")
+        aggregated_rps_per_region = dict()
+        for region in aggregated_rps:
+            aggregated_rps_per_region[region] = dict()
+            for svc in aggregated_rps[region]:
+                aggregated_rps_per_region[region][svc] = 0
+                for ep in aggregated_rps[region][svc]:
+                    aggregated_rps_per_region[region][svc] += aggregated_rps[region][svc][ep]
+        for svc in max_capacity_per_service:
+            for region in max_capacity_per_service[svc]:
+                max_capacity_per_service[svc][region] = aggregated_rps_per_region[region][svc]*num_cluster
+        agg_total_endpoint_rps = dict()
+        for region in aggregated_rps:
+            for svc in aggregated_rps[region]:
+                for ep in aggregated_rps[region][svc]:
+                    if ep not in agg_total_endpoint_rps:
+                        agg_total_endpoint_rps[ep] = 0
+                    agg_total_endpoint_rps[ep] += aggregated_rps[region][svc][ep]
+        total_root_node_rps = 0
+        for region in agg_root_node_rps:
+            for svc in agg_root_node_rps[region]:
+                for ep in agg_root_node_rps[region][svc]:
+                    total_root_node_rps += agg_root_node_rps[region][svc][ep]
+                    print(f"agg_root_node_rps[{region}][{svc}][{ep}]: {agg_root_node_rps[region][svc][ep]}")
+                    
         logger.info(f"run_optimizer starts")
+        print(f"total_root_node_rps: {total_root_node_rps}")
         cur_percentage_df, desc = opt.run_optimizer(\
             coef_dict, \
             aggregated_rps, \
@@ -414,8 +424,9 @@ def optimizer_entrypoint(degree_, fanout):
             max_capacity_per_service, \
             degree_, \
             inter_cluster_latency, \
-            fanout)
-        logger.info(f"run_optimizer done, runtime: {time.time()-ts} seconds")
+            fanout, \
+            total_root_node_rps)
+                # agg_total_endpoint_rps)
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
     elif ROUTING_RULE == "WATERFALL2":
@@ -757,7 +768,6 @@ def aggregated_rps_routine():
     global agg_root_node_rps
     global temp_counter
     global prev_ts
-    
     for region in all_endpoints:
         for svc_name in all_endpoints[region]:
             for endpoint in all_endpoints[region][svc_name]:
@@ -771,10 +781,11 @@ def aggregated_rps_routine():
                     # podname_list = ["pod1", "pod2", "pod3", "pod4"]
                     podname_list = ["pod1"]
                     for podname in podname_list:
+                        # per_pod_ep_rps[region][svc_name][endpoint][podname] = 10000 * (len(all_endpoints) - int(region.split("cluster")[1]))
                         if region == "cluster0":
-                            per_pod_ep_rps[region][svc_name][endpoint][podname] = random.randint(1000, 1000)
+                            per_pod_ep_rps[region][svc_name][endpoint][podname] = random.randint(1000, 2000)
                         else:
-                            per_pod_ep_rps[region][svc_name][endpoint][podname] = random.randint(100, 100)
+                            per_pod_ep_rps[region][svc_name][endpoint][podname] = random.randint(100, 1000)
     aggregated_rps = aggregate_rps_by_region(per_pod_ep_rps)
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
     logger.info(f"aggregated_rps: {aggregated_rps}")

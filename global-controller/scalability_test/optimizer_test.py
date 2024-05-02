@@ -93,7 +93,8 @@ def run_optimizer(coef_dict, \
         max_capacity_per_service, \
         degree, \
         inter_cluster_latency, \
-        fanout):
+        fanout, \
+        total_root_node_rps):
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -195,7 +196,7 @@ def run_optimizer(coef_dict, \
     compute_arc_var_name = opt_func.create_compute_arc_var_name(endpoint_level_rps)
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
     # try:
-    compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service, degree)
+    compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service, degree, endpoint_level_rps)
     # except Exception as e:
         # logger.error(f'Exception: {type(e).__name__}, {e}')
         # logger.error(f'!!! ERROR !!! create_compute_df failed')
@@ -276,7 +277,7 @@ def run_optimizer(coef_dict, \
     for index, row in compute_df.iterrows():
         if degree == 0:
             max_rps = max_capacity_per_service[row['svc_name']][row['src_cid']]*num_cluster
-            print(f"max_rps: {max_rps}")
+            # print(f"max_rps: {max_rps}")
             lh = compute_latency[index]*(max_rps-compute_load[index])
         else:
             lh = compute_latency[index]
@@ -367,8 +368,8 @@ def run_optimizer(coef_dict, \
     flattened_callsize_dict = {inner_key: value for outer_key, inner_dict in callsize_dict.items() for inner_key, value in inner_dict.items()}
     for var_name in network_arc_var_name:
         if type(var_name) == tuple:
-            src = var_name[0].split(cfg.DELIMITER)[0]
-            dst = var_name[1].split(cfg.DELIMITER)[0]
+            src_svc = var_name[0].split("@")[0]
+            dst_svc = var_name[1].split("@")[0]
             # src_cid = int(var_name[0].split(cfg.DELIMITER)[1])
             # dst_cid = int(var_name[1].split(cfg.DELIMITER)[1])
             src_cid = var_name[0].split(cfg.DELIMITER)[1]
@@ -378,8 +379,8 @@ def run_optimizer(coef_dict, \
         else:
             logger.error("var_name MUST be tuple datatype")
             assert False
-        src_svc_list.append(src)
-        dst_svc_list.append(dst)
+        src_svc_list.append(src_svc)
+        dst_svc_list.append(dst_svc)
         src_cid_list.append(src_cid)
         dst_cid_list.append(dst_cid)
         src_endpoint_list.append(src_endpoint)
@@ -397,12 +398,12 @@ def run_optimizer(coef_dict, \
             logger.error(f"!!! ERROR !!! inter_cluster_latency, {src_cid}, {dst_cid}, {type(e).__name__}, {e}")
             logger.error(inter_cluster_latency)
             assert False
-        e_cost = opt_func.get_egress_cost(src, src_cid, dst, dst_cid, flattened_callsize_dict)
+        e_cost = opt_func.get_egress_cost(src_endpoint, src_cid, dst_endpoint, dst_cid, flattened_callsize_dict)
         min_egress_cost_list.append(e_cost)
         max_egress_cost_list.append(e_cost)
         
-    network_df["src"] = src_svc_list
-    network_df["dst"] = dst_svc_list
+    network_df["src_svc"] = src_svc_list
+    network_df["dst_svc"] = dst_svc_list
     network_df["src_cid"] = src_cid_list
     network_df["dst_cid"] = dst_cid_list
     network_df["src_endpoint"] = src_endpoint_list
@@ -417,26 +418,46 @@ def run_optimizer(coef_dict, \
         src_compute = compute_df[(compute_df['src_cid'] == row['src_cid']) & (compute_df['endpoint'] == row['src_endpoint'])]
         try:
             if row['src_cid'] == "XXXX":
-                # print(f"asdf {row['src']}, {row['dst_cid']}")
-                # print(max_capacity_per_service[row['src']][row['dst_cid']])
-                network_df.at[index, 'max_network_load'] = 100*num_cluster + 1000
+                # total_rps_of_endpoint = 0
+                # for region in endpoint_level_rps:
+                #     total_rps_of_endpoint += endpoint_level_rps[region][row['src_svc']][row['src_endpoint']]
+                network_df.at[index, 'max_network_load'] = total_root_node_rps
             else:
-                src_compute_max_load = src_compute['max_load'].values[0]
-                network_df.at[index, 'max_network_load'] = src_compute_max_load
-                print(f"{index}: {src_compute_max_load}")
+                local_load = endpoint_level_rps[row['src_cid']][row['src_svc']][row['src_endpoint']]
+                remote_load = endpoint_level_rps[row['dst_cid']][row['src_svc']][row['src_endpoint']]
+                if local_load < remote_load:
+                    '''
+                    If all child services in all remote cluster exist, remove inter cluster network dependency from lower load cluster to higher load cluster. The offloading will happen only from the higher load cluster to lower load cluster'''
+                    network_df.at[index, 'max_network_load'] = 0
+                else:
+                    network_df.at[index, 'max_network_load'] = total_root_node_rps
+                # print(f"src_compute_max_load: {src_compute_max_load}")
         except Exception as e:
             logger.error(f'Exception: {type(e).__name__}, {e}')
             logger.error(f'index: {index}')
             logger.error(f'src_compute: {src_compute}')
-            logger.error(f'src_compute_max_load: {src_compute_max_load}')
             assert False
 
+                
+    # print(network_df.columns)
+    # network_df.drop(columns=['min_egress_cost', 'max_egress_cost', 'min_network_time', 'max_network_time'], inplace=True)
     network_df.to_csv(f'network_df.csv')
     network_latency = dict()
     network_load = dict()
     network_latency = gppd.add_vars(gurobi_model, network_df, name="network_latency", lb="min_network_time", ub="max_network_time")
-    
     network_load = gppd.add_vars(gurobi_model, network_df, name="load_for_network_edge", lb='min_network_load', ub='max_network_load')
+    
+    ## starting point init: it does not improve solver latency
+    for index, row in network_df.iterrows():
+        if row['src_cid'] != "XXXX":
+            # pprint(endpoint_level_rps)
+            # print(f"src_cid: {row['src_cid']}, src_svc: {row['src_svc']}, src_endpoint: {row['src_endpoint']}")
+            starting_point = endpoint_level_rps[row['src_cid']][row['src_svc']][row['src_endpoint']]
+            network_load[index].START = starting_point
+            # print(f"network_load[{index}].START: {starting_point}")
+    for index, row in compute_df.iterrows():
+        if row['src_cid'] != "XXXX":
+            compute_load[index].START = endpoint_level_rps[row['src_cid']][row['svc_name']][row['endpoint']]
     
     if objective == "multi_objective" or objective == "egress_cost":
         network_egress_cost = dict()
@@ -444,6 +465,7 @@ def run_optimizer(coef_dict, \
         network_egress_cost_sum = 0
         network_egress_cost_sum += sum(network_egress_cost.multiply(network_load))
         total_egress_sum = network_egress_cost_sum
+    
     gurobi_model.update()
     # avg_latency
     network_latency_sum = 0
@@ -774,9 +796,11 @@ def run_optimizer(coef_dict, \
 
     opt_func.log_timestamp("gurobi add constraints and model update")
     gurobi_model.update()
-    # opt_func.print_gurobi_var(gurobi_model)
-    # opt_func.print_gurobi_constraint(gurobi_model)
+    # gurobi_model.setParam('Threads', 64)
+    # gurobi_model.setParam('MIPFocus', 2)
     gurobi_model.setParam('NonConvex', 2)
+    gurobi_model.setParam('Method', 3)
+
     
     solver_start_time = time.time()
     gurobi_model.optimize()
@@ -798,7 +822,7 @@ def run_optimizer(coef_dict, \
     num_endpoint = len(endpoint_to_placement)
     num_var = len(df_var)
     num_constr = len(df_constr)
-    print(f"solver_time,{num_cluster},{num_callgraph},{max_depth},{fanout},{num_svc},{num_endpoint},{degree},{num_var},{num_constr},{solver_time}")
+    print(f"solver_time,{num_cluster},{num_callgraph},{max_depth},{fanout},{num_svc},{num_endpoint},{degree},{num_var},{num_constr},{solver_time},{total_root_node_rps}")
     
     opt_func.log_timestamp("get var and constraint")
     if gurobi_model.Status != GRB.OPTIMAL:
