@@ -506,10 +506,13 @@ def handleProxyLoad():
             
         endpoint_level_inflight[region][svc][endpoint] = ontick_inflight # not used
         with endpoint_level_rps_mutex:
-            if endpoint not in per_pod_ep_rps[region][svc]:
-                per_pod_ep_rps[region][svc][endpoint] = dict()
-            per_pod_ep_rps[region][svc][endpoint][podname] = active_ep_ontick_rps
-            logger.debug(f"per_pod_ep_rps, {region}, {svc}, {endpoint}, {active_ep_ontick_rps}")
+            if endpoint not in endpoint_to_placement:
+                logger.debug(f"ERROR: Skip per_pod_ep_rps, {endpoint}. this endpoint is not in stitched trace.")
+            else:
+                if endpoint not in per_pod_ep_rps[region][svc]:
+                    per_pod_ep_rps[region][svc][endpoint] = dict()
+                per_pod_ep_rps[region][svc][endpoint][podname] = active_ep_ontick_rps
+                logger.debug(f"per_pod_ep_rps, {region}, {svc}, {endpoint}, {active_ep_ontick_rps}")
             
         
     if mode == "profile":
@@ -1142,7 +1145,7 @@ def optimizer_entrypoint():
                         endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['frontend']
                     elif benchmark_name == "hotelreservation":
                         endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['slateingress']
-                    elif benchmark_name == "alibaba":
+                    elif benchmark_name == "alibaba" or benchmark_name == "onlineboutique":
                         endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['sslateingress']
                     else:
                         logger.error(f"!!! ERROR !!!: benchmark_name is not supported. benchmark_name: {benchmark_name}")
@@ -1277,6 +1280,8 @@ def fit_linear_regression(data, y_col_name):
 def load_coef():
     loaded_coef = dict()
     # col = ["svc_name","endpoint","feature","value"]
+    checkoutcart_endpoints = ["frontend@POST@/cart/checkout", "recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations", "sslateingress@POST@/cart/checkout", "checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder", "cartservice@POST@/hipstershop.CartService/GetCart", "paymentservice@POST@/hipstershop.PaymentService/Charge", "currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies", "emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation", "shippingservice@POST@/hipstershop.ShippingService/ShipOrder"]
+    
     df = pd.read_csv(f"coef.csv")
     for svc_name in df["svc_name"].unique():
         if svc_name not in loaded_coef:
@@ -1287,7 +1292,11 @@ def load_coef():
                 loaded_coef[svc_name][endpoint] = dict()
             ep_df = svc_df[svc_df["endpoint"]==endpoint]
             for index, row in ep_df.iterrows():
-                loaded_coef[svc_name][endpoint][row["feature"]] = float(row["value"])
+                if endpoint not in checkoutcart_endpoints:
+                    loaded_coef[svc_name][endpoint][row["feature"]] = float(row["value"])*2
+                    logger.info(f"Double the coefficient for {svc_name} {endpoint} {row['feature']} {row['value']}")
+                else:
+                    loaded_coef[svc_name][endpoint][row["feature"]] = float(row["value"])
     '''
     NOTE: Simply combining different endpoints' coefficients into one service level coefficient
     It assumes that 
@@ -1758,6 +1767,9 @@ def read_config_file():
                     elif benchmark_name == "alibaba":
                         parent_of_bottleneck_service = "sslateingress"
                         bottleneck_service = "s6f83"
+                    elif benchmark_name == "onlineboutique":
+                        parent_of_bottleneck_service = "sslateingress"
+                        bottleneck_service = "frontend"
                     logger.info(f"parent_of_bottleneck_service: {parent_of_bottleneck_service}, bottleneck_service: {bottleneck_service}")
                     ###################################################################
                     

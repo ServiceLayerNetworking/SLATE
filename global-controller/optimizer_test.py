@@ -127,14 +127,15 @@ def run_optimizer(coef_dict, \
                     request_in_out_weight[cg_key][parent_ep][child_ep] = dict()
                 parent_svc_name = parent_ep.split(cfg.ep_del)[0]
                 child_svc_name = child_ep.split(cfg.ep_del)[0]
-                logger.debug(f'parent_svc_name: {parent_svc_name}, parent_ep: {parent_ep}, {collapsed_endpoint_level_rps[parent_svc_name]}')
-                logger.debug(f'child_svc_name: {child_svc_name}, child_ep: {child_ep}, {collapsed_endpoint_level_rps[child_svc_name]}')
-                
-                in_ = collapsed_endpoint_level_rps[parent_svc_name][parent_ep]
-                out_ = collapsed_endpoint_level_rps[child_svc_name][child_ep]
                 # TODO: request_in_out_weight[cg_key][parent_ep][child_ep] = in_/out_
+                # logger.debug(f'parent_svc_name: {parent_svc_name}, parent_ep: {parent_ep}, {collapsed_endpoint_level_rps[parent_svc_name]}')
+                # logger.debug(f'child_svc_name: {child_svc_name}, child_ep: {child_ep}, {collapsed_endpoint_level_rps[child_svc_name]}')                
+                # in_ = collapsed_endpoint_level_rps[parent_svc_name][parent_ep]
+                # out_ = collapsed_endpoint_level_rps[child_svc_name][child_ep]
+                # logger.debug(f'request_in_out_weight: {request_in_out_weight[cg_key][parent_ep][child_ep]}, parent_ep: {parent_ep}, child_ep: {child_ep}, in_: {in_}, out_: {out_}')
+                
                 request_in_out_weight[cg_key][parent_ep][child_ep] = 1
-                logger.debug(f'request_in_out_weight: {request_in_out_weight[cg_key][parent_ep][child_ep]}, parent_ep: {parent_ep}, child_ep: {child_ep}, in_: {in_}, out_: {out_}')
+                
     ##############################################
     # TODO: Problem: how should we the endpoint to each call graph? Otherwise, by simply using the endpoint, we are not able to find root endpoint of the call graph.
     # norm_inout_weight = dict()
@@ -181,6 +182,7 @@ def run_optimizer(coef_dict, \
     compute_arc_var_name = opt_func.create_compute_arc_var_name(endpoint_level_rps)
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
     # try:
+    logger.debug(f'compute_arc_var_name: {compute_arc_var_name}')
     compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service)
     # except Exception as e:
         # logger.error(f'Exception: {type(e).__name__}, {e}')
@@ -241,13 +243,16 @@ def run_optimizer(coef_dict, \
         if svc_name not in normalized_total_rps:
             normalized_total_rps[svc_name] = 0
         svc_df = compute_df[compute_df['svc_name'] == svc_name]
+        if len(svc_df) == 0:
+            logger.error(f'svc_name: {svc_name} does not exist in compute_df')
+            assert False
         cid_of_svc = svc_df['src_cid'].unique()
         for cid in cid_of_svc:
-            svc_cid_df = svc_df['src_cid'] == cid
+            svc_cid_df = svc_df[svc_df['src_cid'] == cid]
             for ep in svc_cid_df['endpoint'].unique(): # all endpoints of the svc
                 arc_name = opt_func.get_compute_arc_var_name(ep, cid)
                 normalized_total_rps[svc_name] += compute_load[arc_name]
-        logger.info(f'normalized_total_rps[{svc_name}]: {normalized_total_rps[svc_name]}')
+        logger.debug(f'normalized_total_rps[{svc_name}]: {normalized_total_rps[svc_name]}')
         
     for index, row in compute_df.iterrows():
         lh = compute_latency[index]
@@ -556,7 +561,13 @@ def run_optimizer(coef_dict, \
                 if root_ep_svc_name in placement[cid]:
                     # logger.debug(f'endpoint_level_rps[{cid}][{root_ep_svc_name}]')
                     # logger.debug(f'[{root_ep}]: {endpoint_level_rps[cid][root_ep_svc_name][root_ep]}')
-                    incoming = endpoint_level_rps[cid][root_ep_svc_name][root_ep]
+                    logger.debug(f"endpoint_level_rps[{cid}]: {endpoint_level_rps[cid]}")
+                    try:
+                        incoming = endpoint_level_rps[cid][root_ep_svc_name][root_ep]
+                    except Exception as e:
+                        logger.error(f'endpoint_level_rps[{cid}][{root_ep_svc_name}][{root_ep}]: {endpoint_level_rps[cid][root_ep_svc_name][root_ep]}')
+                        logger.error(f'Exception: {type(e).__name__}, {e}')
+                        assert False
                     # incoming += endpoint_level_inflight_req[cid][root_ep_svc_name][root_ep]
                     # logger.debug(f"incoming: {incoming}")
                     total_coming += incoming
