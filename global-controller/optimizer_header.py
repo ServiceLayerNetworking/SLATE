@@ -76,13 +76,27 @@ def get_depth_in_graph(cg):
     return depth_dict
 
 
-def get_callsize_dict(cg, depth):
+# def get_callsize_dict(cg, depth):
+#     callsize_dict = dict()
+#     for parent in cg:
+#         for child in cg[parent]:
+#             assert depth[parent] < depth[child]
+#             logger.debug(f"depth[{parent}]")
+#             callsize_dict[(parent,child)] = ((depth[parent]+1)*10)
+#     return callsize_dict
+
+def get_callsize_dict(ep_str_callgraph, endpoint_sizes):
     callsize_dict = dict()
-    for parent in cg:
-        for child in cg[parent]:
-            assert depth[parent] < depth[child]
-            logger.debug(f"depth[{parent}]")
-            callsize_dict[(parent,child)] = ((depth[parent]+1)*10)
+    for parent_endpoint in ep_str_callgraph:
+        for child_endpoint in ep_str_callgraph[parent_endpoint]:
+            parent_url = parent_endpoint.split(cfg.ep_del)[2]
+            child_url = child_endpoint.split(cfg.ep_del)[2]
+            if child_url in endpoint_sizes:
+                callsize_dict[(parent_endpoint,child_endpoint)] = endpoint_sizes[child_url]
+                logger.info(f"callsize_dict[{parent_endpoint},{child_endpoint}] = {endpoint_sizes[child_url]}")
+            else:
+                callsize_dict[(parent_endpoint,child_endpoint)] = 1024
+                logger.info(f"{parent_endpoint} does not exist in endpoint_sizes. Set to 1024")
     return callsize_dict
 
 

@@ -88,7 +88,9 @@ def run_optimizer(coef_dict, \
         ROUTING_RULE, \
         max_capacity_per_service, \
         degree, \
-        inter_cluster_latency):
+        inter_cluster_latency, \
+        endpoint_sizes, \
+        DOLLAR_PER_MS):
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -172,11 +174,10 @@ def run_optimizer(coef_dict, \
     depth_dict = dict()
     for cg_key in ep_str_callgraph_table:
         depth_dict[cg_key] = opt_func.get_depth_in_graph(ep_str_callgraph_table[cg_key])
-    ## callsize_dict
-    ## key: (parent_svc,child_svc), value: callsize of the link (= depth+1)
+        
     callsize_dict = dict()
     for cg_key in ep_str_callgraph_table:
-        callsize_dict[cg_key] = opt_func.get_callsize_dict(ep_str_callgraph_table[cg_key], depth_dict[cg_key])
+        callsize_dict[cg_key] = opt_func.get_callsize_dict(ep_str_callgraph_table[cg_key], endpoint_sizes)
     
     # root_node_max_rps = opt_func.get_root_node_max_rps(root_node_rps)
     compute_arc_var_name = opt_func.create_compute_arc_var_name(endpoint_level_rps)
@@ -308,7 +309,7 @@ def run_optimizer(coef_dict, \
             var_name = opt_func.get_network_arc_var_name(opt_func.source_node_name, root_node, opt_func.NONE_CID, dst_cid)
             network_arc_var_name.append(var_name)
     
-    columns=["src_svc", "src_cid", "dst_svc", "dst_cid", "min_network_time", "max_network_time", "max_load", "min_load", "min_egress_cost", "max_egress_cost"]
+    columns=["src_endpoint", "src_cid", "dst_endpoint", "dst_cid", "min_network_time", "max_network_time", "max_load", "min_load", "min_egress_cost", "max_egress_cost"]
     network_df = pd.DataFrame(
         columns=columns,
         data={
@@ -316,8 +317,8 @@ def run_optimizer(coef_dict, \
         index=network_arc_var_name
     )
 
-    src_svc_list = list()
-    dst_svc_list = list()
+    src_endpoint_list = list()
+    dst_endpoint_list = list()
     src_cid_list = list()
     dst_cid_list = list()
     min_network_time_list = list()
@@ -325,10 +326,14 @@ def run_optimizer(coef_dict, \
     min_egress_cost_list = list()
     max_egress_cost_list = list()
     flattened_callsize_dict = {inner_key: value for outer_key, inner_dict in callsize_dict.items() for inner_key, value in inner_dict.items()}
+    for key in flattened_callsize_dict:
+        logger.info(f"flattened_callsize_dict[{key}]: {flattened_callsize_dict[key]}")
+        
     for var_name in network_arc_var_name:
         if type(var_name) == tuple:
-            src = var_name[0].split(cfg.DELIMITER)[0]
-            dst = var_name[1].split(cfg.DELIMITER)[0]
+            src_endpoint = var_name[0].split(cfg.DELIMITER)[0]
+            dst_endpoint = var_name[1].split(cfg.DELIMITER)[0]
+            logger.debug(f"src_endpoint: {src_endpoint}, dst_endpoint: {dst_endpoint}")
             # src_cid = int(var_name[0].split(cfg.DELIMITER)[1])
             # dst_cid = int(var_name[1].split(cfg.DELIMITER)[1])
             src_cid = var_name[0].split(cfg.DELIMITER)[1]
@@ -336,10 +341,10 @@ def run_optimizer(coef_dict, \
         else:
             logger.error("var_name MUST be tuple datatype")
             assert False
-        src_svc_list.append(src)
-        dst_svc_list.append(dst)
         src_cid_list.append(src_cid)
         dst_cid_list.append(dst_cid)
+        src_endpoint_list.append(src_endpoint)
+        dst_endpoint_list.append(dst_endpoint)
         # min_network_time_list.append(opt_func.get_network_latency(src_cid, dst_cid)*2)
         # max_network_time_list.append(opt_func.get_network_latency(src_cid, dst_cid)*2)
         try:
@@ -353,12 +358,14 @@ def run_optimizer(coef_dict, \
             logger.error(f"!!! ERROR !!! inter_cluster_latency, {src_cid}, {dst_cid}, {type(e).__name__}, {e}")
             logger.error(inter_cluster_latency)
             assert False
-        e_cost = opt_func.get_egress_cost(src, src_cid, dst, dst_cid, flattened_callsize_dict)
+        e_cost = opt_func.get_egress_cost(src_endpoint, src_cid, dst_endpoint, dst_cid, flattened_callsize_dict)
+        if e_cost != 0:
+            logger.debug(f"egress_cost: {e_cost}, from {src_cid}-{src_endpoint} to {dst_cid}-{dst_endpoint}")
         min_egress_cost_list.append(e_cost)
         max_egress_cost_list.append(e_cost)
         
-    network_df["src"] = src_svc_list
-    network_df["dst"] = dst_svc_list
+    network_df["src_endpoint"] = src_endpoint_list
+    network_df["dst_endpoint"] = dst_endpoint_list
     network_df["src_cid"] = src_cid_list
     network_df["dst_cid"] = dst_cid_list
     network_df["min_network_time"] = min_network_time_list
@@ -516,7 +523,7 @@ def run_optimizer(coef_dict, \
         # DOLLAR_PER_MS: value of latency
         # lower dollar per ms, less tempting to re-route since bandwidth cost is becoming more important
         # simply speaking, when we have DOLLAR_PER_MS decreased, less offloading.
-        gurobi_model.setObjective(total_latency_sum*cfg.DOLLAR_PER_MS + total_egress_sum, gp.GRB.MINIMIZE)
+        gurobi_model.setObjective(total_latency_sum*DOLLAR_PER_MS + total_egress_sum, gp.GRB.MINIMIZE)
     else:
         logger.error("unsupported objective, ", objective)
         assert False

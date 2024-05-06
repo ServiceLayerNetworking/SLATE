@@ -61,6 +61,8 @@ prev_ts = time.time()
 load_coef_flag = False
 init_done = False
 
+endpoint_sizes = {}
+
 placement = {}
 coef_dict = {}
 degree = 0
@@ -74,8 +76,19 @@ stats_mutex = Lock()
 endpoint_rps_history = list()
 traffic_segmentation = 1
 objective = "avg_latency"
+# objective = "multi_objective"
+DOLLAR_PER_MS = 1
 first_write_flag_for_profiled_trace=True
 
+# Target is checkoutcart request type
+## checkoutcart + cart, shipping, payment, email
+
+## checkout service only
+exclude_svc = {}
+# exclude_svc = {"us-central-1": ["paymentservice", 'emailservice', 'shippingservice']}
+# exclude_svc = {"us-central-1": ['cartservice']}
+# exclude_svc = {"us-central-1": ['checkoutservice']}
+# exclude_svc = {"us-central-1": ['checkoutservice'], "us-east-1":['productcatalogservice']}
 
 '''waterfall'''
 region_pct_df = dict()
@@ -270,7 +283,6 @@ def parse_service_level_rps(body):
     rps = int(lines[0])
     return rps
 
-
 def parse_stats_into_spans(body, given_svc_name):
     lines = body.split("\n")
     requestStats = lines[3:]
@@ -301,12 +313,13 @@ def parse_stats_into_spans(body, given_svc_name):
         startTime = int(ss[7])
         endTime = int(ss[8])
         bodySize = int(ss[9])
-        if serviceName.find("metrics-handler") != -1:
-            bodySize = 5000
-            logger.debug(f"Rewriting bodySize: {bodySize}, svc: {serviceName}, method: {method}, path: {path}")
-        else:
-            bodySize = 50
-            logger.debug(f"Rewriting bodySize: {bodySize}, svc: {serviceName}, method: {method}, path: {path}")
+        logger.error(f"serviceName: {serviceName}, method: {method}, path: {path}, bodySize: {bodySize}")
+        # if serviceName.find("metrics-handler") != -1:
+        #     bodySize = 5000
+        #     logger.debug(f"Rewriting bodySize: {bodySize}, svc: {serviceName}, method: {method}, path: {path}")
+        # else:
+        #     bodySize = 50
+        #     logger.debug(f"Rewriting bodySize: {bodySize}, svc: {serviceName}, method: {method}, path: {path}")
         # 'GET@/hotels,0,1|POST@/reservation,2,0|GET@/recommendations,2,1|'
         endpointInflightStats = ss[10].split("|")
         if endpointInflightStats[-1] == "":
@@ -362,11 +375,13 @@ def verify_return_df(return_df, src_region):
             logger.error(f"ERROR: weight is out of range. {row['weight']}")
             logger.error(f"row: {row}")
             assert False
-        assert row['src_endpoint'] in aggregated_rps[row['src_cid']][row['src_svc']]
-        assert row['dst_endpoint'] in aggregated_rps[row['dst_cid']][row['dst_svc']]
-        assert row['src_endpoint'].split(cfg.ep_del)[0] == row['src_svc']
-        assert row['dst_endpoint'].split(cfg.ep_del)[0] == row['dst_svc']
-        assert row['src_cid'] == src_region
+            
+        ## For partial replication scenario, this assertion does not function as its original role
+        # assert row['src_endpoint'] in aggregated_rps[row['src_cid']][row['src_svc']]
+        # assert row['dst_endpoint'] in aggregated_rps[row['dst_cid']][row['dst_svc']]
+        # assert row['src_endpoint'].split(cfg.ep_del)[0] == row['src_svc']
+        # assert row['dst_endpoint'].split(cfg.ep_del)[0] == row['dst_svc']
+        # assert row['src_cid'] == src_region
         
     return_df = return_df.drop(columns=['src_svc', "dst_svc", "flow", "total"])
     desired_order_of_columns = ['src_endpoint', 'dst_endpoint', 'src_cid', 'dst_cid', 'weight']
@@ -388,7 +403,6 @@ def handleProxyLoad():
     global mode
     global list_of_span
     global stats_mutex
-    global endpoint_rps_history
     global endpoint_level_rps_mutex
     
     ''' * HEADER in request from WASM * 
@@ -514,7 +528,6 @@ def handleProxyLoad():
                 per_pod_ep_rps[region][svc][endpoint][podname] = active_ep_ontick_rps
                 logger.debug(f"per_pod_ep_rps, {region}, {svc}, {endpoint}, {active_ep_ontick_rps}")
             
-        
     if mode == "profile":
         spans = parse_stats_into_spans(body, svc)
         for span in spans:
@@ -591,7 +604,7 @@ def handleProxyLoad():
         elif ROUTING_RULE == "SLATE" or ROUTING_RULE == "WATERFALL":
             # NOTE: remember percentage_df is set by 'optimizer_entrypoint' async function
             if type(percentage_df) == type(None):
-                logger.debug(f"optimizer never succeeds yet. Rollback to local routing. {full_podname}, {region}")
+                logger.warning(f"optimizer never succeeds yet. Rollback to local routing. {full_podname}, {region}")
                 _, csv_string = local_and_failover_routing_rule(svc, region)
                 return csv_string
             global train_done
@@ -599,8 +612,10 @@ def handleProxyLoad():
                 _, csv_string = local_and_failover_routing_rule(svc, region)
                 return csv_string
             if percentage_df.empty:
-                logger.debug(f"WARNING, Rollback to local routing. {region}, {full_podname}, percentage_df is empty. rollback to local routing")
+                logger.warning(f"WARNING, Rollback to local routing. {region}, {full_podname}, percentage_df is empty. rollback to local routing")
+                ############################################################
                 _, csv_string = local_and_failover_routing_rule(svc, region)
+                ############################################################
                 return csv_string
             else:
                 temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
@@ -920,6 +935,13 @@ def optimizer_entrypoint():
         logger.error(f"!!! ERROR !!!: ep_str_callgraph_table is empty.")
         return
     
+    '''partial replication'''
+    global exclude_svc
+    # aggregated_rps[cid][svc_name][ep] = rps
+    for target_region in exclude_svc:
+        for target_svc in exclude_svc[target_region]:
+            del aggregated_rps[target_region][target_svc]
+    
     ''' check '''
     init_max_capacity_per_service(CAPACITY)        
     with open('optimizer_input.txt', 'w') as f:
@@ -955,20 +977,8 @@ def optimizer_entrypoint():
     logger.info(f"start run optimizer optimizer_cnt-{optimizer_cnt} ROUTING_RULE:{ROUTING_RULE}")
     logger.info(f"before run_optimizer optimizer_cnt-{optimizer_cnt}")
     # logger.info(f"inter_cluster_latency: {inter_cluster_latency}")
-    '''
-    percentage_df = pd.DataFrame(
-        data={
-            "src_svc": src_svc_list,
-            "dst_svc": dst_svc_list,
-            "src_endpoint": src_endpoint_list,
-            "dst_endpoint": dst_endpoint_list, 
-            "src_cid": src_cid_list,
-            "dst_cid": dst_cid_list,
-            "flow": flow_list,
-        },
-        index = src_and_dst_index
-    )
-    '''
+    
+    
     if ROUTING_RULE == "SLATE":
         if benchmark_name == "usecase1-cascading":
             logger.info(f"WARNING: Keep the capacity threshold for SLATE for usecase1-cascading")
@@ -980,6 +990,9 @@ def optimizer_entrypoint():
                     max_capacity_per_service[svc][region] = 100000
         ts = time.time()
         logger.info(f"run_optimizer starts")
+        global endpoint_sizes
+        global DOLLAR_PER_MS
+        
         cur_percentage_df, desc = opt.run_optimizer(\
             coef_dict, \
             aggregated_rps, \
@@ -992,7 +1005,9 @@ def optimizer_entrypoint():
             ROUTING_RULE, \
             max_capacity_per_service, \
             degree, \
-            inter_cluster_latency)
+            inter_cluster_latency, \
+            endpoint_sizes, \
+            DOLLAR_PER_MS)
         logger.info(f"run_optimizer done, runtime: {time.time()-ts} seconds")
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
@@ -1434,19 +1449,74 @@ def trace_string_file_to_trace_data_structure(load_coef_flag):
             # svc_name = ep.split("@")[0]
             # method = ep.split("@")[1]
             # path = ep.split("@")[2]
+        
+        global endpoint_sizes
+        endpoint_sizes = {
+            "/cart": 520,
+            "/cart/checkout": 520,
+            "/cart/empty": 259,
+            "/setCurrency": 275,
+            
+            "/cart": 200000,
+            "/cart/checkout": 200000,
+            "/cart/empty": 2000,
+            "/setCurrency": 2000,
+            
+            "/cart/addItem": 520,\
+            "/hipstershop.CartService/AddItem": 520,
+            "/hipstershop.CartService/EmptyCart": 259,
+
+            "/cart/getCart": 5483,
+            "/hipstershop.CartService/GetCart": 5483,
+            
+            "/hipstershop.RecommendationService/ListRecommendations": 5442,
+            "/recommendation/listRecommendations": 5442,
+            
+            "/hipstershop.ProductCatalogService/GetProduct": 124687,
+            "/productCatalog/getProduct": 259,
+            
+            "/hipstershop.ShippingService/ShipOrder": 5485,
+            "/shipping/shipOrder": 5485,
+            
+            
+            "/currency/convert": 274,
+            
+            "/hipstershop.PaymentService/Charge": 1055,
+            "/payment/charge": 1055,
+            
+            "/hipstershop.EmailService/SendOrderConfirmation": 6032,
+            "/email/sendOrderConfirmation": 6032,
+            
+            "/checkout/placeOrder": 1832,
+            "/hipstershop.CheckoutService/PlaceOrder": 1832,
+            
+            "/productCatalog/listProducts": 124687,
+            "/ad/getAds": 6437,
+            "/currency/getSupportedCurrencies": 5183,
+            "/productCatalog/searchProducts": 124687,
+            "/shipping/getQuote": 5485,
+        }
+        normalize = 0.01
+        for key, value in endpoint_sizes.items():
+            endpoint_sizes[key] = value * normalize
+        if row["path"] in endpoint_sizes:
+            call_size = endpoint_sizes[row["path"]]
+        else:
+            call_size = int(row["call_size"])
+        
         try:
             if load_coef_flag:
                 span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
                     row["trace_id"], row["span_id"], row["parent_span_id"], \
                         st=float(row["st"]), et=float(row["et"]), xt=int(row["xt"]), \
-                            callsize=int(row["call_size"]), \
+                            callsize=call_size, \
                                 rps_dict=rps_dict, \
                                     num_inflight_dict=num_inflight_dict)
             else:
                 span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
                     row["trace_id"], row["span_id"], row["parent_span_id"], \
                         st=float(row["st"]), et=float(row["et"]), xt=-1, \
-                            callsize=int(row["call_size"]), \
+                            callsize=call_size, \
                                 rps_dict=rps_dict, \
                                     num_inflight_dict=num_inflight_dict)
         except Exception as e:
@@ -1586,18 +1656,51 @@ def initialize_global_datastructure(stitched_traces):
     global degree
     global init_done
     assert init_done == False
+    
+    
     all_endpoints = tst.get_all_endpoints(stitched_traces)
     endpoint_to_placement = set_endpoint_to_placement(all_endpoints)
     svc_to_placement = set_svc_to_placement(all_endpoints)
     placement = tst.get_placement_from_trace(stitched_traces)
-    logger.info(f"Init all_endpoints: {all_endpoints}")
-    logger.info(f"Init endpoint_to_placement: {endpoint_to_placement}")
-    logger.info(f"Init svc_to_placement: {svc_to_placement}")
-    logger.info(f"Init placement: {placement}")
-    # endpoint_to_cg_key = tst.get_endpoint_to_cg_key_map(stitched_traces)
-    # ep_str_callgraph_table, key: hashed cg_key
-    # cg_key_hashmap, key: hashed_cg_key, value: cg_key (concat of all ep_str in sorted order)
-    ep_str_callgraph_table, cg_key_hashmap = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
+    
+    '''partial replication'''
+    global exclude_svc
+    for target_region in exclude_svc:
+        for target_svc in exclude_svc[target_region]:        # all_endpoints
+            logger.info(f"Remove all_endpoints[{[target_region]}][{target_svc}]: {all_endpoints[target_region][target_svc]}")
+            del all_endpoints[target_region][target_svc]
+            
+            # endpoint_to_placement
+            for endpoint in endpoint_to_placement:
+                if target_svc == endpoint.split("@")[0]:
+                    logger.info(f"Remove endpoint_to_placement[{endpoint}].remove({target_region})")
+                    endpoint_to_placement[endpoint].remove(target_region)
+                
+            # svc_to_placement
+            logger.info(f"Remove svc_to_placement[{target_svc}].remove({target_region})")
+            svc_to_placement[target_svc].remove(target_region)
+            
+            # placement
+            logger.info(f"Remove placement[{target_region}].remove({target_svc})")
+            placement[target_region].remove(target_svc)
+
+    for region in all_endpoints:
+        for svc_name in all_endpoints[region]:
+            logger.info(f"Init all_endpoints[{region}][{svc_name}]: {all_endpoints[region][svc_name]}")
+    for endpoint in endpoint_to_placement:
+        logger.info(f"Init endpoint_to_placement[{endpoint}]: {endpoint_to_placement[endpoint]}")
+    for svc_name in svc_to_placement:
+        logger.info(f"Init svc_to_placement[{svc_name}]: {svc_to_placement[svc_name]}")
+    for region in placement:
+        logger.info(f"Init placement[{region}]: {placement[region]}")
+        
+    
+    ##################### MOVE #######################
+    '''endpoint_to_cg_key = tst.get_endpoint_to_cg_key_map(stitched_traces)
+        ep_str_callgraph_table, key: hashed cg_key
+        cg_key_hashmap, key: hashed_cg_key, value: cg_key (concat of all ep_str in sorted order)'''
+    # ep_str_callgraph_table, cg_key_hashmap = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
+    
     logger.info(f"len(ep_str_callgraph_table: {len(ep_str_callgraph_table)}")
     print_ep_str_callgraph_table()
     logger.info(f"num callgraph: {len(ep_str_callgraph_table)}")
@@ -1624,6 +1727,8 @@ def initialize_global_datastructure(stitched_traces):
                 for endpoint in all_endpoints[region][svc]:
                     aggregated_rps[region][svc][endpoint] = 0
                     logger.info(f"Init aggregated_rps[{region}][{svc}][{endpoint}]: {aggregated_rps[region][svc][endpoint]}")
+                    
+                    
 def check_negative_coef(coef_dict):
     # NOTE: latency function should be strictly increasing function
     for svc_name in coef_dict: # svc_name: metrics-db
@@ -1683,10 +1788,13 @@ def training_phase():
         traces = trace_string_file_to_trace_data_structure(load_coef_flag=load_coef_flag)
         complete_traces = filter_incomplete_traces(traces)
         stitched_traces = tst.stitch_time(complete_traces)
+    
+    ep_str_callgraph_table, cg_key_hashmap = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
+    
     for region in ["us-east-1", "us-south-1", "us-central-1"]:
         if region not in stitched_traces:
             stitched_traces[region] = stitched_traces["us-west-1"].copy()
-                        
+            
     initialize_global_datastructure(stitched_traces=stitched_traces)
     init_done = True
     

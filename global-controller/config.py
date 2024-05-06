@@ -88,7 +88,7 @@ INTER_CLUSTER_EGRESS_COST=1
 # DOLLAR_PER_MS: value of latency
 # DOLLAR_PER_MS = 0.00001
 # DOLLAR_PER_MS=0.001
-DOLLAR_PER_MS = 0.001
+# DOLLAR_PER_MS = 0.001
 
 #################
 ## Time stitch ##
