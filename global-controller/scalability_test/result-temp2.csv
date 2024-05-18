@@ -1,6 +1,0 @@
-title,num_cluster,num_request_type,depth,fanout,num_svc,num_endpoint,degree,num_variable,num_constraint,solver_time
-solver_time,2,8,4,2,7,56,1,640,337,0.2141108512878418
-solver_time,4,8,4,2,7,56,1,2048,673,1.5294196605682373
-solver_time,6,8,4,2,7,56,1,4224,1009,10.132984638214111
-solver_time,8,8,4,2,7,56,1,7168,1345,22.904468059539795
-solver_time,10,8,4,2,7,56,1,10880,1681,35.742151498794556

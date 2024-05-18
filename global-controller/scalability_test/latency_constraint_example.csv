@@ -1,6 +1,0 @@
-compute_latency[MakeReservation-west]
-==
-4.892555800337599e-06 CheckAvailability-west ^ 2 + 
-4.892555800337599e-06 CheckAvailability-west * MakeReservation-west + 
-4.892555800337599e-06 MakeReservation-west * CheckAvailability-west + 
-4.892555800337599e-06 MakeReservation-west ^ 2 ]

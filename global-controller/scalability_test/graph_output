@@ -1,8 +1,0 @@
-digraph {
-	s0 -> s4185d5a6
-	s0 -> s798a961f
-	s0 -> sacd3486d
-	s4185d5a6 -> s994176cb
-	s4185d5a6 -> sc7465b49
-	s4185d5a6 -> s0fda2e9e
-}
