@@ -1,6 +1,0 @@
-syntax = "proto3";
-
-message RpsToLatency {
-  float rps = 1;
-  float latency = 2;
-}
