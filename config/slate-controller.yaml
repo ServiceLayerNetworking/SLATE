@@ -65,9 +65,14 @@ spec:
             app: slate-controller
       serviceAccountName: slate-controller-sa
       containers:
-        - image: ghcr.io/adiprerepa/slate-controller:latest # todo change
-          imagePullPolicy: Always
-          name: slate-controller
-          ports:
-            - containerPort: 8080
+      - image: ghcr.io/adiprerepa/slate-controller:latest # todo change
+        imagePullPolicy: Always
+        name: slate-controller
+        ports:
+          - containerPort: 8080
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN
+      terminationGracePeriodSeconds: 5
 
