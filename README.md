@@ -25,8 +25,18 @@ The workflow is as such:
 We benchmark on three applications: [Hotel Reservation](https://github.com/delimitrou/DeathStarBench/blob/master/hotelReservation), [Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo), and [Alibaba](https://github.com/alibaba/clusterdata).
 
 HotelReservation:
+
+
 ![Hotel](docs/even_wrk-routing_rules_cdf/even_wrk-routing_rules_cdf_page-0001.jpg)
+
+
 Online Boutique:
+
+
 ![Online](docs/uneven_wrk-routing_rules_cdf-1/uneven_wrk-routing_rules_cdf%20(1)_page-0001.jpg)
+
+
 Alibaba:
+
+
 ![Alibaba](docs/uneven_wrk-routing_rules_cdf/uneven_wrk-routing_rules_cdf_page-0001.jpg)
