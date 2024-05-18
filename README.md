@@ -18,8 +18,4 @@ The workflow is as such:
 - The global controller builds a load to latency model for each service over time. When feasible, it uses this model in a Mixed-Integer Linear Program and solves for optimal request flow, minimizing latency. This solution is expressed as rules that are pushed to the data plane.
 - The data plane enforces these rules.
 
-<object data="docs/slate_arch.pdf" type="application/pdf" width="700px" height="700px">
-    <embed src="docs/slate_arch.pdf">
-        <p>This browser does not support PDFs. Please download the PDF to view it: <a href="http://yoursite.com/the.pdf">Download PDF</a>.</p>
-    </embed>
-</object>
+![SLATE Architecture](docs/slate_arch.jpg)
