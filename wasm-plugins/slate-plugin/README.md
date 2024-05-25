@@ -1,10 +1,10 @@
 # SLATE Data Plane
 
-The SLATE Data Plane is implemented as an HTTP filter, abiding by the ![proxy-wasm](https://github.com/proxy-wasm/spec) interface. It's main functions are:
+The SLATE Data Plane is implemented as an HTTP filter, abiding by the [proxy-wasm](https://github.com/proxy-wasm/spec) interface. It's main functions are:
 1) Load and latency collection & reporting
 2) Routing rule enforcement
 
-To better understand this code, you must understand ![Envoy's Threading Model](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/intro/threading_model), and how ![Filters/WASM work](https://github.com/tetratelabs/proxy-wasm-go-sdk/blob/main/doc/OVERVIEW.md) (see some nice examples ![here](https://github.com/tetratelabs/proxy-wasm-go-sdk/)).
+To better understand this code, you must understand [Envoy's Threading Model](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/intro/threading_model), and how [Filters/WASM work](https://github.com/tetratelabs/proxy-wasm-go-sdk/blob/main/doc/OVERVIEW.md) (see some nice examples [here](https://github.com/tetratelabs/proxy-wasm-go-sdk/)).
 
 From now on: Slate Data Plane: slate-proxy.
 
