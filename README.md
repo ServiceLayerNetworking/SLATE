@@ -20,6 +20,8 @@ The workflow is as such:
 - The global controller builds a load to latency model for each service over time. When feasible, it uses this model in a Mixed-Integer Linear Program and solves for optimal request flow, minimizing latency. This solution is expressed as rules that are pushed to the data plane.
 - The data plane enforces these rules.
 
+
+
 ## Results
 
 We benchmark on three applications: [Hotel Reservation](https://github.com/delimitrou/DeathStarBench/blob/master/hotelReservation), [Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo), and [Alibaba](https://github.com/alibaba/clusterdata).
