@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"math/rand"
 	"os"
 	"strconv"
@@ -181,7 +180,8 @@ func (p *pluginContext) OnTick() {
 
 	// every 5 ticks, perform the hill climbing algorithm and adjust the outbound ratios.
 	ticks := GetUint64SharedDataOrZero(KEY_NUM_TICKS)
-	if ticks%5 == 0 {
+	if ticks%10 == 0 {
+		proxywasm.LogCriticalf("logadi-hillclimb")
 		p.PerformHillClimb()
 	}
 	IncrementSharedData(KEY_NUM_TICKS, 1)
@@ -563,26 +563,27 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 func addLatencyToRunningAverage(svc, method, path string, latencyMs int64, retriesLeft int) {
 	outboundLatencyAvgKey := outboundLatencyRunningAvgKey(svc, method, path)
 	outboundLatencyTotal := outboundLatencyTotalRequestsKey(svc, method, path)
-	avgData, cas, err := proxywasm.GetSharedData(outboundLatencyAvgKey)
-	avg := uint64(0)
-	if err != nil || len(avgData) == 0 {
-		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
-	} else {
-		avg = binary.LittleEndian.Uint64(avgData)
-	}
-	numReqs := GetUint64SharedDataOrZero(outboundLatencyTotal)
-	newAvg := ((avg * numReqs) + uint64(latencyMs)) / (numReqs + 1)
-	avgData = make([]byte, 8)
-	binary.LittleEndian.PutUint64(avgData, newAvg)
-	if err := proxywasm.SetSharedData(outboundLatencyAvgKey, avgData, cas); err != nil {
-		// retry
-		if retriesLeft != 0 {
-			addLatencyToRunningAverage(svc, method, path, latencyMs, retriesLeft-1)
-		} else {
-			proxywasm.LogCriticalf("Couldn't add to latency running average (no retries left): %v", err)
-		}
-		return
-	}
+	IncrementSharedData(outboundLatencyAvgKey, latencyMs)
+	//avgData, cas, err := proxywasm.GetSharedData(outboundLatencyAvgKey)
+	//avg := uint64(0)
+	//if err != nil || len(avgData) == 0 {
+	//	proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
+	//} else {
+	//	avg = binary.LittleEndian.Uint64(avgData)
+	//}
+	//numReqs := GetUint64SharedDataOrZero(outboundLatencyTotal)
+	//newAvg := ((avg * numReqs) + uint64(latencyMs)) / (numReqs + 1)
+	//avgData = make([]byte, 8)
+	//binary.LittleEndian.PutUint64(avgData, newAvg)
+	//if err := proxywasm.SetSharedData(outboundLatencyAvgKey, avgData, cas); err != nil {
+	//	// retry
+	//	if retriesLeft != 0 {
+	//		addLatencyToRunningAverage(svc, method, path, latencyMs, retriesLeft-1)
+	//	} else {
+	//		proxywasm.LogCriticalf("Couldn't add to latency running average (no retries left): %v", err)
+	//	}
+	//	return
+	//}
 	IncrementSharedData(outboundLatencyTotal, 1)
 }
 
@@ -602,11 +603,17 @@ func (p *pluginContext) PerformHillClimb() {
 		return
 	}
 	proxywasm.LogCriticalf("Hillclimbing for %v, current distribution is %v", string(endpointToClimb), string(distribution))
-	curAvgLatency, err := GetUint64SharedData(outboundLatencyRunningAvgKey(svc, method, path))
+	curAvgLatencyTotalMs, err := GetUint64SharedData(outboundLatencyRunningAvgKey(svc, method, path))
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get current average latency while trying to hillclimb: %v", err)
 		return
 	}
+	curAvgLatencyTotalRequests, err := GetUint64SharedData(outboundLatencyTotalRequestsKey(svc, method, path))
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get total requests while trying to hillclimb: %v", err)
+		curAvgLatencyTotalRequests = 0
+	}
+	curAvgLatency := curAvgLatencyTotalMs / curAvgLatencyTotalRequests
 	lastAvgLatency, err := GetUint64SharedData(prevOutboundLatencyRunningAvgKey(svc, method, path))
 	if err != nil {
 		proxywasm.LogCriticalf("last average latency not present, starting first iteration of the algorithm...")
@@ -645,7 +652,12 @@ func (p *pluginContext) PerformHillClimb() {
 		}
 		return
 	}
-	proxywasm.LogCriticalf("Last average latency: %v, current average latency: %v", lastAvgLatency, curAvgLatency)
+	latencySamples, err := GetUint64SharedData(outboundLatencyTotalRequestsKey(svc, method, path))
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get total requests while trying to hillclimb: %v", err)
+		latencySamples = 0
+	}
+	proxywasm.LogCriticalf("Last average latency: %v, current average latency: %v (%v samples)", lastAvgLatency, curAvgLatency, latencySamples)
 	// set last average latency to current average latency
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, curAvgLatency)
@@ -689,18 +701,18 @@ func (p *pluginContext) PerformHillClimb() {
 	// if the current latency is greater than the last latency, we reverse the direction and adjust the
 	// distribution by half the last step size.
 	// if the current latency is close to the last latency, we complete the hill climb.
-	diff := curAvgLatency - lastAvgLatency
-	latencyThresh := 5
-	if math.Abs(float64(diff)) < float64(latencyThresh) {
-		// we've completed the hill climb
-		proxywasm.LogCriticalf("Completed hill climb for %v (old latency %v, new latency %v)", string(endpointToClimb), lastAvgLatency, curAvgLatency)
-		// reset the hill climb
-		if err := proxywasm.SetSharedData(KEY_CURRENTLY_HILLCLIMBING, []byte("NOT"), 0); err != nil {
-			proxywasm.LogCriticalf("Couldn't reset hill climb: %v", err)
-			return
-		}
-		return
-	}
+	//diff := curAvgLatency - lastAvgLatency
+	//latencyThresh := 5
+	//if math.Abs(float64(diff)) < float64(latencyThresh) {
+	//	// we've completed the hill climb
+	//	proxywasm.LogCriticalf("Completed hill climb for %v (old latency %v, new latency %v)", string(endpointToClimb), lastAvgLatency, curAvgLatency)
+	//	// reset the hill climb
+	//	if err := proxywasm.SetSharedData(KEY_CURRENTLY_HILLCLIMBING, []byte("NOT"), 0); err != nil {
+	//		proxywasm.LogCriticalf("Couldn't reset hill climb: %v", err)
+	//		return
+	//	}
+	//	return
+	//}
 
 	if curAvgLatency < lastAvgLatency {
 		// keep direction
@@ -709,13 +721,15 @@ func (p *pluginContext) PerformHillClimb() {
 			proxywasm.LogCriticalf("Couldn't set new distribution: %v", err)
 			return
 		} else {
-			proxywasm.LogCriticalf("(keeping direction) Adjusted distribution from\n%v\nto\n%v\n", string(distribution), newDistr)
+			proxywasm.LogCriticalf("(keeping direction %v, stepsize %v) Adjusted distribution from\n%v\nto\n%v\n", direction, stepSize, string(distribution), newDistr)
 		}
 	} else {
 		// reverse direction
-		newStep := int(stepSize / 2)
-		if newStep < 3 {
-			newStep = 3
+		var newStep int
+		if stepSize <= 3 {
+			newStep = 5
+		} else {
+			newStep = int(stepSize / 2)
 		}
 		newDirection := int(direction * -1)
 		proxywasm.LogCriticalf("changing step size from %v to %v, direction from %v to %v", stepSize, newStep, direction, newDirection)
