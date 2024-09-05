@@ -79,6 +79,9 @@ objective = "avg_latency"
 # objective = "multi_objective"
 DOLLAR_PER_MS = 1
 first_write_flag_for_profiled_trace=True
+state = "empty"
+all_clusters = set()
+workload = dict()
 
 # Target is checkoutcart request type
 ## checkoutcart + cart, shipping, payment, email
@@ -392,6 +395,10 @@ def verify_return_df(return_df, src_region):
     assert list(return_df.columns) == desired_order_of_columns
     return return_df
 
+defaultresponse = """sslateingress@POST@/cart,frontend@POST@/cart,us-west-1,us-west-1,1.0
+sslateingress@POST@/cart,frontend@POST@/cart,us-west-1,us-east-1,0.0
+"""
+
 # @app.route("/clusterLoad", methods=["POST"]) # from cluster-controller
 @app.post('/proxyLoad') # from wasm
 def handleProxyLoad():
@@ -419,6 +426,10 @@ def handleProxyLoad():
     full_podname = request.headers.get('x-slate-podname')
     podname = request.headers.get('x-slate-podname')[-5:]
     
+    if svc == "sslateingress-us-west-1":
+        logger.info("returning default response to sslateingress-us-west-1")
+        return defaultresponse
+        
     if svc.find("-us-") != -1:
             svc = svc.split("-us-")[0]
             
@@ -679,6 +690,18 @@ def print_ep_str_callgraph_table():
         logger.info("")
         # logger.info("*"*60)
         idx += 1
+        
+def file_write_ep_str_callgraph_table():
+    global ep_str_callgraph_table
+    with open("ep_str_callgraph_table.txt", "w") as file:
+        idx = 0
+        for hashed_cg_key in ep_str_callgraph_table:
+            file.write("*"*60+"\n")
+            file.write(f"hashed_cg_key-{idx}: {hashed_cg_key}\n")
+            for ep_str in ep_str_callgraph_table[hashed_cg_key]:
+                file.write(f"{ep_str} -> {ep_str_callgraph_table[hashed_cg_key][ep_str]}\n")
+            file.write("\n")
+            idx += 1
 
 def get_total_rps_for_service_in_region(target_svc, target_region, aggregated_rps):
     total_svc_level_rps_in_region = 0
@@ -923,13 +946,13 @@ def optimizer_entrypoint():
     # agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
     
     if mode != "runtime":
-        logger.info(f"run optimizer only in runtime mode. current mode: {mode}. return optimizer_entrypoint without executing optimizer...")
+        logger.warning(f"run optimizer only in runtime mode. current mode: {mode}.")
         return
     if ROUTING_RULE != "SLATE" and ROUTING_RULE != "WATERFALL" and ROUTING_RULE != "WATERFALL2":
-        logger.info(f"run optimizer only in SLATE or WATERFALL ROUTING_RULE. current ROUTING_RULE: {ROUTING_RULE}. return optimizer_entrypoint without executing optimizer...")
+        logger.warning(f"run optimizer only in SLATE or WATERFALL ROUTING_RULE. current ROUTING_RULE: {ROUTING_RULE}.")
         return
     if train_done == False:
-        logger.info(f"run optimizer only after training. train_done: {train_done}. return optimizer_entrypoint without executing optimizer...")
+        logger.warning(f"runtime True, {ROUTING_RULE}, BUT run optimizer only after training. train_done: {train_done}.")
         return
     if len(ep_str_callgraph_table) == 0:
         logger.error(f"!!! ERROR !!!: ep_str_callgraph_table is empty.")
@@ -941,6 +964,9 @@ def optimizer_entrypoint():
     for target_region in exclude_svc:
         for target_svc in exclude_svc[target_region]:
             del aggregated_rps[target_region][target_svc]
+            logger.warning(f"NOTE: partial replication, exclude_svc, {target_region}, {target_svc}")
+            logger.warning(f"NOTE: partial replication, exclude_svc, {target_region}, {target_svc}")
+            logger.warning(f"NOTE: partial replication, exclude_svc, {target_region}, {target_svc}")
     
     ''' check '''
     init_max_capacity_per_service(CAPACITY)        
@@ -963,6 +989,8 @@ def optimizer_entrypoint():
         # for region in max_capacity_per_service[svc]:
     # total_cap = get_total_cap_for_service(svc)
     
+    assert parent_of_bottleneck_service != "not_init"
+    assert parent_of_bottleneck_service != ""
     
     src_svc_total_demand = get_total_rps_for_service(parent_of_bottleneck_service, aggregated_rps) # frontend
     dst_svc_total_cap = get_total_cap_for_service(bottleneck_service) # a
@@ -1297,7 +1325,8 @@ def load_coef():
     # col = ["svc_name","endpoint","feature","value"]
     checkoutcart_endpoints = ["frontend@POST@/cart/checkout", "recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations", "sslateingress@POST@/cart/checkout", "checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder", "cartservice@POST@/hipstershop.CartService/GetCart", "paymentservice@POST@/hipstershop.PaymentService/Charge", "currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies", "emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation", "shippingservice@POST@/hipstershop.ShippingService/ShipOrder"]
     
-    df = pd.read_csv(f"coef.csv")
+    coef_csv_col = ["svc_name","endpoint","feature","value"]
+    df = pd.read_csv(f"coef.csv", names=coef_csv_col, header=None)
     for svc_name in df["svc_name"].unique():
         if svc_name not in loaded_coef:
             loaded_coef[svc_name] = dict()
@@ -1391,7 +1420,23 @@ filter incomplete traces
 '''
 def trace_string_file_to_trace_data_structure(load_coef_flag):
     global trainig_input_trace_file
-    col = ["cluster_id","svc_name","method","path","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size","inflight_dict","rps_dict"]
+    # us-east-1, # cluster_id
+    # productcatalogservice, # svc_name
+    # POST, # method
+    # /hipstershop.ProductCatalogService/GetProduct, # path
+    # 00fe690b10386fda9cb4e44a5757d64d, # trace_id
+    # ba08309a92b83eb0, # span_id
+    # e9ca143bab246ca6, # parent_span_id
+    # 1725229156069, # st
+    # 1725229156069, # et
+    # 0, # rt
+    # 0, # xt
+    # 0, # ct
+    # -1, # call_size
+    # productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct:0|, # inflight_dict
+    # productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct:131|,
+    # productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct
+    col = ["cluster_id","svc_name","method","path","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size","inflight_dict","rps_dict", "endpoint"]
     
     try:
         df = pd.read_csv(trainig_input_trace_file, names=col, header=None)
@@ -1657,7 +1702,7 @@ def initialize_global_datastructure(stitched_traces):
     global init_done
     assert init_done == False
     
-    
+    logger.info(f"Clusters in stitched_traces: {stitched_traces.keys()}")
     all_endpoints = tst.get_all_endpoints(stitched_traces)
     endpoint_to_placement = set_endpoint_to_placement(all_endpoints)
     svc_to_placement = set_svc_to_placement(all_endpoints)
@@ -1703,6 +1748,7 @@ def initialize_global_datastructure(stitched_traces):
     
     logger.info(f"len(ep_str_callgraph_table: {len(ep_str_callgraph_table)}")
     print_ep_str_callgraph_table()
+    file_write_ep_str_callgraph_table()
     logger.info(f"num callgraph: {len(ep_str_callgraph_table)}")
     for cid in placement:
         logger.debug(f"placement[{cid}]: {placement[cid]}")
@@ -1772,35 +1818,76 @@ def training_phase():
     global max_capacity_per_service
     global degree
     global init_done
+    global state
     # if not check_file_exist(trainig_input_trace_file):
     #     return
 
-    if init_done:
-        return
-    if mode == "'before_start'":
+    if mode == "before_start":
+        logger.info(f"mode: {mode}. Skip training.")
         return
     if os.path.isfile(trainig_input_trace_file) == False:
-        logger.warning(f"WARNING {trainig_input_trace_file} does not exist.")
+        logger.error(f"[ERROR] {trainig_input_trace_file} does not exist.")
+        return
+    if init_done:
+        logger.info(f"Training initialization is done.")
         return
     if load_coef_flag: # load_coef_flag=True assumes that time stitching is done
-        stitched_traces = trace_string_file_to_trace_data_structure(load_coef_flag)
+        try:
+            stitched_traces = trace_string_file_to_trace_data_structure(load_coef_flag)
+        except Exception as e:
+            logger.error(f"!!! ERROR !!!: failed to load trace with error: {e}")
+            state = "[!!! PANIC !!!] FAILED trace_string_file_to_trace_data_structure() in training_phase()"
+            assert False
     else:
-        traces = trace_string_file_to_trace_data_structure(load_coef_flag=load_coef_flag)
-        complete_traces = filter_incomplete_traces(traces)
-        stitched_traces = tst.stitch_time(complete_traces)
+        try:
+            traces = trace_string_file_to_trace_data_structure(load_coef_flag=load_coef_flag)
+        except Exception as e:
+            logger.error(f"!!! ERROR !!!: failed to load trace with error: {e}")
+            state = "[!!! PANIC !!!] FAILED trace_string_file_to_trace_data_structure() in training_phase()"
+            assert False
+            
+        try:
+            complete_traces = filter_incomplete_traces(traces)
+        except Exception as e:
+            logger.error(f"!!! ERROR !!!: failed to filter incomplete traces with error: {e}")
+            state = "[!!! PANIC !!!] FAILED filter_incomplete_traces() in training_phase()"
+            assert False
+            
+        try:
+            stitched_traces = tst.stitch_time(complete_traces)
+        except Exception as e:
+            logger.error(f"!!! ERROR !!!: failed to stitch time with error: {e}")
+            state = "[!!! PANIC !!!] FAILED stitch_time() in training_phase()"
+            assert False
     
-    ep_str_callgraph_table, cg_key_hashmap = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
+    try:
+        ep_str_callgraph_table, cg_key_hashmap = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
+    except Exception as e:
+        logger.error(f"!!! ERROR !!!: failed to traces_to_endpoint_str_callgraph_table with error: {e}")
+        state = "[!!! PANIC !!!] FAILED traces_to_endpoint_str_callgraph_table() in training_phase()"
+        assert False
     
-    for region in ["us-east-1", "us-south-1", "us-central-1"]:
+    # for region in ["us-east-1", "us-south-1", "us-central-1"]:
+    for region in inter_cluster_latency:
         if region not in stitched_traces:
             stitched_traces[region] = stitched_traces["us-west-1"].copy()
-            
-    initialize_global_datastructure(stitched_traces=stitched_traces)
-    init_done = True
+    
+    try:
+        initialize_global_datastructure(stitched_traces=stitched_traces)
+        init_done = True
+    except Exception as e:
+        logger.error(f"!!! ERROR !!!: failed to initialize_global_datastructure with error: {e}")
+        state = "[!!! PANIC !!!] FAILED initialize_global_datastructure() in training_phase()"
+        assert False
     
     if mode != "runtime":
         logger.debug(f"It is not runtime mode. Skip training. current mode: {mode}")
         return
+    
+    if train_start:
+        logger.debug(f"Training is already started. Skip training.")
+        return
+    
     if train_done:
         logger.debug(f"Training was done. Training is required only once")
         return
@@ -1812,7 +1899,13 @@ def training_phase():
         logger.error(f"ERROR: degree is not valid. degree: {degree}")
         assert False
     if load_coef_flag:
-        coef_dict = load_coef()
+        try:
+            coef_dict = load_coef()
+        except Exception as e:
+            logger.error(f"!!! ERROR !!!: failed to load coef with error: {e}")
+            state = "[!!! PANIC !!!] load_coef() in training_phase()"
+            assert False
+            
         for svc_name in coef_dict:
             for ep_str in coef_dict[svc_name]:
                 for feature_ep in coef_dict[svc_name][ep_str]:
@@ -1820,7 +1913,12 @@ def training_phase():
                     #     coef_dict[svc_name][ep_str][feature_ep] = coef_dict[svc_name][ep_str][feature_ep]
                     logger.info(f"coef_dict[{svc_name}][{ep_str}][{feature_ep}]: {coef_dict[svc_name][ep_str][feature_ep]}")
     else:
-        coef_dict = train_latency_function_with_trace(stitched_traces, degree)
+        try:
+            coef_dict = train_latency_function_with_trace(stitched_traces, degree)
+        except Exception as e:
+            logger.error(f"!!! ERROR !!!: failed to train_latency_function_with_trace with error: {e}")
+            state = "[!!! PANIC !!!] train_latency_function_with_trace() in training_phase()"
+            assert False
     
     check_negative_coef(coef_dict)      
     if ROUTING_RULE == "WATERFALL" or ROUTING_RULE == "WATERFALL2":
@@ -1841,6 +1939,7 @@ def training_phase():
     logger.info(f"train_done. duration: {duration} sec")
     return
 
+
 def read_config_file():
     global benchmark_name
     global total_num_services
@@ -1854,8 +1953,12 @@ def read_config_file():
     global parent_of_bottleneck_service
     global bottleneck_service
     global load_coef_flag
+    global state
+    global all_clusters
+    global traffic_segmentation
     
-    with open("env.txt", "r") as file:
+    env_file = "env.txt"
+    with open(env_file, "r") as file:
         lines = file.readlines()
         for line in lines:
             line = line.strip().split(",")
@@ -1878,6 +1981,14 @@ def read_config_file():
                     elif benchmark_name == "onlineboutique":
                         parent_of_bottleneck_service = "sslateingress"
                         bottleneck_service = "frontend"
+                    elif benchmark_name == "not_init":
+                        parent_of_bottleneck_service = "not_init"
+                        bottleneck_service = "not_init"
+                    else:
+                        logger.error(f"!!! ERROR !!!: unknown benchmark_name: {benchmark_name}")
+                        state = "[!!! PANIC !!!] unknown benchmark_name"
+                        assert False
+                        
                     logger.info(f"parent_of_bottleneck_service: {parent_of_bottleneck_service}, bottleneck_service: {bottleneck_service}")
                     ###################################################################
                     
@@ -1912,6 +2023,7 @@ def read_config_file():
                     logger.info(f'Update degree: {degree} -> {line[1]}')
                     degree = int(line[1])
             elif line[0] == "inter_cluster_latency":
+                # Format: inter_cluster_latency,us-west-1,us-west-1,0
                 src = line[1]
                 dst = line[2]
                 oneway_latency = int(line[3])
@@ -1920,15 +2032,32 @@ def read_config_file():
                 # if dst not in inter_cluster_latency:
                 #     inter_cluster_latency[dst] = dict()
                 inter_cluster_latency[src][dst] = oneway_latency
+                all_clusters.add(src)
+                all_clusters.add(dst)
                 # inter_cluster_latency[dst][src] = oneway_latency
-                logger.debug(f'Update inter_cluster_latency: {src} -> {dst}: {oneway_latency}')
+                logger.info(f'Update inter_cluster_latency: {src} -> {dst}: {oneway_latency}')
             elif line[0] == "load_coef_flag":
                 if load_coef_flag != int(line[1]):
                     logger.info(f'Update load_coef_flag: {load_coef_flag} -> {int(line[1])}')
                     load_coef_flag = int(line[1])
+            elif line[0] == "RPS":
+                # format:  RPS,west,addtocart,200
+                #          [0]  [1]    [2]    [3]
+                if line[1] not in workload:
+                    workload[line[1]] = dict()
+                workload[line[1]][line[2]] = int(line[3])
+                logger.info(f'Update workload: {line[1]}-{line[2]}: {line[3]}RPS')
+            elif line[0] == "traffic_segmentation":
+                traffic_segmentation = int(line[1])
+            elif line[0] == "background_noise":
+                background_noise = int(line[1])
+            elif line[0] == "duration":
+                duration = int(line[1])
             else:
-                logger.debug(f"ERROR: unknown config: {line}")
-    logger.debug(f"benchmark_name: {benchmark_name}, total_num_services: {total_num_services}, mode: {mode}, ROUTING_RULE: {ROUTING_RULE}")
+                logger.error(f"ERROR: unknown config: {line}")
+                state = f"[!!! PANIC !!!] unknown config in {env_file}: {line[0]}"
+                
+    logger.info(f"benchmark_name: {benchmark_name}, total_num_services: {total_num_services}, mode: {mode}, ROUTING_RULE: {ROUTING_RULE}")
 
 
 def record_endpoint_rps(aggregated_rps, counter):
@@ -1991,7 +2120,13 @@ def aggregated_rps_routine():
                     logger.info(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
         logger.info("-"*80)
         temp_counter += 1
-
+        
+def state_check():
+    global state
+    if state != "SUCCESS" and state != "empty":
+        logger.error(f"state: {state}")
+        logger.error(f"state: {state}")
+        logger.error(f"state: {state}")
     
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
@@ -2007,6 +2142,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=training_phase, trigger="interval", seconds=1)
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
+    scheduler.add_job(func=state_check, trigger="interval", seconds=1)
     scheduler.start()
     atexit.register(lambda: scheduler.shutdown())
     app.run(host='0.0.0.0', port=8080)

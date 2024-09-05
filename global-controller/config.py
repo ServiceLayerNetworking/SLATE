@@ -17,7 +17,7 @@ LOGGING_CONFIG = {
     'formatters': {
         'standard': {
             # 'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            'format': '%(name)s - %(funcName)s(line:%(lineno)d) - %(message)s',
+            'format': '%(name)s - %(funcName)s(line:%(lineno)d) - %(levelname)s - %(message)s',
         },
     },
     'handlers': {

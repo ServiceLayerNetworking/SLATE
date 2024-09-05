@@ -556,7 +556,7 @@ def run_optimizer(coef_dict, \
     for cid in endpoint_level_rps:
         for svc_name in endpoint_level_rps[cid]:
             for ep in endpoint_level_rps[cid][svc_name]:
-                logger.debug(f'endpoint_level_rps: {cid}, {svc_name}, {ep}, {endpoint_level_rps[cid][svc_name][ep]}')
+                logger.info(f'endpoint_level_rps: {cid}, {svc_name}, {ep}, {endpoint_level_rps[cid][svc_name][ep]}')
     ## Constraint 1: SOURCE
     if cfg.LOAD_IN:
         total_coming = 0
@@ -572,7 +572,7 @@ def run_optimizer(coef_dict, \
                     try:
                         incoming = endpoint_level_rps[cid][root_ep_svc_name][root_ep]
                     except Exception as e:
-                        logger.error(f'endpoint_level_rps[{cid}][{root_ep_svc_name}][{root_ep}]: {endpoint_level_rps[cid][root_ep_svc_name][root_ep]}')
+                        logger.error(f'endpoint_level_rps,{cid},{root_ep_svc_name},{root_ep}')
                         logger.error(f'Exception: {type(e).__name__}, {e}')
                         assert False
                     # incoming += endpoint_level_inflight_req[cid][root_ep_svc_name][root_ep]
