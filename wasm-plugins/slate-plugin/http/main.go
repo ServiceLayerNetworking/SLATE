@@ -318,7 +318,6 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		// the request is originating from this sidecar to another service, perform routing magic
 		// get endpoint distribution
 		endpointDistribution, _, err := proxywasm.GetSharedData(endpointDistributionKey(dst, reqMethod, reqPath))
-		proxywasm.AddHttpRequestHeader("x-slate-routefrom", region)
 		// add request start time
 		proxywasm.AddHttpRequestHeader("x-slate-start", fmt.Sprintf("%d", time.Now().UnixMilli()))
 		if err != nil {
@@ -544,18 +543,24 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 		proxywasm.LogCriticalf("setting outbound request distribution %v: %v", endpointDistributionKey(mp[0],
 			mp[1], mp[2]), distStr)
 
-		_, _, err := proxywasm.GetSharedData(endpointDistributionKey(mp[0], mp[1], mp[2]))
-		if err == nil {
-			// rules already exist
+		// if lastRecvRulesKey exists and is the same, don't reset as we might be hillclimbing
+		if rules, _, err := proxywasm.GetSharedData(lastRecvRulesKey(mp[0], mp[1], mp[2])); err != nil || string(rules) != distStr {
+			// no rules exist, set new rules and set lastRecvRulesKey
+			proxywasm.LogCriticalf("setting lastRecvRulesKey %v: %v", endpointDistributionKey(mp[0], mp[1], mp[2]), distStr)
+			if err := proxywasm.SetSharedData(endpointDistributionKey(mp[0], mp[1], mp[2]), []byte(distStr), 0); err != nil {
+				proxywasm.LogCriticalf("unable to set shared data for endpoint distribution %v: %v", methodPath, err)
+			}
+			if err := proxywasm.SetSharedData(lastRecvRulesKey(mp[0], mp[1], mp[2]), []byte(distStr), 0); err != nil {
+				proxywasm.LogCriticalf("unable to set lastRecvRulesKey for endpoint distribution %v: %v", methodPath, err)
+			}
+			// start hillclimbing
+			if err := proxywasm.SetSharedData(KEY_CURRENTLY_HILLCLIMBING, []byte(endpointDistributionKey(mp[0], mp[1], mp[2])), 0); err != nil {
+				proxywasm.LogCriticalf("unable to set shared data for hillclimb %v: %v", endpointDistributionKey(mp[0], mp[1], mp[2]), err)
+			}
+		} else {
+			// if we recieved the same rules as lastRecvRulesKey, don't set endpointDistributionKey because we might be hillclimbing
 			proxywasm.LogCriticalf("rules already exist for %v, skipping", methodPath)
 			continue
-		}
-
-		if err := proxywasm.SetSharedData(endpointDistributionKey(mp[0], mp[1], mp[2]), []byte(distStr), 0); err != nil {
-			proxywasm.LogCriticalf("unable to set shared data for endpoint distribution %v: %v", methodPath, err)
-		}
-		if err := proxywasm.SetSharedData(KEY_CURRENTLY_HILLCLIMBING, []byte(endpointDistributionKey(mp[0], mp[1], mp[2])), 0); err != nil {
-			proxywasm.LogCriticalf("unable to set shared data for hillclimb %v: %v", endpointDistributionKey(mp[0], mp[1], mp[2]), err)
 		}
 	}
 }
@@ -612,7 +617,13 @@ func (p *pluginContext) PerformHillClimb() {
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get total requests while trying to hillclimb: %v", err)
 		curAvgLatencyTotalRequests = 0
+		return
 	}
+	if curAvgLatencyTotalRequests == 0 {
+		proxywasm.LogCriticalf("No requests yet, skipping hillclimb...")
+		return
+	}
+	proxywasm.LogCriticalf("dividing %v by %v", curAvgLatencyTotalMs, curAvgLatencyTotalRequests)
 	curAvgLatency := curAvgLatencyTotalMs / curAvgLatencyTotalRequests
 	lastAvgLatency, err := GetUint64SharedData(prevOutboundLatencyRunningAvgKey(svc, method, path))
 	if err != nil {
@@ -622,6 +633,18 @@ func (p *pluginContext) PerformHillClimb() {
 		binary.LittleEndian.PutUint64(buf, curAvgLatency)
 		if err := proxywasm.SetSharedData(prevOutboundLatencyRunningAvgKey(svc, method, path), buf, 0); err != nil {
 			proxywasm.LogCriticalf("Couldn't set last average latency: %v", err)
+			return
+		}
+		// set the current average latency to 0
+		buf = make([]byte, 8)
+		binary.LittleEndian.PutUint64(buf, 0)
+		if err := proxywasm.SetSharedData(outboundLatencyRunningAvgKey(svc, method, path), buf, 0); err != nil {
+			proxywasm.LogCriticalf("Couldn't reset current average latency: %v", err)
+			return
+		}
+		// set num requests to 0
+		if err := proxywasm.SetSharedData(outboundLatencyTotalRequestsKey(svc, method, path), buf, 0); err != nil {
+			proxywasm.LogCriticalf("Couldn't reset total requests: %v", err)
 			return
 		}
 		// set step size and direction, and change ratios
@@ -652,12 +675,7 @@ func (p *pluginContext) PerformHillClimb() {
 		}
 		return
 	}
-	latencySamples, err := GetUint64SharedData(outboundLatencyTotalRequestsKey(svc, method, path))
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get total requests while trying to hillclimb: %v", err)
-		latencySamples = 0
-	}
-	proxywasm.LogCriticalf("Last average latency: %v, current average latency: %v (%v samples)", lastAvgLatency, curAvgLatency, latencySamples)
+	proxywasm.LogCriticalf("Last average latency: %v, current average latency: %v (%v samples)", lastAvgLatency, curAvgLatency, curAvgLatencyTotalRequests)
 	// set last average latency to current average latency
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, curAvgLatency)
@@ -742,12 +760,12 @@ func (p *pluginContext) PerformHillClimb() {
 		}
 		// set new step size and direction
 		buf := make([]byte, 8)
-		binary.LittleEndian.PutUint64(buf, uint64(stepSize/2))
+		binary.LittleEndian.PutUint64(buf, uint64(newStep))
 		if err := proxywasm.SetSharedData(KEY_HILLCLIMB_STEPSIZE, buf, 0); err != nil {
 			proxywasm.LogCriticalf("Couldn't set new step size: %v", err)
 			return
 		}
-		binary.LittleEndian.PutUint64(buf, uint64(direction*-1))
+		binary.LittleEndian.PutUint64(buf, uint64(newDirection))
 		if err := proxywasm.SetSharedData(KEY_HILLCLIMB_DIRECTION, buf, 0); err != nil {
 			proxywasm.LogCriticalf("Couldn't set new direction: %v", err)
 			return
@@ -1379,6 +1397,10 @@ func endpointInflightStatsKey(traceId string) string {
 
 func endpointDistributionKey(svc, method, path string) string {
 	return svc + "@" + method + "@" + path + "-distribution"
+}
+
+func lastRecvRulesKey(svc, method, path string) string {
+	return svc + "@" + method + "@" + path + "-lastrecv"
 }
 
 func sharedQueueKey(method, path string) string {
