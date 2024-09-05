@@ -1,0 +1,54 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: slate-service-cluster
+  namespace: default  # Apply this to the istio-system namespace
+spec:
+  workloadSelector:
+    # Apply this filter to all workloads in the namespace or mesh-wide
+    labels: {}
+  configPatches:
+    # The patch defines which part of the Envoy config you are altering
+    - applyTo: CLUSTER
+      match:
+        context: ANY # Apply to both sidecars and gateways
+      patch:
+        operation: ADD
+        value:
+          name: slate_service_cluster
+          type: LOGICAL_DNS
+          dns_lookup_family: V4_ONLY
+          connect_timeout: 5s
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: slate_service_cluster
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: raw.githubusercontent.com  # GitHub's raw content URL
+                          port_value: 443
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+    - applyTo: HTTP_ROUTE
+      match:
+        context: SIDECAR_OUTBOUND
+        routeConfiguration:
+          vhost:
+            name: "*:80"  # Apply this to all outbound HTTP traffic
+            route:
+              action: ANY
+      patch:
+        operation: MERGE
+        value:
+          route:
+            retry_policy:
+              retry_on: "5xx"
+              num_retries: 3
+              per_try_timeout: 5s
+              retry_back_off:
+                base_interval: 1s
+                max_interval: 10s

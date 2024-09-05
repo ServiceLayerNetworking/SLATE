@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shared-span-bootstrap-config
+  namespace: default
+data:
+  custom_bootstrap.json: |
+    {
+      "tracing": {
+        "http": {
+          "name": "envoy.tracers.zipkin",
+          "typed_config": {
+            "@type": "type.googleapis.com/envoy.config.trace.v3.ZipkinConfig",
+            "collector_cluster": "zipkin",
+            "collector_endpoint": "/api/v1/spans/custom",
+            "collector_endpoint_version": "HTTP_JSON",
+            "trace_id_128bit": true,
+            "shared_span_context": true
+          }
+        }
+      },
+      "bootstrap_extensions": [
+        {
+          "name": "envoy.bootstrap.wasm",
+          "typed_config": {
+            "@type": "type.googleapis.com/envoy.extensions.wasm.v3.WasmService",
+            "singleton": true,
+            "config": {
+              "name": "slate-wasm-service",
+              "vm_config": {
+                "code": {
+                  "remote": {
+                    "http_uri": {
+                      "uri": "https://raw.githubusercontent.com/ServiceLayerNetworking/slate-wasm-bootstrap/main/slate_service.wasm",
+                      "cluster": "slate_service_cluster",
+                      "timeout": "5s"
+                    },
+                    "sha256": "notsetyet"
+                  }
+                },
+                "environment_variables": {
+                  "host_env_keys": [
+                    "HOSTNAME",
+                    "ISTIO_META_WORKLOAD_NAME",
+                    "ISTIO_META_REGION"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
