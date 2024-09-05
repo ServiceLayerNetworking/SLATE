@@ -13,6 +13,13 @@
                 "http_uri": "<TODO>"
               }
             }
+          },
+          "environment_variables": {
+            "host_env_keys": [
+              "HOSTNAME",
+              "ISTIO_META_WORKLOAD_NAME",
+              "ISTIO_META_REGION"
+            ]
           }
         }
       }
