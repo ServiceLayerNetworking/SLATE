@@ -55,7 +55,7 @@ per_pod_ep_rps_mutex = Lock()
 service_level_rps = {}
 endpoint_to_cg_key = {}
 ep_str_callgraph_table = {}
-# all_endpoints = {}
+all_endpoints = {}
 temp_counter = 0
 prev_ts = time.time()
 load_coef_flag = False
@@ -80,7 +80,7 @@ objective = "avg_latency"
 DOLLAR_PER_MS = 1
 first_write_flag_for_profiled_trace=True
 state = "empty"
-all_clusters = set()
+# all_clusters = set() # not used for now
 workload = dict()
 
 # Target is checkoutcart request type
@@ -123,6 +123,59 @@ ROUTING_RULE = "LOCAL" # It will be updated by read_config_file function.
 ROUTING_RULE_SET = ["LOCAL", "SLATE", "REMOTE", "MCLB", "WATERFALL", "WATERFALL2"]
 CAPACITY = 0 # If it is runtime -> training_phase() -> max_capacity_per_service() -> set max_capacity_per_service[svc] = CAPACITY
 max_capacity_per_service = dict() # max_capacity_per_service[svc][region] = CAPACITY
+hillclimbing_distribution_history = list() #list(dict())
+
+@app.post('/hillclimbingReport') # from wasm
+def handleHillclimbReport():
+    global hillclimbing_distribution_history
+    svc = request.headers.get('x-slate-servicename')
+    region = request.headers.get('x-slate-region')
+    podname = request.headers.get('x-slate-podname')[-5:]
+    old_dist = request.headers.get('x-slate-old-dist')
+    new_dist = request.headers.get('x-slate-new-dist')
+    avg_latency = request.headers.get('x-slate-avg-latency')
+    inbound_rps = request.headers.get('x-slate-inbound-rps')
+    outbound_rps = request.headers.get('x-slate-outbound-rps')
+    if svc == "sslateingress-us-west-1":
+        logger.info(f"logadi all headers: {request.headers}")
+        logger.info(f"hillclimbing svc: {svc}, region: {region}, podname: {podname}, old_dist: {old_dist}, new_dist: {new_dist}, avg_latency: {avg_latency}, inbound_rps: {inbound_rps}, outbound_rps: {outbound_rps}")
+    old_dist_rules = old_dist.split(" ")
+    new_dist_rules = new_dist.split(" ")
+    if len(old_dist_rules) < 4 or len(new_dist_rules) < 4 or not old_dist.strip() or not new_dist.strip():
+        return ""
+    # old_dist_rules is in the format of [region1, rule1, region2, rule2, ...]
+    # we want to convert it to dictionary of {region: rule}
+    old_dist_dict = {f"old-{old_dist_rules[i]}": old_dist_rules[i+1] for i in range(0, len(old_dist_rules), 2)}
+    new_dist_dict = {f"new-{new_dist_rules[i]}": new_dist_rules[i+1] for i in range(0, len(new_dist_rules), 2)}
+    hist = {
+        "svc": svc,
+        "region": region,
+        "podname": podname,
+        "avg_latency": avg_latency,
+        "inbound_rps": inbound_rps,
+        "outbound_rps": outbound_rps,
+        "time": str(datetime.datetime.now()),
+        "time_millis": str(int(time.time()*1000)),
+        **old_dist_dict,
+        **new_dist_dict
+    }
+    # hist.update(old_dist_dict)
+    # hist.update(new_dist_dict)
+    hillclimbing_distribution_history.append(hist)
+    return ""
+
+def write_hillclimb_history_to_file():
+    # write the entire hillclimbing history as a csv file.
+    global hillclimbing_distribution_history
+    if len(hillclimbing_distribution_history) > 0:
+        # open in overwrite mode
+        with open(f'hillclimbing_distribution_history.csv', 'w') as f:
+            # write the header as all the keys in the first record
+            entry0 = hillclimbing_distribution_history[0]
+            f.write(",".join(entry0.keys()) + "\n")
+            for record in hillclimbing_distribution_history:
+                f.write(",".join(record.values()) + "\n")
+        logger.info(f"write_hillclimb_history_to_file happened.")
 
 def set_endpoint_to_placement(all_endpoints):
     endpoint_to_placement = dict()
@@ -316,7 +369,7 @@ def parse_stats_into_spans(body, given_svc_name):
         startTime = int(ss[7])
         endTime = int(ss[8])
         bodySize = int(ss[9])
-        logger.error(f"serviceName: {serviceName}, method: {method}, path: {path}, bodySize: {bodySize}")
+        # logger.info(f"serviceName: {serviceName}, method: {method}, path: {path}, bodySize: {bodySize}")
         # if serviceName.find("metrics-handler") != -1:
         #     bodySize = 5000
         #     logger.debug(f"Rewriting bodySize: {bodySize}, svc: {serviceName}, method: {method}, path: {path}")
@@ -402,6 +455,8 @@ sslateingress@POST@/cart,frontend@POST@/cart,us-west-1,us-east-1,0.0
 # @app.route("/clusterLoad", methods=["POST"]) # from cluster-controller
 @app.post('/proxyLoad') # from wasm
 def handleProxyLoad():
+    # logger.info("handleProxyLoad")
+    # return ""
     global aggregated_rps
     global endpoint_level_inflight
     global percentage_df
@@ -426,9 +481,9 @@ def handleProxyLoad():
     full_podname = request.headers.get('x-slate-podname')
     podname = request.headers.get('x-slate-podname')[-5:]
     
-    if svc == "sslateingress-us-west-1":
-        logger.info("returning default response to sslateingress-us-west-1")
-        return defaultresponse
+    # if svc == "sslateingress-us-west-1":
+    #     logger.info("returning default response to sslateingress-us-west-1")
+    #     return defaultresponse
         
     if svc.find("-us-") != -1:
             svc = svc.split("-us-")[0]
@@ -448,20 +503,24 @@ def handleProxyLoad():
     body = request.get_data().decode('utf-8')
     #logger.info(body)
     '''
-    request body format:
+    * REQUEST BODY FORMAT:
+    ------------------------------------------------------------------
     service_level_rps at OnTick time
     endpoint,endpoint_level_rps,endpoint_level_rps|...| at OnTick time
     requestStat-1
     requestStat-2
     requestStat-3
+    ------------------------------------------------------------------
     
-    e.g.,
+    * EXAMPLE:
+    ------------------------------------------------------------------
     54 
     GET@/start,0,12|POST@/upload,0,34|
     us-west-1 metrics-fake-ingress-us-west-1 GET /start 70904b1c08f35622387a6bb5c9141596 387a6bb5c9141596  1709763447436 1709763447540 0 GET@/start,0,18446744073709530962|
     us-west-1 metrics-fake-ingress-us-west-1 GET /start 8b869b12bba09c5e3843e396eeab84b5 3843e396eeab84b5  1709763447465 1709763447512 0 GET@/start,0,18446744073709530962|
     us-west-1 metrics-fake-ingress-us-west-1 GET /start 4d098d189169f0f7e07e75c587d4c608 e07e75c587d4c608  1709763447751 1709763447814 0 GET@/start,0,18446744073709530944|
     us-west-1 metrics-fake-ingress-us-west-1 GET /start d3c0c9e72a315edce2e118bb2d7be53d e2e118bb2d7be53d  1709763447856 1709763447929 0 GET@/start,0,18446744073709530939|
+    ------------------------------------------------------------------
     '''
     logger.debug(f"svc: {svc}, region: {region}")
     
@@ -1822,8 +1881,8 @@ def training_phase():
     # if not check_file_exist(trainig_input_trace_file):
     #     return
 
-    if mode == "before_start":
-        logger.info(f"mode: {mode}. Skip training.")
+    if mode != "runtime":
+        logger.debug(f"mode: {mode}. Skip training.")
         return
     if os.path.isfile(trainig_input_trace_file) == False:
         logger.error(f"[ERROR] {trainig_input_trace_file} does not exist.")
@@ -1954,7 +2013,7 @@ def read_config_file():
     global bottleneck_service
     global load_coef_flag
     global state
-    global all_clusters
+    # global all_clusters
     global traffic_segmentation
     
     env_file = "env.txt"
@@ -2029,13 +2088,14 @@ def read_config_file():
                 oneway_latency = int(line[3])
                 if src not in inter_cluster_latency:
                     inter_cluster_latency[src] = dict()
-                # if dst not in inter_cluster_latency:
-                #     inter_cluster_latency[dst] = dict()
-                inter_cluster_latency[src][dst] = oneway_latency
-                all_clusters.add(src)
-                all_clusters.add(dst)
-                # inter_cluster_latency[dst][src] = oneway_latency
-                logger.info(f'Update inter_cluster_latency: {src} -> {dst}: {oneway_latency}')
+                if dst not in inter_cluster_latency:
+                    inter_cluster_latency[dst] = dict()
+                if dst not in inter_cluster_latency[src] or inter_cluster_latency[src][dst] != oneway_latency:
+                    logger.info(f'Update inter_cluster_latency: {src} -> {dst}: {oneway_latency}')
+                    inter_cluster_latency[src][dst] = oneway_latency
+                    inter_cluster_latency[dst][src] = oneway_latency
+                # all_clusters.add(src)
+                # all_clusters.add(dst)
             elif line[0] == "load_coef_flag":
                 if load_coef_flag != int(line[1]):
                     logger.info(f'Update load_coef_flag: {load_coef_flag} -> {int(line[1])}')
@@ -2043,21 +2103,32 @@ def read_config_file():
             elif line[0] == "RPS":
                 # format:  RPS,west,addtocart,200
                 #          [0]  [1]    [2]    [3]
-                if line[1] not in workload:
-                    workload[line[1]] = dict()
-                workload[line[1]][line[2]] = int(line[3])
-                logger.info(f'Update workload: {line[1]}-{line[2]}: {line[3]}RPS')
+                region = line[1]
+                req_type = line[2]
+                rps = int(line[3])
+                
+                if region not in workload:
+                    workload[region] = dict()
+                if req_type not in workload[region] or workload[region][req_type] != rps:
+                    workload[region][req_type] = rps
+                    logger.info(f'Update workload: {line[1]}-{line[2]}: {line[3]}RPS')
             elif line[0] == "traffic_segmentation":
                 traffic_segmentation = int(line[1])
             elif line[0] == "background_noise":
                 background_noise = int(line[1])
             elif line[0] == "duration":
                 duration = int(line[1])
+            elif line[0] == "connection":
+                connection = int(line[1])
+            elif line[0] == "distribution":
+                distribution = line[1]
+            elif line[0] == "thread":
+                thread = int(line[1])
             else:
                 logger.error(f"ERROR: unknown config: {line}")
                 state = f"[!!! PANIC !!!] unknown config in {env_file}: {line[0]}"
                 
-    logger.info(f"benchmark_name: {benchmark_name}, total_num_services: {total_num_services}, mode: {mode}, ROUTING_RULE: {ROUTING_RULE}")
+    # logger.info(f"benchmark_name: {benchmark_name}, total_num_services: {total_num_services}, mode: {mode}, ROUTING_RULE: {ROUTING_RULE}")
 
 
 def record_endpoint_rps(aggregated_rps, counter):
@@ -2076,16 +2147,22 @@ def record_endpoint_rps(aggregated_rps, counter):
                         temp = f"{counter},{region},{svc},{endpoint},{aggregated_rps[region][svc][endpoint]}"
                         f.write(temp + "\n")
                         
-def aggregate_rps_by_region(per_pod_ep_rps):
-    aggregate = dict()
+def aggregate_rps_by_region_or_zero(per_pod_ep_rps):
+    global aggregated_rps
+    for region in all_endpoints:
+        if region not in aggregated_rps: aggregated_rps[region] = dict()
+        for svc_name in all_endpoints[region]:
+            if svc_name not in aggregated_rps[region]: aggregated_rps[region][svc_name] = dict()
+            for ep_str in all_endpoints[region][svc_name]:
+                # if endpoint not in aggregated_rps[region][svc_name]: aggregated_rps[region][svc_name][endpoint] = 0
+                aggregated_rps[region][svc_name][ep_str] = 0
+                logger.debug(f"Set zero, aggregated_rps[{region}][{svc_name}][{ep_str}]: {aggregated_rps[region][svc_name][ep_str]}")
+    
     for region in per_pod_ep_rps:
-        if region not in aggregate: aggregate[region] = dict()
-        for svc in per_pod_ep_rps[region]:
-            if svc not in aggregate[region]: aggregate[region][svc] = dict()
-            for endpoint in per_pod_ep_rps[region][svc]:
-                if endpoint not in aggregate[region][svc]: aggregate[region][svc][endpoint] = 0
-                for podname in per_pod_ep_rps[region][svc][endpoint]:
-                    aggregate[region][svc][endpoint] += per_pod_ep_rps[region][svc][endpoint][podname]
+        for svc_name in per_pod_ep_rps[region]:
+            for endpoint in per_pod_ep_rps[region][svc_name]:
+                for podname in per_pod_ep_rps[region][svc_name][endpoint]:
+                    aggregated_rps[region][svc_name][endpoint] += per_pod_ep_rps[region][svc_name][endpoint][podname]
     # logger.info("-"*80)
     # for region in per_pod_ep_rps:
     #     for svc in per_pod_ep_rps[region]:
@@ -2093,12 +2170,11 @@ def aggregate_rps_by_region(per_pod_ep_rps):
     #             for podname in per_pod_ep_rps[region][svc][endpoint]:
     #                 logger.info(f"per_pod_ep_rps,{region},{svc},{endpoint},{podname},{per_pod_ep_rps[region][svc][endpoint][podname]}")
     # logger.info("-"*80)
-    # for region in aggregate:
-    #     for svc in aggregate[region]:
-    #         for endpoint in aggregate[region][svc]:
-    #             logger.info(f"aggregate,{region},{svc},{endpoint},{aggregate[region][svc][endpoint]}")
+    # for region in aggregated_rps:
+    #     for svc in aggregated_rps[region]:
+    #         for endpoint in aggregated_rps[region][svc]:
+    #             logger.info(f"aggregated_rps,{region},{svc},{endpoint},{aggregated_rps[region][svc][endpoint]}")
     # logger.info("-"*80)
-    return aggregate
 
 def aggregated_rps_routine():
     global per_pod_ep_rps
@@ -2106,7 +2182,7 @@ def aggregated_rps_routine():
     global agg_root_node_rps
     global temp_counter
     global prev_ts
-    aggregated_rps = aggregate_rps_by_region(per_pod_ep_rps)
+    aggregate_rps_by_region_or_zero(per_pod_ep_rps)
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
     if check_root_node_rps_condition(agg_root_node_rps) or temp_counter > 0:
         record_endpoint_rps(aggregated_rps, temp_counter)
@@ -2143,6 +2219,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
     scheduler.add_job(func=state_check, trigger="interval", seconds=1)
+    scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)
     scheduler.start()
     atexit.register(lambda: scheduler.shutdown())
     app.run(host='0.0.0.0', port=8080)
