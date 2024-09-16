@@ -23,7 +23,6 @@ const (
 	KEY_INFLIGHT_ENDPOINT_LIST = "slate_inflight_endpoint_list"
 	KEY_ENDPOINT_RPS_LIST      = "slate_endpoint_rps_list"
 	KEY_INFLIGHT_REQ_COUNT     = "slate_inflight_request_count"
-	KEY_REQUEST_COUNT          = "slate_rps"
 	KEY_LAST_RESET             = "slate_last_reset"
 	KEY_RPS_THRESHOLDS         = "slate_rps_threshold"
 	KEY_HASH_MOD               = "slate_hash_mod"
@@ -37,7 +36,7 @@ const (
 	TICK_PERIOD = 1000
 
 	// Hash mod for frequency of request tracing.
-	DEFAULT_HASH_MOD = 10
+	DEFAULT_HASH_MOD = 5
 	KEY_NUM_TICKS    = "slate_key_num_ticks"
 
 	KEY_MATCH_DISTRIBUTION     = "slate_match_distribution"
@@ -47,11 +46,8 @@ const (
 )
 
 var (
-	ALL_KEYS = []string{KEY_INFLIGHT_REQ_COUNT, KEY_REQUEST_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
+	ALL_KEYS = []string{KEY_INFLIGHT_REQ_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
 		KEY_TRACED_REQUESTS, KEY_MATCH_DISTRIBUTION, KEY_INFLIGHT_ENDPOINT_LIST, KEY_ENDPOINT_RPS_LIST, KEY_RPS_SHARED_QUEUE, KEY_RPS_SHARED_QUEUE_SIZE}
-	cur_idx      int
-	latency_list []int64
-	ts_list      []int64
 )
 
 func main() {
@@ -123,6 +119,29 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	if regionName == "" {
 		regionName = "SLATE_UNKNOWN_REGION"
 	}
+	hillclimbing := os.Getenv("HILLCLIMBING")
+	if hillclimbing == "" {
+		hillclimbing = "false"
+	}
+	if err := proxywasm.SetSharedData(shared.KEY_HILLCLIMBING_ENABLED, []byte(hillclimbing), 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data for hillclimbing to %v: %v", hillclimbing, err)
+	}
+	hillclimb_interval := os.Getenv("HILLCLIMB_INTERVAL")
+	if hillclimb_interval == "" {
+		proxywasm.LogCriticalf("HILLCLIMB_INTERVAL not set, defaulting to 15")
+		hillclimb_interval = "15"
+	}
+	if err := proxywasm.SetSharedData(shared.KEY_HILLCLIMB_INTERVAL, []byte(hillclimb_interval), 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data for hillclimb interval to %v: %v", hillclimb_interval, err)
+	}
+	hillclimb_stepsize := os.Getenv("HILLCLIMB_INITIAL_STEPSIZE")
+	if hillclimb_stepsize == "" {
+		proxywasm.LogCriticalf("HILLCLIMB_INITIAL_STEPSIZE not set, defaulting to 2")
+		hillclimb_stepsize = "2"
+	}
+	if err := proxywasm.SetSharedData(shared.KEY_HILLCLIMB_INITIAL_STEPSIZE, []byte(hillclimb_stepsize), 0); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data for hillclimb stepsize to %v: %v", hillclimb_stepsize, err)
+	}
 	p.podName = pod
 	p.serviceName = svc
 	p.region = regionName
@@ -170,14 +189,18 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 
 	// policy enforcement for outbound requests
 	if !strings.HasPrefix(ctx.pluginContext.serviceName, dst) && !strings.HasPrefix(dst, "node") {
+		// add request start time
+		if err := proxywasm.AddHttpRequestHeader("x-slate-start", fmt.Sprintf("%d", time.Now().UnixMilli())); err != nil {
+			proxywasm.LogCriticalf("Couldn't add request header x-slate-start: %v", err)
+		}
 		// the request is originating from this sidecar to another service, perform routing magic
 		// get endpoint distribution
 		endpointDistribution, _, err := proxywasm.GetSharedData(shared.EndpointDistributionKey(dst, reqMethod, reqPath))
-		// add request start time
-		proxywasm.AddHttpRequestHeader("x-slate-start", fmt.Sprintf("%d", time.Now().UnixMilli()))
 		if err != nil {
 			// no rules available yet.
-			proxywasm.AddHttpRequestHeader("x-slate-routeto", region)
+			if err := proxywasm.AddHttpRequestHeader("x-slate-routeto", region); err != nil {
+				proxywasm.LogCriticalf("Couldn't add request header x-slate-routeto [1]: %v", err)
+			}
 		} else {
 			// draw from distribution
 			coin := rand.Float64()
@@ -185,6 +208,9 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 			distLines := strings.Split(string(endpointDistribution), "\n")
 			for _, line := range distLines {
 				lineS := strings.Split(line, " ")
+				if len(lineS) != 2 {
+					return types.ActionContinue
+				}
 				targetRegion := lineS[0]
 				pct, err := strconv.ParseFloat(lineS[1], 64)
 				if err != nil {
@@ -193,7 +219,9 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 				}
 				total += pct
 				if coin <= total {
-					proxywasm.AddHttpRequestHeader("x-slate-routeto", targetRegion)
+					if err := proxywasm.AddHttpRequestHeader("x-slate-routeto", targetRegion); err != nil {
+						proxywasm.LogCriticalf("Couldn't add request header x-slate-routeto [2]: %v", err)
+					}
 					break
 				}
 			}
@@ -201,18 +229,14 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		return types.ActionContinue
 	}
 
-	// bookkeeping to make sure we don't double count requests. decremented in OnHttpStreamDone
-	shared.IncrementSharedData(shared.InboundCountKey(traceId), 1)
-	// increment request count for this tick period
-	shared.IncrementSharedData(KEY_REQUEST_COUNT, 1)
-	// increment total number of inflight requests
-	shared.IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, 1)
-
+	shared.IncrementSharedData(shared.KEY_REQUEST_COUNT, 1)
+	shared.IncrementSharedData(shared.KEY_HILLCLIMB_INBOUNDRPS, 1)
 	// add the new request to our queue
 	ctx.TimestampListAdd(reqMethod, reqPath)
 
 	// if this is a traced request, we need to record load conditions and request details
 	if tracedRequest(traceId) {
+		return types.ActionContinue
 		spanId, _ := proxywasm.GetHttpRequestHeader("x-b3-spanid")
 		parentSpanId, _ := proxywasm.GetHttpRequestHeader("x-b3-parentspanid")
 		bSizeStr, err := proxywasm.GetHttpRequestHeader("Content-Length")
@@ -237,7 +261,13 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 }
 
 func (ctx *httpContext) OnHttpResponseHeaders(int, bool) types.Action {
-	proxywasm.AddHttpResponseHeader("x-slate-end", fmt.Sprintf("%d", time.Now().UnixMilli()))
+	end := time.Now().UnixMilli()
+	if d, err := proxywasm.GetHttpResponseHeader("x-slate-end"); err != nil || string(d) == "" {
+		// this is the first response, record the end time
+		proxywasm.AddHttpResponseHeader("x-slate-end", fmt.Sprintf("%d", end))
+	} else {
+		proxywasm.ReplaceHttpResponseHeader("x-slate-end", fmt.Sprintf("%d", end))
+	}
 	return types.ActionContinue
 }
 
@@ -251,13 +281,6 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get request header x-b3-traceid: %v", err)
-		return
-	}
-
-	// endtime should be recorded when the LAST response is received not the first response. It seems like it records the endtime on the first response.
-	inbound, err := shared.GetUint64SharedData(shared.InboundCountKey(traceId))
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get shared data for inboundCountKey traceId %v load: %v", traceId, err)
 		return
 	}
 
@@ -279,14 +302,19 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	// endTime is populated in OnHttpResponseHeaders
 	endTimeStr, err := proxywasm.GetHttpResponseHeader("x-slate-end")
 	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get x-slate-end (when inbound response should have it) : %v", err)
+		//reqHdrs, _ := proxywasm.GetHttpRequestHeaders()
+		//proxywasm.LogCriticalf("Couldn't get x-slate-end (when inbound response should have it) : %v\nreqHdrs: %v", err, reqHdrs)
 		endTimeStr = fmt.Sprintf("%d", time.Now().UnixMilli())
 	}
 	endTime, err := strconv.ParseInt(endTimeStr, 10, 64)
-
 	// this was an outbound request/response
 	// measure running average for latency for outbound requests
-	if (!strings.HasPrefix(ctx.pluginContext.serviceName, dst) && !strings.HasPrefix(dst, "node")) || inbound != 1 {
+	if !strings.HasPrefix(ctx.pluginContext.serviceName, dst) && !strings.HasPrefix(dst, "node") {
+		processedRegion, err := proxywasm.GetHttpRequestHeader("x-slate-routeto")
+		if err != nil {
+			processedRegion = ctx.pluginContext.region
+		}
+
 		startStr, err := proxywasm.GetHttpRequestHeader("x-slate-start")
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't get request header :start (when outbound request should have it) : %v", err)
@@ -294,11 +322,10 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		}
 		start, err := strconv.ParseInt(startStr, 10, 64)
 		latencyMs := endTime - start
-		addLatencyToRunningAverage(dst, reqMethod, reqPath, latencyMs, 5)
+		addLatencyToRunningAverage(dst, reqMethod, reqPath, processedRegion, latencyMs, 5)
 		return
 	}
 
-	shared.IncrementSharedData(KEY_INFLIGHT_REQ_COUNT, -1)
 	IncrementInflightCount(reqMethod, reqPath, -1)
 
 	// record end time
@@ -309,11 +336,17 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	}
 }
 
-func addLatencyToRunningAverage(svc, method, path string, latencyMs int64, retriesLeft int) {
+func addLatencyToRunningAverage(svc, method, path, region string, latencyMs int64, retriesLeft int) {
 	outboundLatencyAvgKey := shared.OutboundLatencyRunningAvgKey(svc, method, path)
 	outboundLatencyTotal := shared.OutboundLatencyTotalRequestsKey(svc, method, path)
 	shared.IncrementSharedData(outboundLatencyAvgKey, latencyMs)
 	shared.IncrementSharedData(outboundLatencyTotal, 1)
+
+	// increment region latency
+	regionLatencyAvgKey := shared.RegionOutboundLatencyRunningAvgKey(svc, method, path, region)
+	regionLatencyTotal := shared.RegionOutboundLatencyTotalRequestsKey(svc, method, path, region)
+	shared.IncrementSharedData(regionLatencyAvgKey, latencyMs)
+	shared.IncrementSharedData(regionLatencyTotal, 1)
 }
 
 // AddTracedRequest adds a traceId to the set of traceIds we are tracking (this is collected every Tick and sent
@@ -371,13 +404,6 @@ func AddTracedRequest(method, path, traceId, spanId, parentSpanId string, startT
 	if err := proxywasm.SetSharedData(shared.BodySizeKey(traceId), bodySizeBytes, 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v bodySize: %v %v", traceId, bodySize, err)
 	}
-
-	// Adding load to shareddata when we receive the request
-	data, cas, err := proxywasm.GetSharedData(KEY_INFLIGHT_REQ_COUNT)                      // Get the current load
-	if err := proxywasm.SetSharedData(shared.FirstLoadKey(traceId), data, 0); err != nil { // Set the trace with the current load
-		proxywasm.LogCriticalf("unable to set shared data for traceId %v load: %v", traceId, err)
-		return err
-	}
 	return nil
 }
 
@@ -432,8 +458,12 @@ func GetInflightRequestStats() (map[string]shared.EndpointStats, error) {
 		if shared.EmptyBytes([]byte(endpoint)) {
 			continue
 		}
-		method := strings.Split(endpoint, "@")[0]
-		path := strings.Split(endpoint, "@")[1]
+		mp := strings.Split(endpoint, "@")
+		if len(mp) != 2 {
+			continue
+		}
+		method := mp[0]
+		path := mp[1]
 		proxywasm.LogDebugf("method: %s, path: %s", method, path)
 		if val, ok := inflightRequestStats[endpoint]; ok {
 			val.Total = TimestampListGetRPS(method, path)

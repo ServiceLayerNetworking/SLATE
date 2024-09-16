@@ -12,6 +12,7 @@ docker build -t ghcr.io/adiprerepa/slate-plugin:latest .
 docker push ghcr.io/adiprerepa/slate-plugin:latest
 
 # patch sha256 into configmap
+# update configmap for multiple clusters
 go run patch_wasm_service.go
 cp wasm-out/slate_service.wasm ../../../slate-wasm-bootstrap/
 cd ../../../slate-wasm-bootstrap/

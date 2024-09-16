@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+const (
+	KEY_HILLCLIMBING_ENABLED       = "hillclimbing_enabled"
+	KEY_REQUEST_COUNT              = "slate_rps"
+	KEY_HILLCLIMB_INITIAL_STEPSIZE = "initial_hillclimbing_stepsize"
+	KEY_HILLCLIMB_INTERVAL         = "hillclimbing_interval"
+	KEY_HILLCLIMB_INBOUNDRPS       = "hillclimbing_inboundrps"
+)
+
 // TracedRequestStats is a struct that holds information about a traced request.
 // This is what is reported to the controller.
 type TracedRequestStats struct {
@@ -19,8 +27,6 @@ type TracedRequestStats struct {
 	StartTime    int64
 	EndTime      int64
 	BodySize     int64
-	FirstLoad    int64
-	RPS          int64
 }
 
 // Statistic for a given endpoint.
@@ -196,4 +202,11 @@ func OutboundLatencyRunningAvgKey(svc, method, path string) string {
 
 func OutboundLatencyTotalRequestsKey(svc, method, path string) string {
 	return svc + "@" + method + "@" + path + "-outbound-latency-totalrequests"
+}
+func RegionOutboundLatencyRunningAvgKey(svc, method, path, region string) string {
+	return svc + "@" + method + "@" + path + "@" + region + "-outbound-latency"
+}
+
+func RegionOutboundLatencyTotalRequestsKey(svc, method, path, region string) string {
+	return svc + "@" + method + "@" + path + "@" + region + "-outbound-latency-totalrequests"
 }
