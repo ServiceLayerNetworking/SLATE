@@ -36,7 +36,7 @@ const (
 	TICK_PERIOD = 1000
 
 	// Hash mod for frequency of request tracing.
-	DEFAULT_HASH_MOD = 5
+	DEFAULT_HASH_MOD = 1000000000
 	KEY_NUM_TICKS    = "slate_key_num_ticks"
 
 	KEY_MATCH_DISTRIBUTION     = "slate_match_distribution"
@@ -123,10 +123,12 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	if hillclimbing == "" {
 		hillclimbing = "false"
 	}
+	proxywasm.LogCriticalf("Hillclimbing: %v", hillclimbing)
 	if err := proxywasm.SetSharedData(shared.KEY_HILLCLIMBING_ENABLED, []byte(hillclimbing), 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data for hillclimbing to %v: %v", hillclimbing, err)
 	}
 	hillclimb_interval := os.Getenv("HILLCLIMB_INTERVAL")
+	proxywasm.LogCriticalf("Hillclimb interval: %v", hillclimb_interval)
 	if hillclimb_interval == "" {
 		proxywasm.LogCriticalf("HILLCLIMB_INTERVAL not set, defaulting to 15")
 		hillclimb_interval = "15"
@@ -139,6 +141,7 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 		proxywasm.LogCriticalf("HILLCLIMB_INITIAL_STEPSIZE not set, defaulting to 2")
 		hillclimb_stepsize = "2"
 	}
+	proxywasm.LogCriticalf("Hillclimb stepsize: %v", hillclimb_stepsize)
 	if err := proxywasm.SetSharedData(shared.KEY_HILLCLIMB_INITIAL_STEPSIZE, []byte(hillclimb_stepsize), 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data for hillclimb stepsize to %v: %v", hillclimb_stepsize, err)
 	}
@@ -236,7 +239,6 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 
 	// if this is a traced request, we need to record load conditions and request details
 	if tracedRequest(traceId) {
-		return types.ActionContinue
 		spanId, _ := proxywasm.GetHttpRequestHeader("x-b3-spanid")
 		parentSpanId, _ := proxywasm.GetHttpRequestHeader("x-b3-parentspanid")
 		bSizeStr, err := proxywasm.GetHttpRequestHeader("Content-Length")
@@ -347,6 +349,13 @@ func addLatencyToRunningAverage(svc, method, path, region string, latencyMs int6
 	regionLatencyTotal := shared.RegionOutboundLatencyTotalRequestsKey(svc, method, path, region)
 	shared.IncrementSharedData(regionLatencyAvgKey, latencyMs)
 	shared.IncrementSharedData(regionLatencyTotal, 1)
+
+	// increment per second latency (for reporting to global controller every second)
+	perSecondLatencyKey := shared.PerSecondLatencyKey(svc, method, path)
+	perSecondLatencyTotalKey := shared.PerSecondLatencyTotalRequestsKey(svc, method, path)
+	shared.IncrementSharedData(perSecondLatencyKey, latencyMs)
+	shared.IncrementSharedData(perSecondLatencyTotalKey, 1)
+	// todo potentially include per second latency for region as well
 }
 
 // AddTracedRequest adds a traceId to the set of traceIds we are tracking (this is collected every Tick and sent

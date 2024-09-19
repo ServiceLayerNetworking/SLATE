@@ -124,12 +124,41 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	if regionName == "" {
 		regionName = "SLATE_UNKNOWN_REGION"
 	}
+	controllerHeaders := [][2]string{
+		{":method", "POST"},
+		{":path", "/wasmsync"},
+		{":authority", "slate-controller.default.svc.cluster.local"},
+	}
+
+	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
+		[]byte(""), make([][2]string, 0), 5000, WasmSyncHttpResponseHandler)
 	p.podName = pod
 	p.serviceName = svc
 	p.region = regionName
 	region = regionName
 	serviceName = svc
 	return types.OnPluginStartStatusOK
+}
+
+func WasmSyncHttpResponseHandler(numHeaders, bodySize, numTrailers int) {
+	// set KEY_NUM_TICKS to the response body
+	respBody, err := parseHttpResponse("WasmSync", numHeaders, bodySize, numTrailers)
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't parse http call response: %v", err)
+		return
+	}
+	s := strings.TrimSpace(respBody)
+	syncVal, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't parse sync response body: %v", err)
+		syncVal = 0
+	}
+	proxywasm.LogCriticalf("syncVal: %d", syncVal)
+	syncValBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(syncValBytes, syncVal)
+	if err := proxywasm.SetSharedData(KEY_NUM_TICKS, syncValBytes, 0); err != nil {
+		proxywasm.LogCriticalf("unable to set KEY_NUM_TICKS shared data: %v", err)
+	}
 }
 
 func hillclimbEnabled() bool {
@@ -181,40 +210,11 @@ func (p *pluginContext) OnTick() {
 
 	//every 5 ticks, perform the hill climbing algorithm and adjust the outbound ratios.
 	if p.hillclimbEnabled() {
-		ticks := shared.GetUint64SharedDataOrZero(KEY_NUM_TICKS)
-		if ticks%p.hillclimbIntervalSeconds == 0 {
-			proxywasm.LogCriticalf("logadi-hillclimb")
-			oldDist, newDist, avgLatency, regionToLatency := p.PerformHillClimb()
-			oldDistNoNewlines, newDistNoNewlines := strings.ReplaceAll(oldDist, "\n", " "), strings.ReplaceAll(newDist, "\n", " ")
-			outboundRps := avgLatency.TotalReqs / int(p.hillclimbIntervalSeconds)
-			inboundRps := shared.GetUint64SharedDataOrZero(shared.KEY_HILLCLIMB_INBOUNDRPS) / p.hillclimbIntervalSeconds
-			if err := proxywasm.SetSharedData(shared.KEY_HILLCLIMB_INBOUNDRPS, make([]byte, 8), 0); err != nil {
-				proxywasm.LogCriticalf("Couldn't reset inbound rps: %v", err)
-			}
-			controllerHeaders := [][2]string{
-				{":method", "POST"},
-				{":path", "/hillclimbingReport"},
-				{":authority", "slate-controller.default.svc.cluster.local"},
-				{"x-slate-podname", p.podName},
-				{"x-slate-servicename", p.serviceName},
-				{"x-slate-region", p.region},
-				{"x-slate-old-dist", oldDistNoNewlines},
-				{"x-slate-new-dist", newDistNoNewlines},
-				{"x-slate-avg-latency", strconv.Itoa(avgLatency.LatencyAvg)},
-				{"x-slate-outbound-rps", strconv.Itoa(outboundRps)},
-				{"x-slate-inbound-rps", strconv.Itoa(int(inboundRps))},
-			}
-			for r, latency := range regionToLatency {
-				controllerHeaders = append(controllerHeaders, [2]string{fmt.Sprintf("x-slate-%v-latency", r), strconv.Itoa(latency.LatencyAvg)})
-				controllerHeaders = append(controllerHeaders, [2]string{fmt.Sprintf("x-slate-%v-outboundreqs", r), strconv.Itoa(latency.TotalReqs)})
-			}
-			proxywasm.LogCriticalf("hillclimbing headers: %v", controllerHeaders)
-			if _, err := proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
-				[]byte(""), make([][2]string, 0), 5000, HillclimbHttpResponseHandler); err != nil {
-				proxywasm.LogCriticalf("Couldn't dispatch hillclimbing http call: %v", err)
-			}
+		//ticks := shared.GetUint64SharedDataOrZero(KEY_NUM_TICKS)
+		if uint64(time.Now().Unix())%p.hillclimbIntervalSeconds == 0 {
+			p.RequestHillclimbPolicy()
 		}
-		IncrementSharedData(KEY_NUM_TICKS, 1)
+		//IncrementSharedData(KEY_NUM_TICKS, 1)
 	}
 
 	totalRps := shared.GetUint64SharedDataOrZero(shared.KEY_REQUEST_COUNT)
@@ -291,44 +291,132 @@ func (p *pluginContext) OnTick() {
 	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
 		[]byte(fmt.Sprintf("%d\n%s\n%s", totalRps, inflightStats, requestStatsStr)), make([][2]string, 0), 5000, OnTickHttpCallResponse)
 
+	p.ReportHillclimbingLatency()
+}
+
+func (p *pluginContext) ReportHillclimbingLatency() {
+	endpointToClimb, _, err := proxywasm.GetSharedData(KEY_CURRENTLY_HILLCLIMBING)
+	if err != nil || string(endpointToClimb) == "NOT" {
+		// nothing to hillclimb
+		proxywasm.LogCriticalf("[ReportHillclimbingLatency] no endpoint to hillclimb")
+		return
+	} else {
+		proxywasm.LogCriticalf("[ReportHillclimbingLatency] endpoint to hillclimb: %v", string(endpointToClimb))
+	}
+	svcMethodPath := strings.Split(string(endpointToClimb)[:len(endpointToClimb)-13], "@")
+	svc, method, path := svcMethodPath[0], svcMethodPath[1], svcMethodPath[2]
+	totalLatency := shared.GetUint64SharedDataOrZero(shared.PerSecondLatencyKey(svc, method, path))
+	totalReqs := shared.GetUint64SharedDataOrZero(shared.PerSecondLatencyTotalRequestsKey(svc, method, path))
+	// reset the total latency and total requests
+	nv := 0
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(nv))
+	if err := proxywasm.SetSharedData(shared.PerSecondLatencyKey(svc, method, path), buf, 0); err != nil {
+		proxywasm.LogCriticalf("Couldn't reset total latency: %v", err)
+	}
+	if err := proxywasm.SetSharedData(shared.PerSecondLatencyTotalRequestsKey(svc, method, path), buf, 0); err != nil {
+		proxywasm.LogCriticalf("Couldn't reset total requests: %v", err)
+	}
+	avgLatency := 0
+	if totalReqs != 0 {
+		avgLatency = int(totalLatency / totalReqs)
+	}
+
+	controllerHeaders := [][2]string{
+		{":method", "POST"},
+		{":path", "/hillclimbingLatency"},
+		{":authority", "slate-controller.default.svc.cluster.local"},
+		{"x-slate-podname", p.podName},
+		{"x-slate-servicename", p.serviceName},
+		{"x-slate-region", p.region},
+		{"x-slate-avg-latency", strconv.Itoa(int(avgLatency))},
+		{"x-slate-total-reqs", strconv.Itoa(int(totalReqs))},
+	}
+
+	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
+		[]byte(""), make([][2]string, 0), 5000, HillclimbLatencyHttpResponseHandler)
+}
+
+func (p *pluginContext) RequestHillclimbPolicy() {
+	proxywasm.LogCriticalf("requesting hillclimb policy")
+	controllerHeaders := [][2]string{
+		{":method", "POST"},
+		{":path", "/hillclimbingPolicy"},
+		{":authority", "slate-controller.default.svc.cluster.local"},
+		{"x-slate-podname", p.podName},
+		{"x-slate-servicename", p.serviceName},
+		{"x-slate-region", p.region},
+	}
+
+	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
+		[]byte(""), make([][2]string, 0), 5000, p.OnHillclimbPolicyResponse)
 }
 
 func HillclimbHttpResponseHandler(numHeaders, bodySize, numTrailers int) {
-	// todo receive validation that direction is correct from global controller
+	// todo should we do anything with the response?
+}
+
+func HillclimbLatencyHttpResponseHandler(numHeaders, bodySize, numTrailers int) {
+	resp, err := parseHttpResponse("HillclimbLatencyHttpResponseHandler", numHeaders, bodySize, numTrailers)
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't parse http call response: %v", err)
+		return
+	}
+	proxywasm.LogCriticalf("received hillclimb latency response: %s", resp)
+}
+
+func (p *pluginContext) OnHillclimbPolicyResponse(numHeaders, bodySize, numTrailers int) {
+	respBody, err := parseHttpResponse("OnHillclimbPolicyResponse", numHeaders, bodySize, numTrailers)
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't parse http call response: %v", err)
+		return
+	}
+	// on the first call, this won't mean anything, and PerformHillClimb will ignore.
+	correctDirection := false
+	if strings.TrimSpace(string(respBody)) == "true" {
+		correctDirection = true
+	} else {
+		correctDirection = false
+	}
+
+	proxywasm.LogCriticalf("logadi-hillclimb")
+	oldDist, newDist, avgLatency, regionToLatency := p.PerformHillClimb(correctDirection)
+	oldDistNoNewlines, newDistNoNewlines := strings.ReplaceAll(oldDist, "\n", " "), strings.ReplaceAll(newDist, "\n", " ")
+	outboundRps := avgLatency.TotalReqs / int(p.hillclimbIntervalSeconds)
+	inboundRps := shared.GetUint64SharedDataOrZero(shared.KEY_HILLCLIMB_INBOUNDRPS) / p.hillclimbIntervalSeconds
+	if err := proxywasm.SetSharedData(shared.KEY_HILLCLIMB_INBOUNDRPS, make([]byte, 8), 0); err != nil {
+		proxywasm.LogCriticalf("Couldn't reset inbound rps: %v", err)
+	}
+	controllerHeaders := [][2]string{
+		{":method", "POST"},
+		{":path", "/hillclimbingReport"},
+		{":authority", "slate-controller.default.svc.cluster.local"},
+		{"x-slate-podname", p.podName},
+		{"x-slate-servicename", p.serviceName},
+		{"x-slate-region", p.region},
+		{"x-slate-old-dist", oldDistNoNewlines},
+		{"x-slate-new-dist", newDistNoNewlines},
+		{"x-slate-avg-latency", strconv.Itoa(avgLatency.LatencyAvg)},
+		{"x-slate-outbound-rps", strconv.Itoa(outboundRps)},
+		{"x-slate-inbound-rps", strconv.Itoa(int(inboundRps))},
+	}
+	for r, latency := range regionToLatency {
+		controllerHeaders = append(controllerHeaders, [2]string{fmt.Sprintf("x-slate-%v-latency", r), strconv.Itoa(latency.LatencyAvg)})
+		controllerHeaders = append(controllerHeaders, [2]string{fmt.Sprintf("x-slate-%v-outboundreqs", r), strconv.Itoa(latency.TotalReqs)})
+	}
+	proxywasm.LogCriticalf("hillclimbing headers: %v", controllerHeaders)
+	if _, err := proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
+		[]byte(""), make([][2]string, 0), 5000, HillclimbHttpResponseHandler); err != nil {
+		proxywasm.LogCriticalf("Couldn't dispatch hillclimbing http call: %v", err)
+	}
 }
 
 // callback for OnTick() http call response
 func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 	// receive RPS thresholds, set shared data accordingly
-	hdrs, err := proxywasm.GetHttpCallResponseHeaders()
+	respBody, err := parseHttpResponse("OnTick", numHeaders, bodySize, numTrailers)
 	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get http call response headers: %v", err)
-		return
-	}
-	var status int
-	status = 200
-	for _, hdr := range hdrs {
-		if hdr[0] == ":status" {
-			status, err = strconv.Atoi(hdr[1])
-			if err != nil {
-				proxywasm.LogCriticalf("Couldn't parse :status header: %v", err)
-				return
-			}
-		}
-	}
-
-	if status >= 400 {
-		proxywasm.LogCriticalf("received ERROR http call response, status %v body size: %d", hdrs, bodySize)
-	} else {
-		proxywasm.LogCriticalf("received SUCCESS http call response, status %v body size: %d", hdrs, bodySize)
-	}
-	if bodySize == 0 {
-		return
-	}
-
-	respBody, err := proxywasm.GetHttpCallResponseBody(0, bodySize)
-	if err != nil {
-		proxywasm.LogCriticalf("Couldn't get http call response body: %v", err)
+		proxywasm.LogCriticalf("Couldn't parse http call response: %v", err)
 		return
 	}
 	bodyLines := strings.Split(string(respBody), "\n")
@@ -425,6 +513,40 @@ func OnTickHttpCallResponse(numHeaders, bodySize, numTrailers int) {
 	}
 }
 
+func parseHttpResponse(callContext string, numHdrs, bodySize, numTrailers int) (string, error) {
+	hdrs, err := proxywasm.GetHttpCallResponseHeaders()
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get http call response headers for %v: %v", callContext, err)
+		return "", err
+	}
+	var status int
+	status = 200
+	for _, hdr := range hdrs {
+		if hdr[0] == ":status" {
+			status, err = strconv.Atoi(hdr[1])
+			if err != nil {
+				proxywasm.LogCriticalf("Couldn't parse :status header for %v: %v", callContext, err)
+				return "", err
+			}
+		}
+	}
+
+	if status >= 400 {
+		proxywasm.LogCriticalf("received ERROR %v http call response, status %v body size: %d", callContext, hdrs, bodySize)
+	}
+	if bodySize == 0 {
+		return "", nil
+	}
+
+	respBody, err := proxywasm.GetHttpCallResponseBody(0, bodySize)
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get http call response body for %v: %v", callContext, err)
+		return "", err
+	} else {
+		return string(respBody), nil
+	}
+}
+
 // if the percentages of t
 func rulesSimilar(current, received string) bool {
 	currentLines := strings.Split(current, "\n")
@@ -466,12 +588,14 @@ type LatencyStat struct {
 }
 
 // PerformHillClimb performs the hill climbing algorithm to adjust the outbound request distribution.
-func (p *pluginContext) PerformHillClimb() (oldDist, newDist string, avgLatency LatencyStat, regionToLatency map[string]LatencyStat) {
+func (p *pluginContext) PerformHillClimb(correctDirection bool) (oldDist, newDist string, avgLatency LatencyStat, regionToLatency map[string]LatencyStat) {
 	endpointToClimb, _, err := proxywasm.GetSharedData(KEY_CURRENTLY_HILLCLIMBING)
 	if err != nil || string(endpointToClimb) == "NOT" {
 		// nothing to hillclimb
 		proxywasm.LogCriticalf("Nothing to hillclimb yet...")
 		return
+	} else {
+		proxywasm.LogCriticalf("Hillclimbing for %v, correctDirection: %v", string(endpointToClimb), correctDirection)
 	}
 	regions := []string{"us-west-1", "us-east-1"} // todo get regions from distribution
 	svcMethodPath := strings.Split(string(endpointToClimb)[:len(endpointToClimb)-13], "@")
@@ -641,7 +765,8 @@ func (p *pluginContext) PerformHillClimb() (oldDist, newDist string, avgLatency 
 	//	return
 	//}
 
-	if curAvgLatency < lastAvgLatency {
+	// correctDirection = curAvgLatency < lastAvgLatency from global controller POV
+	if correctDirection {
 		// keep direction
 		newDistr := p.AdjustDistribution(int(stepSize), int(direction), string(distribution))
 		if err := proxywasm.SetSharedData(string(endpointToClimb), []byte(newDistr), cas); err != nil {

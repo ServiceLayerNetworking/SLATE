@@ -210,3 +210,11 @@ func RegionOutboundLatencyRunningAvgKey(svc, method, path, region string) string
 func RegionOutboundLatencyTotalRequestsKey(svc, method, path, region string) string {
 	return svc + "@" + method + "@" + path + "@" + region + "-outbound-latency-totalrequests"
 }
+
+func PerSecondLatencyKey(svc, method, path string) string {
+	return svc + "@" + method + "@" + path + "-per-second-latency-total"
+}
+
+func PerSecondLatencyTotalRequestsKey(svc, method, path string) string {
+	return svc + "@" + method + "@" + path + "-per-second-latency-totalrequests"
+}
