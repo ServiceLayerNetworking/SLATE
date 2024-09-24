@@ -18,6 +18,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
 import datetime
 import os
+import collections
 import math
 import matplotlib.pyplot as plt
 import numpy as np
@@ -120,14 +121,142 @@ benchmark_name = ""
 # benchmark_set = ["metrics", "matmul-app", "hotelreservation", "spread-unavail-30bg"]
 total_num_services = 0
 ROUTING_RULE = "LOCAL" # It will be updated by read_config_file function.
-ROUTING_RULE_SET = ["LOCAL", "SLATE", "REMOTE", "MCLB", "WATERFALL", "WATERFALL2"]
+ROUTING_RULE_SET = ["LOCAL", "SLATE", "SLATE-with-jumping-local","SLATE-with-jumping-global", "SLATE-without-jumping", "REMOTE", "MCLB", "WATERFALL", "WATERFALL2"]
 CAPACITY = 0 # If it is runtime -> training_phase() -> max_capacity_per_service() -> set max_capacity_per_service[svc] = CAPACITY
 max_capacity_per_service = dict() # max_capacity_per_service[svc][region] = CAPACITY
 hillclimbing_distribution_history = list() #list(dict())
+global_hillclimbing_distribution_history = list() #list(dict())
+hillclimb_latency_lock = Lock()
+prev_hillclimb_latency = dict() # svc -> region -> pod -> {latency_total, num_reqs}
+cur_hillclimb_latency = dict()
+next_hillclimb_latency = dict()
+hillclimb_interval = -1
+first_replica_sync_s = -1
+first_replica_mutex = Lock()
+first_replica_sync_counter = 1000 # arbitrary number
+last_policy_request = dict() # svc -> time.time()
+last_policy_request_mutex = Lock()
+cur_hillclimbing = dict() # svc -> endpoint
+
+@app.post('/wasmsync')
+def handleWasmSync():
+    global first_replica_sync_s
+    global first_replica_mutex
+    first_replica_mutex.acquire(blocking=True)
+    if first_replica_sync_s == -1:
+        first_replica_sync_s = time.time()
+        first_replica_mutex.release()
+        return f"{int(first_replica_sync_counter)}"
+    else:
+        first_replica_mutex.release()
+        return f"{int(first_replica_sync_counter - (time.time() - first_replica_sync_s))}"
+
+
+@app.post('/hillclimbingLatency') # from wasm
+def handleHillclimbLatency():
+    global next_hillclimb_latency
+    global hillclimb_latency_lock
+    global cur_hillclimbing
+    svc = request.headers.get('x-slate-servicename').split("-us-")[0]
+    needHill = request.headers.get('x-slate-need-hillclimbing', '')
+    if needHill == "true":
+        if svc not in cur_hillclimbing:
+            return "WAIT"
+        else:
+            return cur_hillclimbing[svc]
+    region = request.headers.get('x-slate-region')
+    podname = request.headers.get('x-slate-podname')[-5:]
+    avgLatency = int(request.headers.get('x-slate-avg-latency'))
+    totalReqs = int(request.headers.get('x-slate-total-reqs'))
+    curHill = request.headers.get('x-slate-cur-hillclimbing', '')
+    cur_hillclimbing[svc] = curHill
+    # cur_hillclimbing[svc] = 
+    logger.info(f"hillclimbingLatency for (pod {podname}, svc {svc}): avgLatency: {avgLatency}, totalReqs: {totalReqs}")
+    hillclimb_latency_lock.acquire(blocking=True)
+    if svc not in next_hillclimb_latency:
+        next_hillclimb_latency[svc] = dict()
+    if region not in next_hillclimb_latency[svc]:
+        next_hillclimb_latency[svc][region] = dict()
+    if podname not in next_hillclimb_latency[svc][region]:
+        next_hillclimb_latency[svc][region][podname] = {
+            "latency_total": (avgLatency * totalReqs),
+            "num_reqs": totalReqs
+        }
+    else:
+        next_hillclimb_latency[svc][region][podname]["latency_total"] += (avgLatency * totalReqs)
+        next_hillclimb_latency[svc][region][podname]["num_reqs"] += totalReqs
+    hillclimb_latency_lock.release()
+    return ""
+
+@app.post('/hillclimbingPolicy') # from wasm
+def handleHillclimbPolicy():
+    global cur_hillclimb_latency
+    global prev_hillclimb_latency
+    global next_hillclimb_latency
+    global last_policy_request
+    global hillclimb_latency_lock
+    global hillclimb_interval
+    global last_policy_request_mutex
+    svc = request.headers.get('x-slate-servicename').split("-us-")[0]
+    # svc_trunc: remove -us-west-1 or -us-east-1 from the end
+    podname = request.headers.get('x-slate-podname')[-5:]
+    if hillclimb_interval == -1:
+        logger.info(f"hillclimbingPolicy for (pod {podname}): hillclimb_interval is -1, doing nothing")
+        return ""
+    last_policy_request_mutex.acquire(blocking=True)
+    if svc not in last_policy_request:
+        last_policy_request[svc] = 0
+    # logger.info(f"hillclimbingPolicy for (pod {podname}): svc: {svc}")
+    hillclimb_latency_lock.acquire(blocking=True)
+    if time.time() - last_policy_request[svc] > (hillclimb_interval - 2):
+        # this is the first request after the interval
+        # next to cur, and cur to prev, and clear next for the next interval
+        # this basically "freezes" the current state, so subsequent requests in the same interval will be compared to this state
+        # the reason we're doing this is because we don't know how many replicas are there for each service, 
+        #  so we can't just copy states on the last request
+        logger.info(f"hillclimbingPolicy for (pod {podname}, svc {svc}): INTERVAL EXPIRED (diff {time.time() - last_policy_request[svc]}), copying states, len(next_hillclimb_latency): {len(next_hillclimb_latency.get(svc, {})) or 0}, len(cur_hillclimb_latency): {len(cur_hillclimb_latency.get(svc, {})) or 0}")
+        if svc in next_hillclimb_latency and svc in cur_hillclimb_latency and len(next_hillclimb_latency[svc]) >= 2 and len(cur_hillclimb_latency[svc]) >= 2:
+            add_to_global_history(cur_hillclimb_latency, next_hillclimb_latency, svc)
+        if svc in cur_hillclimb_latency:
+            prev_hillclimb_latency[svc] = dict()
+            prev_hillclimb_latency[svc] = copy.deepcopy(cur_hillclimb_latency[svc])
+        if svc in next_hillclimb_latency:
+            cur_hillclimb_latency[svc] = dict()
+            cur_hillclimb_latency[svc] = copy.deepcopy(next_hillclimb_latency[svc])
+        next_hillclimb_latency[svc] = dict()
+        logger.info(f"new len(prev_hillclimb_latency): {len(prev_hillclimb_latency)}, new len(cur_hillclimb_latency): {len(cur_hillclimb_latency)}")
+    last_policy_request[svc] = time.time()
+    last_policy_request_mutex.release()
+    if svc not in cur_hillclimb_latency or svc not in prev_hillclimb_latency:
+        hillclimb_latency_lock.release()
+        logger.info(f"hillclimbingPolicy for (pod {podname}): svc: {svc} not in cur or prev, SKIPPING")
+        return ""
+    cur_r2p = cur_hillclimb_latency[svc]
+    prev_r2p = prev_hillclimb_latency[svc]
+    # sum up the latency and num_reqs for both current and previous, across all pods and regions
+    cur_latency_total = sum([cur_r2p[region][pod]["latency_total"] for region in cur_r2p for pod in cur_r2p[region]])
+    cur_num_reqs = sum([cur_r2p[region][pod]["num_reqs"] for region in cur_r2p for pod in cur_r2p[region]])
+    prev_latency_total = sum([prev_r2p[region][pod]["latency_total"] for region in prev_r2p for pod in prev_r2p[region]])
+    prev_num_reqs = sum([prev_r2p[region][pod]["num_reqs"] for region in prev_r2p for pod in prev_r2p[region]])
+    hillclimb_latency_lock.release()
+    # calculate the average latency for both current and previous
+    if cur_num_reqs == 0 or prev_num_reqs == 0:
+        logger.info(f"hillclimbingPolicy for (pod {podname}, svc {svc}): cur_num_reqs: {cur_num_reqs}, prev_num_reqs: {prev_num_reqs}, dodging division by zero")
+        return ""
+    cur_avg_latency = cur_latency_total / cur_num_reqs
+    prev_avg_latency = prev_latency_total / prev_num_reqs
+    logger.info(f"hillclimbingPolicy for (pod {podname}, svc {svc}): cur_avg_latency: {cur_avg_latency} (latency total {cur_latency_total}, reqs {cur_num_reqs}), prev_avg_latency: {prev_avg_latency} (latency total {prev_latency_total}, reqs {prev_num_reqs})")
+
+    if cur_avg_latency < prev_avg_latency:
+        return "true"
+    else:
+        return "false"
+
 
 @app.post('/hillclimbingReport') # from wasm
 def handleHillclimbReport():
     global hillclimbing_distribution_history
+    global temp_counter
     svc = request.headers.get('x-slate-servicename')
     region = request.headers.get('x-slate-region')
     podname = request.headers.get('x-slate-podname')[-5:]
@@ -136,11 +265,17 @@ def handleHillclimbReport():
     avg_latency = request.headers.get('x-slate-avg-latency')
     inbound_rps = request.headers.get('x-slate-inbound-rps')
     outbound_rps = request.headers.get('x-slate-outbound-rps')
+    # 2 region specific stuff
+    west_latency = request.headers.get('x-slate-us-west-1-latency')
+    east_latency = request.headers.get('x-slate-us-east-1-latency')
+    west_reqs = request.headers.get('x-slate-us-west-1-outboundreqs')
+    east_reqs = request.headers.get('x-slate-us-east-1-outboundreqs')
     if svc == "sslateingress-us-west-1":
         logger.info(f"logadi all headers: {request.headers}")
         logger.info(f"hillclimbing svc: {svc}, region: {region}, podname: {podname}, old_dist: {old_dist}, new_dist: {new_dist}, avg_latency: {avg_latency}, inbound_rps: {inbound_rps}, outbound_rps: {outbound_rps}")
-    old_dist_rules = old_dist.split(" ")
-    new_dist_rules = new_dist.split(" ")
+    
+    old_dist_rules = old_dist.strip().split(" ")
+    new_dist_rules = new_dist.strip().split(" ")
     if len(old_dist_rules) < 4 or len(new_dist_rules) < 4 or not old_dist.strip() or not new_dist.strip():
         return ""
     # old_dist_rules is in the format of [region1, rule1, region2, rule2, ...]
@@ -156,6 +291,11 @@ def handleHillclimbReport():
         "outbound_rps": outbound_rps,
         "time": str(datetime.datetime.now()),
         "time_millis": str(int(time.time()*1000)),
+        "counter": str(temp_counter),
+        "west_latency": west_latency or -1,
+        "east_latency": east_latency or -1,
+        "west_reqs": west_reqs or -1,
+        "east_reqs": east_reqs or -1,
         **old_dist_dict,
         **new_dist_dict
     }
@@ -163,6 +303,47 @@ def handleHillclimbReport():
     # hist.update(new_dist_dict)
     hillclimbing_distribution_history.append(hist)
     return ""
+
+def add_to_global_history(prev, cur, svc):
+    global global_hillclimbing_distribution_history
+    prevstats = get_latency_stats_for_svc(prev, svc, prefix="prev")
+    curstats = get_latency_stats_for_svc(cur, svc, prefix="cur")
+    hist = {
+        "svc": svc,
+        "time": str(datetime.datetime.now()),
+        "time_millis": str(int(time.time()*1000)),
+        "counter": str(temp_counter),
+        **prevstats,
+        **curstats
+    }
+    global_hillclimbing_distribution_history.append(hist)
+
+def get_latency_stats_for_svc(latencyobj, svc, prefix=""):
+    # latencyobj is a dictionary of svc : {region: {pod: {latency_total, num_reqs}}}
+    # return dict in the form of {"<region>-latency": avg_latency, "<region>-reqs": total_reqs, ..., "total-latency": avg_latency, "total-reqs": total_reqs}
+    if svc not in latencyobj:
+        return {}
+    stats = {}
+    for region in latencyobj[svc]:
+        total_latency = sum([latencyobj[svc][region][pod]["latency_total"] for pod in latencyobj[svc][region]])
+        total_reqs = sum([latencyobj[svc][region][pod]["num_reqs"] for pod in latencyobj[svc][region]])
+        if total_reqs == 0:
+            avg_latency = 0
+        else:
+            avg_latency = total_latency / total_reqs
+        stats[f"{prefix}-{region}-avg-latency"] = str(avg_latency)
+        stats[f"{prefix}-{region}-reqs"] = str(total_reqs)
+    
+    total_latency = sum([sum([latencyobj[svc][region][pod]["latency_total"] for pod in latencyobj[svc][region]]) for region in latencyobj[svc]])
+    total_reqs = sum([sum([latencyobj[svc][region][pod]["num_reqs"] for pod in latencyobj[svc][region]]) for region in latencyobj[svc]])
+    if total_reqs == 0:
+        avg_latency = 0
+    else:
+        avg_latency = total_latency / total_reqs
+    stats[f"{prefix}-total-avg-latency"] = str(avg_latency)
+    stats[f"{prefix}-total-reqs"] = str(total_reqs)
+    return stats
+    
 
 def write_hillclimb_history_to_file():
     # write the entire hillclimbing history as a csv file.
@@ -176,6 +357,20 @@ def write_hillclimb_history_to_file():
             for record in hillclimbing_distribution_history:
                 f.write(",".join(record.values()) + "\n")
         logger.info(f"write_hillclimb_history_to_file happened.")
+
+def write_global_hillclimb_history_to_file():
+    # write the entire hillclimbing history as a csv file.
+    global global_hillclimbing_distribution_history
+    logger.info(f"len(global_hillclimbing_distribution_history): {len(global_hillclimbing_distribution_history)}")
+    if len(global_hillclimbing_distribution_history) > 0:
+        # open in overwrite mode
+        with open(f'global_hillclimbing_distribution_history.csv', 'w') as f:
+            # write the header as all the keys in the first record
+            entry0 = global_hillclimbing_distribution_history[0]
+            f.write(",".join(entry0.keys()) + "\n")
+            for record in global_hillclimbing_distribution_history:
+                f.write(",".join(record.values()) + "\n")
+        logger.info(f"write_global_hillclimb_history_to_file happened.")
 
 def set_endpoint_to_placement(all_endpoints):
     endpoint_to_placement = dict()
@@ -671,7 +866,7 @@ def handleProxyLoad():
             with open(f'percentage_df-{svc}.csv', 'a') as f:
                 f.write(csv_string)
             return csv_string
-        elif ROUTING_RULE == "SLATE" or ROUTING_RULE == "WATERFALL":
+        elif "SLATE" in ROUTING_RULE or ROUTING_RULE == "WATERFALL":
             # NOTE: remember percentage_df is set by 'optimizer_entrypoint' async function
             if type(percentage_df) == type(None):
                 logger.warning(f"optimizer never succeeds yet. Rollback to local routing. {full_podname}, {region}")
@@ -682,7 +877,7 @@ def handleProxyLoad():
                 _, csv_string = local_and_failover_routing_rule(svc, region)
                 return csv_string
             if percentage_df.empty:
-                logger.warning(f"WARNING, Rollback to local routing. {region}, {full_podname}, percentage_df is empty. rollback to local routing")
+                logger.warning(f"WARNING, Rollback to local routing. {region}, {full_podname}, percentage_df is empty.")
                 ############################################################
                 _, csv_string = local_and_failover_routing_rule(svc, region)
                 ############################################################
@@ -1007,8 +1202,8 @@ def optimizer_entrypoint():
     if mode != "runtime":
         logger.warning(f"run optimizer only in runtime mode. current mode: {mode}.")
         return
-    if ROUTING_RULE != "SLATE" and ROUTING_RULE != "WATERFALL" and ROUTING_RULE != "WATERFALL2":
-        logger.warning(f"run optimizer only in SLATE or WATERFALL ROUTING_RULE. current ROUTING_RULE: {ROUTING_RULE}.")
+    if ROUTING_RULE != "SLATE" and ROUTING_RULE != "SLATE-with-jumping-local" and ROUTING_RULE != "SLATE-with-jumping-global" and ROUTING_RULE != "SLATE-without-jumping" and ROUTING_RULE != "WATERFALL" and ROUTING_RULE != "WATERFALL2":
+        logger.warning(f"run optimizer only in SLATE, SLATE-with-jumping, SLATE-without-jumping or WATERFALL ROUTING_RULE. current ROUTING_RULE: {ROUTING_RULE}.")
         return
     if train_done == False:
         logger.warning(f"runtime True, {ROUTING_RULE}, BUT run optimizer only after training. train_done: {train_done}.")
@@ -1066,7 +1261,7 @@ def optimizer_entrypoint():
     # logger.info(f"inter_cluster_latency: {inter_cluster_latency}")
     
     
-    if ROUTING_RULE == "SLATE":
+    if "SLATE" in ROUTING_RULE:
         if benchmark_name == "usecase1-cascading":
             logger.info(f"WARNING: Keep the capacity threshold for SLATE for usecase1-cascading")
         else:
@@ -1381,25 +1576,41 @@ def fit_linear_regression(data, y_col_name):
 
 def load_coef():
     loaded_coef = dict()
-    # col = ["svc_name","endpoint","feature","value"]
+    
+    ## Online boutique endpoint 
     checkoutcart_endpoints = ["frontend@POST@/cart/checkout", "recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations", "sslateingress@POST@/cart/checkout", "checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder", "cartservice@POST@/hipstershop.CartService/GetCart", "paymentservice@POST@/hipstershop.PaymentService/Charge", "currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies", "emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation", "shippingservice@POST@/hipstershop.ShippingService/ShipOrder"]
     
-    coef_csv_col = ["svc_name","endpoint","feature","value"]
-    df = pd.read_csv(f"coef.csv", names=coef_csv_col, header=None)
-    for svc_name in df["svc_name"].unique():
-        if svc_name not in loaded_coef:
-            loaded_coef[svc_name] = dict()
-        svc_df = df[df["svc_name"]==svc_name]
-        for endpoint in svc_df["endpoint"].unique():
-            if endpoint not in loaded_coef[svc_name]:
-                loaded_coef[svc_name][endpoint] = dict()
-            ep_df = svc_df[svc_df["endpoint"]==endpoint]
-            for index, row in ep_df.iterrows():
-                if endpoint not in checkoutcart_endpoints:
-                    loaded_coef[svc_name][endpoint][row["feature"]] = float(row["value"])*2
-                    logger.info(f"Double the coefficient for {svc_name} {endpoint} {row['feature']} {row['value']}")
-                else:
-                    loaded_coef[svc_name][endpoint][row["feature"]] = float(row["value"])
+    addtocart_endpoints = ['frontend@POST@/cart', 'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct', 'sslateingress@POST@/cart', 'cartservice@POST@/hipstershop.CartService/AddItem']
+        
+    try:
+        coef_csv_col = ["svc_name","endpoint","feature","value"]
+        df = pd.read_csv(f"coef.csv", names=coef_csv_col, header=None)
+        for svc_name in df["svc_name"].unique():
+            if svc_name not in loaded_coef:
+                loaded_coef[svc_name] = dict()
+            svc_df = df[df["svc_name"]==svc_name]
+            for endpoint in svc_df["endpoint"].unique():
+                if endpoint not in loaded_coef[svc_name]:
+                    loaded_coef[svc_name][endpoint] = dict()
+                ep_df = svc_df[svc_df["endpoint"]==endpoint]
+                for index, row in ep_df.iterrows():
+                    
+                    ################################################
+                    ## Here, you can modify the coefficient value ##
+                    ## Originally, endpoints that are not in the checkoutcart_endpoints are doubled ##
+                    ## Currently, it does not double with 'if False' statement ##
+                    ################################################
+                    # if endpoint not in checkoutcart_endpoints:
+                    if False:
+                        loaded_coef[svc_name][endpoint][row["feature"]] = float(row["value"])*2
+                        logger.warning(f"!!! Double the coefficient for {svc_name} {endpoint} {row['feature']} {row['value']}\n"*10)
+                    else:
+                        loaded_coef[svc_name][endpoint][row["feature"]] = float(row["value"])
+    except Exception as e:
+        logger.error(f"!!! ERROR !!!: failed to read coef.csv with error: {e}")
+        logger.error(f"!!! ERROR !!!: failed to read coef.csv with error: {e}")
+        logger.error(f"!!! ERROR !!!: failed to read coef.csv with error: {e}")
+        assert False
     '''
     NOTE: Simply combining different endpoints' coefficients into one service level coefficient
     It assumes that 
@@ -1890,6 +2101,8 @@ def training_phase():
     if init_done:
         logger.info(f"Training initialization is done.")
         return
+
+    # We still need it to get the trace to get call graph info. coef.csv will have only the coefficient not the call graph info.
     if load_coef_flag: # load_coef_flag=True assumes that time stitching is done
         try:
             stitched_traces = trace_string_file_to_trace_data_structure(load_coef_flag)
@@ -1899,7 +2112,7 @@ def training_phase():
             assert False
     else:
         try:
-            traces = trace_string_file_to_trace_data_structure(load_coef_flag=load_coef_flag)
+            traces = trace_string_file_to_trace_data_structure(load_coef_flag)
         except Exception as e:
             logger.error(f"!!! ERROR !!!: failed to load trace with error: {e}")
             state = "[!!! PANIC !!!] FAILED trace_string_file_to_trace_data_structure() in training_phase()"
@@ -1926,6 +2139,7 @@ def training_phase():
         state = "[!!! PANIC !!!] FAILED traces_to_endpoint_str_callgraph_table() in training_phase()"
         assert False
     
+    ## Replicate trace for other regions in case they do not appear in the trace
     # for region in ["us-east-1", "us-south-1", "us-central-1"]:
     for region in inter_cluster_latency:
         if region not in stitched_traces:
@@ -1979,10 +2193,13 @@ def training_phase():
             state = "[!!! PANIC !!!] train_latency_function_with_trace() in training_phase()"
             assert False
     
-    check_negative_coef(coef_dict)      
+    check_negative_coef(coef_dict)
+    
     if ROUTING_RULE == "WATERFALL" or ROUTING_RULE == "WATERFALL2":
         set_zero_coef(coef_dict)
-                        
+    
+    
+    # This is just a file write for the final coef for debugging purpose
     with open("coefficient.csv", "w") as f:
         f.write("svc_name, endpoint, coef\n")
         for svc_name in coef_dict:
@@ -2013,6 +2230,7 @@ def read_config_file():
     global bottleneck_service
     global load_coef_flag
     global state
+    global hillclimb_interval
     # global all_clusters
     global traffic_segmentation
     
@@ -2124,9 +2342,11 @@ def read_config_file():
                 distribution = line[1]
             elif line[0] == "thread":
                 thread = int(line[1])
+            elif line[0] == "hillclimb_interval":
+                hillclimb_interval = int(line[1])
             else:
                 logger.error(f"ERROR: unknown config: {line}")
-                state = f"[!!! PANIC !!!] unknown config in {env_file}: {line[0]}"
+                # state = f"[!!! PANIC !!!] unknown config in {env_file}: {line[0]}"
                 
     # logger.info(f"benchmark_name: {benchmark_name}, total_num_services: {total_num_services}, mode: {mode}, ROUTING_RULE: {ROUTING_RULE}")
 
@@ -2149,6 +2369,7 @@ def record_endpoint_rps(aggregated_rps, counter):
                         
 def aggregate_rps_by_region_or_zero(per_pod_ep_rps):
     global aggregated_rps
+    global temp_counter
     for region in all_endpoints:
         if region not in aggregated_rps: aggregated_rps[region] = dict()
         for svc_name in all_endpoints[region]:
@@ -2163,12 +2384,13 @@ def aggregate_rps_by_region_or_zero(per_pod_ep_rps):
             for endpoint in per_pod_ep_rps[region][svc_name]:
                 for podname in per_pod_ep_rps[region][svc_name][endpoint]:
                     aggregated_rps[region][svc_name][endpoint] += per_pod_ep_rps[region][svc_name][endpoint][podname]
+                    
     # logger.info("-"*80)
-    # for region in per_pod_ep_rps:
-    #     for svc in per_pod_ep_rps[region]:
-    #         for endpoint in per_pod_ep_rps[region][svc]:
-    #             for podname in per_pod_ep_rps[region][svc][endpoint]:
-    #                 logger.info(f"per_pod_ep_rps,{region},{svc},{endpoint},{podname},{per_pod_ep_rps[region][svc][endpoint][podname]}")
+    for region in per_pod_ep_rps:
+        for svc in per_pod_ep_rps[region]:
+            for endpoint in per_pod_ep_rps[region][svc]:
+                for podname in per_pod_ep_rps[region][svc][endpoint]:
+                    logger.info(f"{temp_counter},per_pod_ep_rps,{region},{svc},{endpoint},{podname},{per_pod_ep_rps[region][svc][endpoint][podname]}")
     # logger.info("-"*80)
     # for region in aggregated_rps:
     #     for svc in aggregated_rps[region]:
@@ -2220,6 +2442,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
     scheduler.add_job(func=state_check, trigger="interval", seconds=1)
     scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)
+    scheduler.add_job(func=write_global_hillclimb_history_to_file, trigger="interval", seconds=15)
     scheduler.start()
     atexit.register(lambda: scheduler.shutdown())
     app.run(host='0.0.0.0', port=8080)
