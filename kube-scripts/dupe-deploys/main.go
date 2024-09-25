@@ -115,6 +115,11 @@ func main() {
 	}
 
 	fmt.Printf("processing deployments %v in regions %v.\n", deploymentsList, regionsList)
+	replMap := map[string]string{
+		"gcr.io/google-samples/microservices-demo/frontend:v0.10.1": "docker.io/adiprerepa/boutique-frontend:latest",
+		"gcr.io/google-samples/microservices-demo/checkoutservice:v0.10.1": "docker.io/adiprerepa/boutique-checkout:latest",
+		"gcr.io/google-samples/microservices-demo/recommendationservice:v0.10.1": "docker.io/adiprerepa/boutique-recommendation:latest",
+	}
 	for _, deployment := range deploymentsList {
 
 		if strings.TrimSpace(deployment) == "" {
