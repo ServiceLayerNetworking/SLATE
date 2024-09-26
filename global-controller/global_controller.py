@@ -2334,8 +2334,8 @@ def read_config_file():
                 traffic_segmentation = int(line[1])
             elif line[0] == "background_noise":
                 background_noise = int(line[1])
-            elif line[0] == "duration":
-                duration = int(line[1])
+            # elif line[0] == "duration":
+            #     duration = int(line[1])
             elif line[0] == "connection":
                 connection = int(line[1])
             elif line[0] == "distribution":
@@ -2345,7 +2345,8 @@ def read_config_file():
             elif line[0] == "hillclimb_interval":
                 hillclimb_interval = int(line[1])
             else:
-                logger.error(f"ERROR: unknown config: {line}")
+                logger.debug(f"Skip parsing unknown config: {line}")
+                # logger.error(f"ERROR: unknown config: {line}")
                 # state = f"[!!! PANIC !!!] unknown config in {env_file}: {line[0]}"
                 
     # logger.info(f"benchmark_name: {benchmark_name}, total_num_services: {total_num_services}, mode: {mode}, ROUTING_RULE: {ROUTING_RULE}")
@@ -2409,14 +2410,14 @@ def aggregated_rps_routine():
     if check_root_node_rps_condition(agg_root_node_rps) or temp_counter > 0:
         record_endpoint_rps(aggregated_rps, temp_counter)
         
-        logger.info("-"*80)
-        logger.info(f"aggregated_rps_routine, temp_counter-{temp_counter}, gap: {time.time()-prev_ts}")
+        logger.warning("-"*80)
+        logger.warning(f"aggregated_rps_routine, temp_counter-{temp_counter}, gap: {time.time()-prev_ts}")
         prev_ts = time.time()
         for region in agg_root_node_rps:
             for svc in agg_root_node_rps[region]:
                 for endpoint in agg_root_node_rps[region][svc]:
-                    logger.info(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
-        logger.info("-"*80)
+                    logger.warning(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
+        logger.warning("-"*80)
         temp_counter += 1
         
 def state_check():
