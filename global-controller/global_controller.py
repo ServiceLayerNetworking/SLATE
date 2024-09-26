@@ -661,6 +661,7 @@ def handleProxyLoad():
     global list_of_span
     global stats_mutex
     global endpoint_level_rps_mutex
+    global per_pod_ep_rps
     
     ''' * HEADER in request from WASM * 
     {":method", "POST"},
@@ -786,12 +787,12 @@ def handleProxyLoad():
         endpoint_level_inflight[region][svc][endpoint] = ontick_inflight # not used
         with endpoint_level_rps_mutex:
             if endpoint not in endpoint_to_placement:
-                logger.debug(f"ERROR: Skip per_pod_ep_rps, {endpoint}. this endpoint is not in stitched trace.")
+                logger.info(f"ERROR: Skip per_pod_ep_rps, {endpoint}. this endpoint is not in stitched trace.")
             else:
                 if endpoint not in per_pod_ep_rps[region][svc]:
                     per_pod_ep_rps[region][svc][endpoint] = dict()
                 per_pod_ep_rps[region][svc][endpoint][podname] = active_ep_ontick_rps
-                logger.debug(f"per_pod_ep_rps, {region}, {svc}, {endpoint}, {active_ep_ontick_rps}")
+                logger.info(f"per_pod_ep_rps, {region}, {svc}, {endpoint}, {active_ep_ontick_rps}")
             
     if mode == "profile":
         spans = parse_stats_into_spans(body, svc)
@@ -1007,7 +1008,7 @@ def get_root_node_rps(ep_str_callgraph_table, aggregated_rps):
                             if svc_name not in root_node_rps[cid]:
                                 root_node_rps[cid][svc_name] = dict()
                             root_node_rps[cid][svc_name][ep] = aggregated_rps[cid][svc_name][ep]
-                            logger.debug(f'root_node_rps,{hashed_cg_key},{cid},{svc_name},{ep},{root_node_rps[cid][svc_name][ep]}')
+                            logger.info(f'root_node_rps,{hashed_cg_key},{cid},{svc_name},{ep},{root_node_rps[cid][svc_name][ep]}')
     return root_node_rps
 
 
@@ -2093,10 +2094,10 @@ def training_phase():
     #     return
 
     if mode != "runtime":
-        logger.debug(f"mode: {mode}. Skip training.")
+        logger.info(f"mode: {mode}. Skip training.")
         return
     if os.path.isfile(trainig_input_trace_file) == False:
-        logger.error(f"[ERROR] {trainig_input_trace_file} does not exist.")
+        logger.error(f"[ERROR] {trainig_input_trace_file} does not exist.\n"*10)
         return
     if init_done:
         logger.info(f"Training initialization is done.")
@@ -2141,6 +2142,7 @@ def training_phase():
     
     ## Replicate trace for other regions in case they do not appear in the trace
     # for region in ["us-east-1", "us-south-1", "us-central-1"]:
+    logger.info(f"REPLICATE trace: {inter_cluster_latency}")
     for region in inter_cluster_latency:
         if region not in stitched_traces:
             stitched_traces[region] = stitched_traces["us-west-1"].copy()
@@ -2345,7 +2347,7 @@ def read_config_file():
             elif line[0] == "hillclimb_interval":
                 hillclimb_interval = int(line[1])
             else:
-                logger.debug(f"Skip parsing unknown config: {line}")
+                logger.debug(f"SKIP parsing unknown config: {line}")
                 # logger.error(f"ERROR: unknown config: {line}")
                 # state = f"[!!! PANIC !!!] unknown config in {env_file}: {line[0]}"
                 
@@ -2368,9 +2370,11 @@ def record_endpoint_rps(aggregated_rps, counter):
                         temp = f"{counter},{region},{svc},{endpoint},{aggregated_rps[region][svc][endpoint]}"
                         f.write(temp + "\n")
                         
-def aggregate_rps_by_region_or_zero(per_pod_ep_rps):
+def aggregate_rps_by_region_or_zero():
+    global per_pod_ep_rps
     global aggregated_rps
     global temp_counter
+    logger.info("aggregate_rps_by_region_or_zero")
     for region in all_endpoints:
         if region not in aggregated_rps: aggregated_rps[region] = dict()
         for svc_name in all_endpoints[region]:
@@ -2405,13 +2409,14 @@ def aggregated_rps_routine():
     global agg_root_node_rps
     global temp_counter
     global prev_ts
-    aggregate_rps_by_region_or_zero(per_pod_ep_rps)
+    logger.info(f"called aggregated_rps_routine")
+    # aggregate_rps_by_region_or_zero(per_pod_ep_rps)
+    aggregate_rps_by_region_or_zero()
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
     if check_root_node_rps_condition(agg_root_node_rps) or temp_counter > 0:
         record_endpoint_rps(aggregated_rps, temp_counter)
-        
-        logger.warning("-"*80)
-        logger.warning(f"aggregated_rps_routine, temp_counter-{temp_counter}, gap: {time.time()-prev_ts}")
+        logger.info("-"*80)
+        logger.info(f"aggregated_rps_routine, temp_counter-{temp_counter}, gap: {time.time()-prev_ts}")
         prev_ts = time.time()
         for region in agg_root_node_rps:
             for svc in agg_root_node_rps[region]:
