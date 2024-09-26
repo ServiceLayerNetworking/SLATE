@@ -1,1 +1,1 @@
-kubectl top pods -A --containers | grep istio-proxy | grep Mi
+watch -n 1 kubectl top pods -A --containers -l=region=us-west-1
