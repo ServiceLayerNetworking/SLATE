@@ -14,6 +14,7 @@ const (
 	KEY_HILLCLIMB_INITIAL_STEPSIZE = "initial_hillclimbing_stepsize"
 	KEY_HILLCLIMB_INTERVAL         = "hillclimbing_interval"
 	KEY_HILLCLIMB_INBOUNDRPS       = "hillclimbing_inboundrps"
+	KEY_NO_TRACEID                 = "no_traceid"
 )
 
 // TracedRequestStats is a struct that holds information about a traced request.
@@ -57,7 +58,6 @@ func IncrementSharedData(key string, amount int64) {
 	binary.LittleEndian.PutUint64(buf, uint64(val))
 	if err := proxywasm.SetSharedData(key, buf, cas); err != nil {
 		IncrementSharedData(key, amount)
-
 	}
 }
 
@@ -190,10 +190,6 @@ func TimestampListWritePosKey(method, path string) string {
 
 func TimestampListReadPosKey(method, path string) string {
 	return method + "@" + path + "-readpos"
-}
-
-func PrevOutboundLatencyRunningAvgKey(svc, method, path string) string {
-	return svc + "@" + method + "@" + path + "-prev-outbound-latency"
 }
 
 func OutboundLatencyRunningAvgKey(svc, method, path string) string {

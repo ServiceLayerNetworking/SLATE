@@ -32,17 +32,10 @@ const (
 	KEY_RPS_SHARED_QUEUE      = "slate_rps_shared_queue"
 	KEY_RPS_SHARED_QUEUE_SIZE = "slate_rps_shared_queue_size"
 
-	// this is the reporting period in millis
-	TICK_PERIOD = 1000
-
 	// Hash mod for frequency of request tracing.
-	DEFAULT_HASH_MOD = 1000000000
-	KEY_NUM_TICKS    = "slate_key_num_ticks"
+	DEFAULT_HASH_MOD = 1000000
 
-	KEY_MATCH_DISTRIBUTION     = "slate_match_distribution"
-	KEY_CURRENTLY_HILLCLIMBING = "slate_currently_hillclimbing"
-	KEY_HILLCLIMB_DIRECTION    = "slate_hillclimb_direction"
-	KEY_HILLCLIMB_STEPSIZE     = "slate_hillclimb_stepsize"
+	KEY_MATCH_DISTRIBUTION = "slate_match_distribution"
 )
 
 var (
@@ -103,10 +96,6 @@ type pluginContext struct {
 }
 
 func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPluginStartStatus {
-	if err := proxywasm.SetTickPeriodMilliSeconds(TICK_PERIOD); err != nil {
-		proxywasm.LogCriticalf("unable to set tick period: %v", err)
-		return types.OnPluginStartStatusFailed
-	}
 	svc := os.Getenv("ISTIO_META_WORKLOAD_NAME")
 	if svc == "" {
 		svc = "SLATE_UNKNOWN_SVC"
@@ -169,6 +158,7 @@ type httpContext struct {
 func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
 	if err != nil {
+		shared.IncrementSharedData(shared.KEY_NO_TRACEID, 1)
 		return types.ActionContinue
 	}
 
@@ -251,12 +241,17 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 			return types.ActionContinue
 		}
 		IncrementInflightCount(reqMethod, reqPath, 1)
+
+		// WASM SERVICE CALLS ONTICK
+		// OR IN OTHER THREAD
+
 		// save current load to shareddata
 		inflightStats, err := GetInflightRequestStats()
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
 			return types.ActionContinue
 		}
+		// Suspect 4 - WINNER!
 		saveEndpointStatsForTrace(traceId, inflightStats)
 	}
 	return types.ActionContinue
@@ -416,10 +411,14 @@ func AddTracedRequest(method, path, traceId, spanId, parentSpanId string, startT
 	return nil
 }
 
+// big fucking issue here
 func saveEndpointStatsForTrace(traceId string, stats map[string]shared.EndpointStats) {
+	if traceId == "" || len(stats) == 0 {
+		return
+	}
 	str := ""
 	for k, v := range stats {
-		str += fmt.Sprintf("%s,%d,%d", k, v.Total, v.Inflight) + "|"
+		str += fmt.Sprintf("%s,%d,%d", k, v.Total, 0) + "|"
 	}
 	if err := proxywasm.SetSharedData(shared.EndpointInflightStatsKey(traceId), []byte(str), 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v endpointInflightStats: %v %v", traceId, str, err)
