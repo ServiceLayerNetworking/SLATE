@@ -4,7 +4,7 @@
 ##########################################
 
 # FROM --platform=$BUILDPLATFORM python:3.10-alpine AS builder
-FROM python:3.10
+FROM python:3.10-slim
 
 WORKDIR /app
 
@@ -19,6 +19,7 @@ RUN apt-get install procps -y
 RUN apt-get install htop -y
 RUN apt-get install jq -y
 
+RUN rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app
 RUN --mount=type=cache,target=/root/.cache/pip \

@@ -108,8 +108,18 @@ func main() {
 		fmt.Printf("done.\n")
 		return
 	}
+	replMap := map[string]string{
+		"gcr.io/google-samples/microservices-demo/frontend:v0.10.1": "docker.io/adiprerepa/boutique-frontend:latest",
+		"gcr.io/google-samples/microservices-demo/checkoutservice:v0.10.1": "docker.io/adiprerepa/boutique-checkout:latest",
+		"gcr.io/google-samples/microservices-demo/recommendationservice:v0.10.1": "docker.io/adiprerepa/boutique-recommendation:latest",
+	}
 
 	fmt.Printf("processing deployments %v in regions %v.\n", deploymentsList, regionsList)
+	replMap := map[string]string{
+		"gcr.io/google-samples/microservices-demo/frontend:v0.10.1": "docker.io/adiprerepa/boutique-frontend:latest",
+		"gcr.io/google-samples/microservices-demo/checkoutservice:v0.10.1": "docker.io/adiprerepa/boutique-checkout:latest",
+		"gcr.io/google-samples/microservices-demo/recommendationservice:v0.10.1": "docker.io/adiprerepa/boutique-recommendation:latest",
+	}
 	for _, deployment := range deploymentsList {
 
 		if strings.TrimSpace(deployment) == "" {
@@ -132,6 +142,9 @@ func main() {
 			newDeployment.Spec.Template.Spec.NodeSelector = map[string]string{"topology.kubernetes.io/zone": region}
 			if strings.Contains(newDeployment.Spec.Template.Spec.Containers[0].Image, "deathstarbench") {
 				newDeployment.Spec.Template.Spec.Containers[0].Image = strings.ReplaceAll(newDeployment.Spec.Template.Spec.Containers[0].Image, "deathstarbench", "adiprerepa")
+			}
+			if repl, ok := replMap[newDeployment.Spec.Template.Spec.Containers[0].Image]; ok {
+				newDeployment.Spec.Template.Spec.Containers[0].Image = repl
 			}
 			labels := newDeployment.Spec.Template.GetLabels()
 			labels["region"] = region
