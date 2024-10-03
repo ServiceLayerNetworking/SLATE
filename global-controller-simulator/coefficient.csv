@@ -1,0 +1,9 @@
+svc_name, endpoint, coef
+emailservice,emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation,{'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation': 6.244809568429129e-06, 'intercept': 0.6987102362698281}
+frontend,frontend@POST@/cart/checkout,{'frontend@POST@/cart/checkout': 3.73107486513784e-05, 'intercept': 0.2560584348954728}
+paymentservice,paymentservice@POST@/hipstershop.PaymentService/Charge,{'paymentservice@POST@/hipstershop.PaymentService/Charge': 5.541307960266252e-06, 'intercept': 0.7322807594252826}
+checkoutservice,checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder,{'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder': 0.0001364372975024, 'intercept': 1}
+recommendationservice,recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations,{'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations': 8.942462953450725e-05, 'intercept': 1}
+sslateingress,sslateingress@POST@/cart/checkout,{'sslateingress@POST@/cart/checkout': 1.663884044632706e-05, 'intercept': 1.0868519851102758}
+cartservice,cartservice@POST@/hipstershop.CartService/GetCart,{'cartservice@POST@/hipstershop.CartService/GetCart': 8.813330823536261e-06, 'intercept': 0.9452056491695048}
+shippingservice,shippingservice@POST@/hipstershop.ShippingService/ShipOrder,{'shippingservice@POST@/hipstershop.ShippingService/ShipOrder': 3.358173659059789e-06, 'intercept': 0.6245698521639249}

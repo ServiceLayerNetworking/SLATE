@@ -556,7 +556,7 @@ def run_optimizer(coef_dict, \
     for cid in endpoint_level_rps:
         for svc_name in endpoint_level_rps[cid]:
             for ep in endpoint_level_rps[cid][svc_name]:
-                logger.info(f'endpoint_level_rps: {cid}, {svc_name}, {ep}, {endpoint_level_rps[cid][svc_name][ep]}')
+                logger.debug(f'endpoint_level_rps: {cid}, {svc_name}, {ep}, {endpoint_level_rps[cid][svc_name][ep]}')
     ## Constraint 1: SOURCE
     if cfg.LOAD_IN:
         total_coming = 0

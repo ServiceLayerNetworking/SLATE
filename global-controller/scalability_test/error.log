@@ -1,0 +1,220 @@
+__main__ - check_file_exist(line:1536) - ERROR: The file trace.csv does not exist.
+__main__ - check_file_exist(line:1536) - ERROR: The file trace.csv does not exist.
+__main__ - optimizer_entrypoint(line:933) - !!! Skip optimizer !!! all root_node_rps all regions are 0
+__main__ - optimizer_entrypoint(line:936) - !!! Skip optimizer !!! all root_node_rps all regions are 0
+__main__ - optimizer_entrypoint(line:938) - !!! Skip optimizer !!! all root_node_rps all regions are 0
+__main__ - optimizer_entrypoint(line:938) - !!! Skip optimizer !!! all root_node_rps all regions are 0
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+optimizer_test - run_optimizer(line:253) - Exception: KeyError, 'endpoint'
+optimizer_test - run_optimizer(line:254) - (rate@POST@/rate.Rate/GetRates#us-west-1#start, rate@POST@/rate.Rate/GetRates#us-west-1#end)           True
+(rate@POST@/rate.Rate/GetRates#us-east-1#start, rate@POST@/rate.Rate/GetRates#us-east-1#end)          False
+(rate@POST@/rate.Rate/GetRates#us-south-1#start, rate@POST@/rate.Rate/GetRates#us-south-1#end)        False
+(rate@POST@/rate.Rate/GetRates#us-central-1#start, rate@POST@/rate.Rate/GetRates#us-central-1#end)    False
+Name: src_cid, dtype: bool
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:949) - !!! ERROR !!! Total demand(6400) at slateingress > total capcity(3204) at frontend
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+__main__ - optimizer_entrypoint(line:953) - recalc capacity: frontend, old_capacity,1601 -> new_capacity, 1601
+optimizer_header - find_root_node(line:1203) - ERROR: too many root node in callgraph
+optimizer_header - find_root_node(line:1204) - {'s0-e0': ['1-0', '2-0'], '1-0': [], '2-0': [], 's1-e0': ['3-0', '4-0'], '3-0': [], '4-0': [], 's2-e0': ['5-0', '6-0'], '5-0': [], '6-0': []}
+optimizer_test - run_optimizer(line:781) - 
+The following constraints and variables are in the IIS:
+optimizer_test - run_optimizer(line:786) - 	compute_latency[('s4185@m0@e0#cluster2#start',_'s4185@m0@e0#cluster2#end')] ≤ 8000.0
+__main__ - optimizer_entrypoint(line:1226) - ERROR: run_optimizer FAIL (**reason: infeasible model**) return without updating percentage_df
+optimizer_test - run_optimizer(line:781) - 
+The following constraints and variables are in the IIS:
+optimizer_test - run_optimizer(line:786) - 	compute_latency[('s4185@m3@e3#cluster3#start',_'s4185@m3@e3#cluster3#end')] ≤ 8000.0
+__main__ - optimizer_entrypoint(line:638) - ERROR: run_optimizer FAIL (**reason: infeasible model**) return without updating percentage_df
+optimizer_test - run_optimizer(line:781) - 
+The following constraints and variables are in the IIS:
+optimizer_test - run_optimizer(line:786) - 	compute_latency[('s4185@m3@e3#cluster3#start',_'s4185@m3@e3#cluster3#end')] ≤ 8000.0
+__main__ - optimizer_entrypoint(line:638) - ERROR: run_optimizer FAIL (**reason: infeasible model**) return without updating percentage_df
+optimizer_test - run_optimizer(line:781) - 
+The following constraints and variables are in the IIS:
+optimizer_test - run_optimizer(line:786) - 	compute_latency[('s4185@m1@e1#cluster4#start',_'s4185@m1@e1#cluster4#end')] ≤ 8000.0
+__main__ - optimizer_entrypoint(line:639) - ERROR: run_optimizer FAIL (**reason: infeasible model**) return without updating percentage_df
+optimizer_test - run_optimizer(line:781) - 
+The following constraints and variables are in the IIS:
+optimizer_test - run_optimizer(line:786) - 	compute_latency[('s4185@m0@e0#cluster5#start',_'s4185@m0@e0#cluster5#end')] ≤ 8000.0
+__main__ - optimizer_entrypoint(line:639) - ERROR: run_optimizer FAIL (**reason: infeasible model**) return without updating percentage_df
+optimizer_test - run_optimizer(line:781) - 
+The following constraints and variables are in the IIS:
+optimizer_test - run_optimizer(line:786) - 	compute_latency[('s4185@m0@e0#cluster0#start',_'s4185@m0@e0#cluster0#end')] ≤ 8000.0
+optimizer_test - run_optimizer(line:785) - 	load_for_compute_edge[('s4185@m3@e3#cluster0#start',_'s4185@m3@e3#cluster0#end')] ≥ 0.0
+optimizer_test - run_optimizer(line:785) - 	load_for_compute_edge[('s4185@m1@e1#cluster0#start',_'s4185@m1@e1#cluster0#end')] ≥ 0.0
+optimizer_test - run_optimizer(line:785) - 	load_for_compute_edge[('s4185@m2@e2#cluster0#start',_'s4185@m2@e2#cluster0#end')] ≥ 0.0
+__main__ - optimizer_entrypoint(line:639) - ERROR: run_optimizer FAIL (**reason: infeasible model**) return without updating percentage_df
+optimizer_test - run_optimizer(line:271) - Exception: UnboundLocalError, local variable 'index' referenced before assignment
+optimizer_test - run_optimizer(line:272) -                                                        svc_name   src_cid  \
+(s4185@m3@e3#cluster0#start, s4185@m3@e3#cluster0#end)    s4185  cluster0   
+(s4185@m2@e2#cluster0#start, s4185@m2@e2#cluster0#end)    s4185  cluster0   
+(s4185@m0@e0#cluster0#start, s4185@m0@e0#cluster0#end)    s4185  cluster0   
+(s4185@m1@e1#cluster0#start, s4185@m1@e1#cluster0#end)    s4185  cluster0   
+
+                                                         dst_cid  call_size  \
+(s4185@m3@e3#cluster0#start, s4185@m3@e3#cluster0#end)  cluster0          0   
+(s4185@m2@e2#cluster0#start, s4185@m2@e2#cluster0#end)  cluster0          0   
+(s4185@m0@e0#cluster0#start, s4185@m0@e0#cluster0#end)  cluster0          0   
+(s4185@m1@e1#cluster0#start, s4185@m1@e1#cluster0#end)  cluster0          0   
+
+                                                                                                                                                       max_load  \
+(s4185@m3@e3#cluster0#start, s4185@m3@e3#cluster0#end)  10000000000000000159028911097599180468360808563945281389781327557747838772170381060813469985856815104.0   
+(s4185@m2@e2#cluster0#start, s4185@m2@e2#cluster0#end)  10000000000000000159028911097599180468360808563945281389781327557747838772170381060813469985856815104.0   
+(s4185@m0@e0#cluster0#start, s4185@m0@e0#cluster0#end)  10000000000000000159028911097599180468360808563945281389781327557747838772170381060813469985856815104.0   
+(s4185@m1@e1#cluster0#start, s4185@m1@e1#cluster0#end)  10000000000000000159028911097599180468360808563945281389781327557747838772170381060813469985856815104.0   
+
+                                                       min_load observed_x  \
+(s4185@m3@e3#cluster0#start, s4185@m3@e3#cluster0#end)        0        NaN   
+(s4185@m2@e2#cluster0#start, s4185@m2@e2#cluster0#end)        0        NaN   
+(s4185@m0@e0#cluster0#start, s4185@m0@e0#cluster0#end)        0        NaN   
+(s4185@m1@e1#cluster0#start, s4185@m1@e1#cluster0#end)        0        NaN   
+
+                                                       observed_y  \
+(s4185@m3@e3#cluster0#start, s4185@m3@e3#cluster0#end)        NaN   
+(s4185@m2@e2#cluster0#start, s4185@m2@e2#cluster0#end)        NaN   
+(s4185@m0@e0#cluster0#start, s4185@m0@e0#cluster0#end)        NaN   
+(s4185@m1@e1#cluster0#start, s4185@m1@e1#cluster0#end)        NaN   
+
+                                                                                      coef  \
+(s4185@m3@e3#cluster0#start, s4185@m3@e3#cluster0#end)  {'intercept': 0, 's4185@m3@e3': 1}   
+(s4185@m2@e2#cluster0#start, s4185@m2@e2#cluster0#end)  {'intercept': 0, 's4185@m2@e2': 1}   
+(s4185@m0@e0#cluster0#start, s4185@m0@e0#cluster0#end)  {'intercept': 0, 's4185@m0@e0': 1}   
+(s4185@m1@e1#cluster0#start, s4185@m1@e1#cluster0#end)  {'intercept': 0, 's4185@m1@e1': 1}   
+
+                                                       min_compute_latency  \
+(s4185@m3@e3#cluster0#start, s4185@m3@e3#cluster0#end)                   0   
+(s4185@m2@e2#cluster0#start, s4185@m2@e2#cluster0#end)                   0   
+(s4185@m0@e0#cluster0#start, s4185@m0@e0#cluster0#end)                   0   
+(s4185@m1@e1#cluster0#start, s4185@m1@e1#cluster0#end)                   0   
+
+                                                                                                                                            max_compute_latency  \
+(s4185@m3@e3#cluster0#start, s4185@m3@e3#cluster0#end)  10000000000000000159028911097599180468360808563945281389781327557747838772170381060813469985856815104.0   
+(s4185@m2@e2#cluster0#start, s4185@m2@e2#cluster0#end)  10000000000000000159028911097599180468360808563945281389781327557747838772170381060813469985856815104.0   
+(s4185@m0@e0#cluster0#start, s4185@m0@e0#cluster0#end)  10000000000000000159028911097599180468360808563945281389781327557747838772170381060813469985856815104.0   
+(s4185@m1@e1#cluster0#start, s4185@m1@e1#cluster0#end)  10000000000000000159028911097599180468360808563945281389781327557747838772170381060813469985856815104.0   
+
+                                                           endpoint method url  
+(s4185@m3@e3#cluster0#start, s4185@m3@e3#cluster0#end)  s4185@m3@e3     m3  e3  
+(s4185@m2@e2#cluster0#start, s4185@m2@e2#cluster0#end)  s4185@m2@e2     m2  e2  
+(s4185@m0@e0#cluster0#start, s4185@m0@e0#cluster0#end)  s4185@m0@e0     m0  e0  
+(s4185@m1@e1#cluster0#start, s4185@m1@e1#cluster0#end)  s4185@m1@e1     m1  e1  
+optimizer_test - run_optimizer(line:271) - Exception: UnboundLocalError, local variable 'index' referenced before assignment
+optimizer_test - run_optimizer(line:272) - arc_name: ('s4185@m1@e1#cluster0#start', 's4185@m1@e1#cluster0#end')
+optimizer_test - run_optimizer(line:271) - Exception: UnboundLocalError, local variable 'index' referenced before assignment
+optimizer_test - run_optimizer(line:272) - arc_name: ('s4185@m3@e3#cluster0#start', 's4185@m3@e3#cluster0#end')
+optimizer_test - run_optimizer(line:783) - XXXXXXXXXXXXXXXXXXXXXXXXXXX
+optimizer_test - run_optimizer(line:784) - XXXX INFEASIBLE MODEL! XXXX
+optimizer_test - run_optimizer(line:785) - XXXXXXXXXXXXXXXXXXXXXXXXXXX
+optimizer_test - run_optimizer(line:790) - 
+The following constraints and variables are in the IIS:
+optimizer_test - run_optimizer(line:795) - 	load_for_compute_edge[('s4185@m0@e0#cluster0#start',_'s4185@m0@e0#cluster0#end')] ≤ 8000.0
+__main__ - optimizer_entrypoint(line:639) - ERROR: run_optimizer FAIL (**reason: infeasible model**) return without updating percentage_df
+optimizer_test - run_optimizer(line:783) - XXXXXXXXXXXXXXXXXXXXXXXXXXX
+optimizer_test - run_optimizer(line:784) - XXXX INFEASIBLE MODEL! XXXX
+optimizer_test - run_optimizer(line:785) - XXXXXXXXXXXXXXXXXXXXXXXXXXX
+optimizer_test - run_optimizer(line:790) - 
+The following constraints and variables are in the IIS:
+optimizer_test - run_optimizer(line:791) - gurobi_model.ilp
+optimizer_test - run_optimizer(line:796) - 	load_for_compute_edge[('s4185@m2@e2#cluster0#start',_'s4185@m2@e2#cluster0#end')] ≤ 8000.0
+__main__ - optimizer_entrypoint(line:639) - ERROR: run_optimizer FAIL (**reason: infeasible model**) return without updating percentage_df
+optimizer_test - run_optimizer(line:423) - Exception: IndexError, index 0 is out of bounds for axis 0 with size 0
+optimizer_test - run_optimizer(line:424) - index: ('SOURCE#XXXX#end', 's4185@m0@e0#cluster1#start')
+optimizer_test - run_optimizer(line:425) - src_compute: Empty DataFrame
+Columns: [svc_name, src_cid, dst_cid, call_size, max_load, min_load, observed_x, observed_y, coef, min_compute_latency, max_compute_latency, endpoint, method, url]
+Index: []
+optimizer_test - run_optimizer(line:426) - src_compute_max_load: 32000
+optimizer_test - run_optimizer(line:426) - Exception: KeyError, 'SOURCE'
+optimizer_test - run_optimizer(line:427) - index: ('SOURCE#XXXX#end', 's4185@m0@e0#cluster1#start')
+optimizer_test - run_optimizer(line:428) - src_compute: Empty DataFrame
+Columns: [svc_name, src_cid, dst_cid, call_size, max_load, min_load, observed_x, observed_y, coef, min_compute_latency, max_compute_latency, endpoint, method, url]
+Index: []
+optimizer_test - run_optimizer(line:429) - src_compute_max_load: 32000
+optimizer_test - run_optimizer(line:426) - Exception: KeyError, 'SOURCE'
+optimizer_test - run_optimizer(line:427) - index: ('SOURCE#XXXX#end', 's4185@m0@e0#cluster6#start')
+optimizer_test - run_optimizer(line:428) - src_compute: Empty DataFrame
+Columns: [svc_name, src_cid, dst_cid, call_size, max_load, min_load, observed_x, observed_y, coef, min_compute_latency, max_compute_latency, endpoint, method, url]
+Index: []
+optimizer_test - run_optimizer(line:429) - src_compute_max_load: 32000
+optimizer_test - run_optimizer(line:427) - Exception: KeyError, 'SOURCE'
+optimizer_test - run_optimizer(line:428) - index: ('SOURCE#XXXX#end', 's4185@m0@e0#cluster6#start')
+optimizer_test - run_optimizer(line:429) - src_compute: Empty DataFrame
+Columns: [svc_name, src_cid, dst_cid, call_size, max_load, min_load, observed_x, observed_y, coef, min_compute_latency, max_compute_latency, endpoint, method, url]
+Index: []
+optimizer_test - run_optimizer(line:430) - src_compute_max_load: 32000
+optimizer_test - run_optimizer(line:427) - Exception: KeyError, 'SOURCE'
+optimizer_test - run_optimizer(line:428) - index: ('SOURCE#XXXX#end', 's4185@m0@e0#cluster0#start')
+optimizer_test - run_optimizer(line:429) - src_compute: Empty DataFrame
+Columns: [svc_name, src_cid, dst_cid, call_size, max_load, min_load, observed_x, observed_y, coef, min_compute_latency, max_compute_latency, endpoint, method, url]
+Index: []
+optimizer_test - run_optimizer(line:430) - src_compute_max_load: 32000
+optimizer_test - run_optimizer(line:428) - Exception: KeyError, 'SOURCE'
+optimizer_test - run_optimizer(line:429) - index: ('SOURCE#XXXX#end', 's4185@m0@e0#cluster3#start')
+optimizer_test - run_optimizer(line:430) - src_compute: Empty DataFrame
+Columns: [svc_name, src_cid, dst_cid, call_size, max_load, min_load, observed_x, observed_y, coef, min_compute_latency, max_compute_latency, endpoint, method, url]
+Index: []
+optimizer_test - run_optimizer(line:431) - src_compute_max_load: 320000

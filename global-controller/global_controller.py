@@ -70,7 +70,7 @@ degree = 0
 endpoint_to_placement = dict()
 svc_to_placement = dict()
 percentage_df = pd.DataFrame()
-optimizer_cnt = 0
+# optimizer_cnt = 0
 endpoint_rps_cnt = 0
 inter_cluster_latency = dict()
 stats_mutex = Lock()
@@ -131,6 +131,8 @@ prev_hillclimb_latency = dict() # svc -> region -> pod -> {latency_total, num_re
 cur_hillclimb_latency = dict()
 next_hillclimb_latency = dict()
 hillclimb_interval = -1
+hillclimb_enabled = "Unknown"
+hillclimb_stepsize = -1
 first_replica_sync_s = -1
 first_replica_mutex = Lock()
 first_replica_sync_counter = 1000 # arbitrary number
@@ -188,6 +190,22 @@ def handleHillclimbLatency():
     hillclimb_latency_lock.release()
     return ""
 
+
+# when adjustForHillclimbing is called, we need to adjust the given dataframe based on the current and previous
+# latencies.
+def adjustForHillclimbing(svc: str, region: str, pct_df: pd.Dataframe) -> pd.Dataframe:
+    global cur_hillclimb_latency
+    global prev_hillclimb_latency
+    global next_hillclimb_latency
+    global last_policy_request
+    global hillclimb_latency_lock
+    global hillclimb_interval
+    global last_policy_request_mutex
+
+
+    
+    pass
+
 @app.post('/hillclimbingPolicy') # from wasm
 def handleHillclimbPolicy():
     global cur_hillclimb_latency
@@ -229,7 +247,12 @@ def handleHillclimbPolicy():
     last_policy_request_mutex.release()
     if svc not in cur_hillclimb_latency or svc not in prev_hillclimb_latency:
         hillclimb_latency_lock.release()
-        logger.info(f"hillclimbingPolicy for (pod {podname}): svc: {svc} not in cur or prev, SKIPPING")
+        logger.info(f"hillclimbingPolicy for (pod {podname}): svc: {svc} not in one of cur or prev, SKIPPING (this could be the first iteration)")
+        if svc in cur_hillclimb_latency:
+            # svc is in cur, but not in prev
+            logger.info(f"svc {svc} is in cur, but not in prev (first iteration) -- returning false") 
+            # this is aritrary
+            return "false"
         return ""
     cur_r2p = cur_hillclimb_latency[svc]
     prev_r2p = prev_hillclimb_latency[svc]
@@ -662,6 +685,8 @@ def handleProxyLoad():
     global stats_mutex
     global endpoint_level_rps_mutex
     global per_pod_ep_rps
+    # global optimizer_cnt
+    global temp_counter
     
     ''' * HEADER in request from WASM * 
     {":method", "POST"},
@@ -719,6 +744,9 @@ def handleProxyLoad():
     ------------------------------------------------------------------
     '''
     logger.debug(f"svc: {svc}, region: {region}")
+    if region not in inter_cluster_latency:
+        logger.debug(f"Ignore the request from {region} since there is no inter_cluster_latency info for {region}")
+        return ""
     
     # this initialization part will not be reached because they should be already initialized in training_phase function by trace.csv files
     with endpoint_level_rps_mutex:
@@ -787,12 +815,12 @@ def handleProxyLoad():
         endpoint_level_inflight[region][svc][endpoint] = ontick_inflight # not used
         with endpoint_level_rps_mutex:
             if endpoint not in endpoint_to_placement:
-                logger.info(f"ERROR: Skip per_pod_ep_rps, {endpoint}. this endpoint is not in stitched trace.")
+                logger.debug(f"ERROR: Skip per_pod_ep_rps, {endpoint}. this endpoint is not in stitched trace.")
             else:
                 if endpoint not in per_pod_ep_rps[region][svc]:
                     per_pod_ep_rps[region][svc][endpoint] = dict()
                 per_pod_ep_rps[region][svc][endpoint][podname] = active_ep_ontick_rps
-                logger.info(f"per_pod_ep_rps, {region}, {svc}, {endpoint}, {active_ep_ontick_rps}")
+                logger.debug(f"per_pod_ep_rps, {region}, {svc}, {endpoint}, {active_ep_ontick_rps}")
             
     if mode == "profile":
         spans = parse_stats_into_spans(body, svc)
@@ -836,7 +864,6 @@ def handleProxyLoad():
         metrics-fake-ingress@POST@/start, us-east-1, us-west-1, 0.8
         metrics-fake-ingress@POST@/start, us-east-1, us-east-1, 0.2
         '''
-        global optimizer_cnt
         logger.debug(f'ROUTING_RULE: {ROUTING_RULE}')
         if ROUTING_RULE == "LOCAL":
             _, csv_string =  local_and_failover_routing_rule(svc, region)
@@ -857,13 +884,14 @@ def handleProxyLoad():
                     return csv_string
                 temp_df = verify_return_df(temp_df, region)
                 temp_df = temp_df.reset_index(drop=True)
+                adjusted_df: pd.DataFrame = adjustForHillclimbing(svc, region, temp_df)
                 csv_string = temp_df.to_csv(header=False, index=False)
                 assert csv_string != ""
-                logger.debug(f"Enforcement, {ROUTING_RULE}, optimizer_cnt-{optimizer_cnt}, {full_podname} in {region}\n{csv_string.strip()}")
+                logger.debug(f"Enforcement, {ROUTING_RULE}, temp_counter-{temp_counter}, {full_podname} in {region}\n{csv_string.strip()}")
             else:
                 _, csv_string = local_and_failover_routing_rule(svc, region)
                 
-            # logger.info(f"Enforcement, {ROUTING_RULE}, optimizer_cnt-{optimizer_cnt}, {full_podname} in {region}, {csv_string.strip()}")
+            # logger.info(f"Enforcement, {ROUTING_RULE}, temp_counter-{temp_counter}, {full_podname} in {region}, {csv_string.strip()}")
             with open(f'percentage_df-{svc}.csv', 'a') as f:
                 f.write(csv_string)
             return csv_string
@@ -878,7 +906,7 @@ def handleProxyLoad():
                 _, csv_string = local_and_failover_routing_rule(svc, region)
                 return csv_string
             if percentage_df.empty:
-                logger.warning(f"WARNING, Rollback to local routing. {region}, {full_podname}, percentage_df is empty.")
+                logger.debug(f"WARNING, Rollback to local routing. {region}, {full_podname}, percentage_df is empty.")
                 ############################################################
                 _, csv_string = local_and_failover_routing_rule(svc, region)
                 ############################################################
@@ -898,7 +926,7 @@ def handleProxyLoad():
                 for index, row in temp_df.iterrows():
                     if row['weight'] < 1.0:
                         # print service having remote routing rule only
-                        logger.info(f"Enforcement,{ROUTING_RULE}, optimizer_cnt-{optimizer_cnt}, {full_podname} in {region}\n{csv_string.strip()}")
+                        logger.debug(f"Enforcement,{ROUTING_RULE}, temp_counter-{temp_counter}, {full_podname} in {region}\n{csv_string.strip()}")
                         break
                 return csv_string
         else: # Invalid routing rule
@@ -1008,7 +1036,7 @@ def get_root_node_rps(ep_str_callgraph_table, aggregated_rps):
                             if svc_name not in root_node_rps[cid]:
                                 root_node_rps[cid][svc_name] = dict()
                             root_node_rps[cid][svc_name][ep] = aggregated_rps[cid][svc_name][ep]
-                            logger.info(f'root_node_rps,{hashed_cg_key},{cid},{svc_name},{ep},{root_node_rps[cid][svc_name][ep]}')
+                            logger.debug(f'root_node_rps,{hashed_cg_key},{cid},{svc_name},{ep},{root_node_rps[cid][svc_name][ep]}')
     return root_node_rps
 
 
@@ -1084,6 +1112,7 @@ def get_svc_level_rps(aggregated_rps):
                 svc_level_rps[region][svc] += aggregated_rps[region][svc][endpoint]
     return svc_level_rps
 
+
 def get_svc_level_topology():
     global ep_str_callgraph_table
     for hashed_cg_key in ep_str_callgraph_table:
@@ -1094,9 +1123,10 @@ def get_svc_level_topology():
             for child_ep_str in ep_str_callgraph_table[hashed_cg_key][parent_ep_str]:
                 svc_to_placement[svc].add(child_ep_str.split(cfg.ep_del)[1])
 
+
 def fill_local_first(src_region, remaining_src_region_src_svc_rps, waterfall_load_balance, src_svc="slate-ingress", dst_svc="frontend"):
     global max_capacity_per_service
-    global optimizer_cnt
+    global temp_counter
     dst_region = src_region
     src_original_demand = remaining_src_region_src_svc_rps[src_region]
     dst_original_cap = max_capacity_per_service[dst_svc][dst_region]
@@ -1108,9 +1138,9 @@ def fill_local_first(src_region, remaining_src_region_src_svc_rps, waterfall_loa
         remaining_src_region_src_svc_rps[src_region] -= max_capacity_per_service[dst_svc][dst_region]
         waterfall_load_balance[src_region][dst_region] = max_capacity_per_service[dst_svc][dst_region]
         max_capacity_per_service[dst_svc][dst_region] = 0
-    logger.info(f"{optimizer_cnt},waterfall2,{src_svc},{dst_svc},{src_region},{dst_region},{waterfall_load_balance[src_region][dst_region]}")
-    logger.debug(f"{optimizer_cnt},waterfall2,src remaining_src_region_src_svc_rps[{src_region}]: {src_original_demand},{remaining_src_region_src_svc_rps[src_region]}")
-    logger.debug(f"{optimizer_cnt},waterfall2,dst max_capacity_per_service[{dst_svc}][{dst_region}]: {dst_original_cap},{max_capacity_per_service[dst_svc][dst_region]}")
+    logger.info(f"{temp_counter},waterfall2,{src_svc},{dst_svc},{src_region},{dst_region},{waterfall_load_balance[src_region][dst_region]}")
+    logger.debug(f"{temp_counter},waterfall2,src remaining_src_region_src_svc_rps[{src_region}]: {src_original_demand},{remaining_src_region_src_svc_rps[src_region]}")
+    logger.debug(f"{temp_counter},waterfall2,dst max_capacity_per_service[{dst_svc}][{dst_region}]: {dst_original_cap},{max_capacity_per_service[dst_svc][dst_region]}")
     return waterfall_load_balance
     
 def waterfall_heurstic(src_region, remaining_src_region_src_svc_rps, waterfall_load_balance, src_svc="slate-ingress", dst_svc="frontend"):
@@ -1125,17 +1155,17 @@ def waterfall_heurstic(src_region, remaining_src_region_src_svc_rps, waterfall_l
                 # it will be last iteration
                 original_cap = max_capacity_per_service[dst_svc][dst_region]
                 max_capacity_per_service[dst_svc][dst_region] -= remaining_src_region_src_svc_rps[src_region]
-                logger.info(f"{optimizer_cnt},waterfall2,{src_svc},{dst_svc},{src_region},{dst_region},{remaining_src_region_src_svc_rps[src_region]}")
+                logger.info(f"{temp_counter},waterfall2,{src_svc},{dst_svc},{src_region},{dst_region},{remaining_src_region_src_svc_rps[src_region]}")
                 if src_region not in waterfall_load_balance:
                     waterfall_load_balance[src_region] = dict()
                 waterfall_load_balance[src_region][dst_region] = remaining_src_region_src_svc_rps[src_region]
                 src_orignal_demand = remaining_src_region_src_svc_rps[src_region]
                 remaining_src_region_src_svc_rps[src_region] = 0
-                logger.debug(f"{optimizer_cnt},waterfall2,src remaining_src_region_src_svc_rps[{src_region}]: {src_orignal_demand},{remaining_src_region_src_svc_rps[src_region]}")
-                logger.debug(f"{optimizer_cnt},waterfall2,dst max_capacity_per_service[{dst_svc}][{dst_region}]: {original_cap},{max_capacity_per_service[dst_svc][dst_region]}")
+                logger.debug(f"{temp_counter},waterfall2,src remaining_src_region_src_svc_rps[{src_region}]: {src_orignal_demand},{remaining_src_region_src_svc_rps[src_region]}")
+                logger.debug(f"{temp_counter},waterfall2,dst max_capacity_per_service[{dst_svc}][{dst_region}]: {original_cap},{max_capacity_per_service[dst_svc][dst_region]}")
                 break
             else:
-                logger.debug(f"{optimizer_cnt},waterfall2,max_capacity_per_service[{dst_svc}][{dst_region}] < remaining_src_region_src_svc_rps[{src_region}]({remaining_src_region_src_svc_rps[src_region]})")
+                logger.debug(f"{temp_counter},waterfall2,max_capacity_per_service[{dst_svc}][{dst_region}] < remaining_src_region_src_svc_rps[{src_region}]({remaining_src_region_src_svc_rps[src_region]})")
                 if src_region not in waterfall_load_balance:
                     waterfall_load_balance[src_region] = dict()
                 waterfall_load_balance[src_region][dst_region] = max_capacity_per_service[dst_svc][dst_region]
@@ -1143,29 +1173,32 @@ def waterfall_heurstic(src_region, remaining_src_region_src_svc_rps, waterfall_l
                 remaining_src_region_src_svc_rps[src_region] -= max_capacity_per_service[dst_svc][dst_region]
                 dst_original_cap = max_capacity_per_service[dst_svc][dst_region]
                 max_capacity_per_service[dst_svc][dst_region] = 0
-                logger.info(f"{optimizer_cnt},waterfall2,{src_region},{dst_region},{dst_original_cap},{max_capacity_per_service[dst_svc][dst_region]}")
-                logger.debug(f"{optimizer_cnt},waterfall2,src remaining_src_region_src_svc_rps[{src_region}]: {src_original_demand},{remaining_src_region_src_svc_rps[src_region]}")
-                logger.debug(f"{optimizer_cnt},waterfall2,dst max_capacity_per_service[{dst_svc}][{dst_region}]: {max_capacity_per_service[dst_svc][dst_region]}")
+                logger.info(f"{temp_counter},waterfall2,{src_region},{dst_region},{dst_original_cap},{max_capacity_per_service[dst_svc][dst_region]}")
+                logger.debug(f"{temp_counter},waterfall2,src remaining_src_region_src_svc_rps[{src_region}]: {src_original_demand},{remaining_src_region_src_svc_rps[src_region]}")
+                logger.debug(f"{temp_counter},waterfall2,dst max_capacity_per_service[{dst_svc}][{dst_region}]: {max_capacity_per_service[dst_svc][dst_region]}")
                 if remaining_src_region_src_svc_rps[src_region] == 0:
-                    logger.debug(f"{optimizer_cnt},waterfall2 for {src_region}, {src_svc} is done. break and return")
+                    logger.debug(f"{temp_counter},waterfall2 for {src_region}, {src_svc} is done. break and return")
                     break
     return waterfall_load_balance
 
-def write_optimizer_output(optimizer_cnt, percentage_df, desc, fn):
+def write_optimizer_output(temp_counter, percentage_df, desc, fn):
     if percentage_df.empty:
         if os.path.isfile(fn):
             with open(fn, "a") as f:
-                f.write(f"idx,{optimizer_cnt},fail,{desc}\n")
+                f.write(f"idx,{temp_counter},fail,{desc}\n")
     else:
         sim_percentage_df = percentage_df.copy()
         # if benchmark_name != "usecase3-compute-diff" or benchmark_name != "hotelreservation":
         #     sim_percentage_df = sim_percentage_df.drop(columns=['src_endpoint', "dst_endpoint"]).reset_index(drop=True)
-        sim_percentage_df.insert(loc=0, column="counter", value=optimizer_cnt)
+        
+        sim_percentage_df.insert(loc=0, column="counter", value=temp_counter)
+        sim_percentage_df = sim_percentage_df.reset_index(drop=True)
+        sim_percentage_df.index = [''] * len(sim_percentage_df)
+        
         if os.path.isfile(fn) == False:
             sim_percentage_df.to_csv(fn, mode="w")
         else:
-            sim_percentage_df.to_csv(fn, header=False, mode="a")
-        sim_percentage_df = sim_percentage_df.reset_index(drop=True)
+            sim_percentage_df.to_csv(fn, mode="a")
         logger.info(f"sim_percentage_df:\n{sim_percentage_df.to_csv()}")
         
 
@@ -1186,7 +1219,7 @@ def optimizer_entrypoint():
     global objective
     global max_capacity_per_service
     global mode
-    global optimizer_cnt
+    global temp_counter
     global degree
     global inter_cluster_latency
     global CAPACITY
@@ -1256,9 +1289,8 @@ def optimizer_entrypoint():
             max_capacity_per_service[bottleneck_service][dst_region] = new_capacity_for_bottleneck_svc
             logger.error(f"recalc capacity: {bottleneck_service}, old_capacity,{max_capacity_per_service[bottleneck_service][dst_region]} -> new_capacity, {new_capacity_for_bottleneck_svc}")
     ## Passed all the basic requirement
-    optimizer_cnt += 1
-    logger.info(f"start run optimizer optimizer_cnt-{optimizer_cnt} ROUTING_RULE:{ROUTING_RULE}")
-    logger.info(f"before run_optimizer optimizer_cnt-{optimizer_cnt}")
+    logger.info(f"start run optimizer temp_counter-{temp_counter} ROUTING_RULE:{ROUTING_RULE}")
+    logger.info(f"before run_optimizer temp_counter-{temp_counter}")
     # logger.info(f"inter_cluster_latency: {inter_cluster_latency}")
     
     
@@ -1450,25 +1482,25 @@ def optimizer_entrypoint():
                         assert False
                     for frontend_ep in endpoint_rps_at_frontend:
                         target_region_ingress_gw_rps[frontend_ep] = endpoint_rps_at_frontend[frontend_ep]
-                        logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, target_region: {target_region}, frontend endpoint: {frontend_ep}, rps: {endpoint_rps_at_frontend[frontend_ep]}")
+                        logger.info(f"run_optimizer temp_counter-{temp_counter}, target_region: {target_region}, frontend endpoint: {frontend_ep}, rps: {endpoint_rps_at_frontend[frontend_ep]}")
                 else:
                     for svc in region_endpoint_level_rps[region]:
                         for ep in region_endpoint_level_rps[region][svc]:
                             region_endpoint_level_rps[region][svc][ep] = 0
-            logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, optimize region,{target_region}")
-            logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, region_endpoint_level_rps: {region_endpoint_level_rps[target_region]}")
+            logger.info(f"run_optimizer temp_counter-{temp_counter}, optimize region,{target_region}")
+            logger.info(f"run_optimizer temp_counter-{temp_counter}, region_endpoint_level_rps: {region_endpoint_level_rps[target_region]}")
             frontend_ep_load_flag = False
             for frontend_ep in target_region_ingress_gw_rps:
                 if target_region_ingress_gw_rps[frontend_ep] != 0:
-                    logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, target_region: {target_region}, frontend endpoint: {frontend_ep}, rps: {target_region_ingress_gw_rps[frontend_ep]}")
+                    logger.info(f"run_optimizer temp_counter-{temp_counter}, target_region: {target_region}, frontend endpoint: {frontend_ep}, rps: {target_region_ingress_gw_rps[frontend_ep]}")
                     frontend_ep_load_flag = True
                     break
             if frontend_ep_load_flag == False:
-                logger.info(f"Skip optimizer optimizer_cnt-{optimizer_cnt} for {target_region}. all target_region_ingress_gw_rps == 0")
+                logger.info(f"Skip optimizer temp_counter-{temp_counter} for {target_region}. all target_region_ingress_gw_rps == 0")
                 for frontend_ep in target_region_ingress_gw_rps:
-                    logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, target_region: {target_region}, frontend endpoint: {frontend_ep}, rps: {target_region_ingress_gw_rps[frontend_ep]}")
+                    logger.info(f"run_optimizer temp_counter-{temp_counter}, target_region: {target_region}, frontend endpoint: {frontend_ep}, rps: {target_region_ingress_gw_rps[frontend_ep]}")
             else:
-                logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, region: {target_region}, target_region_ingress_gw_rps: {target_region_ingress_gw_rps}")
+                logger.info(f"run_optimizer temp_counter-{temp_counter}, region: {target_region}, target_region_ingress_gw_rps: {target_region_ingress_gw_rps}")
                 # region_endpoint_level_rps and curr_remaining_capacity are newly set
                 ts = time.time()
                 pct_df, desc = opt.run_optimizer(\
@@ -1490,8 +1522,8 @@ def optimizer_entrypoint():
                     region_pct_df[target_region] = pct_df
                     # pct_df_columns = pct_df.columns
                     df_str = pct_df.to_csv(header=False, index=False)
-                    logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, target_region: {target_region}")
-                    logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, df_str: {df_str}")        
+                    logger.info(f"run_optimizer temp_counter-{temp_counter}, target_region: {target_region}")
+                    logger.info(f"run_optimizer temp_counter-{temp_counter}, df_str: {df_str}")        
                     prev_remaining_capacity = copy.deepcopy(curr_remaining_capacity)
                     update_remaining_capacity(curr_remaining_capacity, pct_df)
                     for region in curr_remaining_capacity:
@@ -1499,10 +1531,10 @@ def optimizer_entrypoint():
                             if curr_remaining_capacity[region][svc] < 0:
                                 logger.error(f"!!! ERROR !!!: curr_remaining_capacity[{region}][{svc}] < 0, {curr_remaining_capacity[region][svc]}")
                                 assert False
-                            # logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, region,{region}, svc,{svc}, remaining_capacity: {prev_remaining_capacity[region][svc]} ->  {curr_remaining_capacity[region][svc]}")
+                            # logger.info(f"run_optimizer temp_counter-{temp_counter}, region,{region}, svc,{svc}, remaining_capacity: {prev_remaining_capacity[region][svc]} ->  {curr_remaining_capacity[region][svc]}")
                 else:
                     logger.info(f"pct_df: {pct_df}")
-                    logger.error(f"!!! ERROR !!! FAIL. run_optimizer optimizer_cnt-{optimizer_cnt}, target_region: {target_region}. {desc}")
+                    logger.error(f"!!! ERROR !!! FAIL. run_optimizer temp_counter-{temp_counter}, target_region: {target_region}. {desc}")
                     logger.error(f"use the previous pct_df for this region {target_region}")
                              
         '''merge all the optimizer output'''
@@ -1518,13 +1550,13 @@ def optimizer_entrypoint():
         # transform is required to keep the original index. Otherwise, it will delete unique dst_endpoint rows
         percentage_df['total'] = percentage_df.groupby(['src_svc', 'src_cid', 'src_endpoint'])['flow'].transform('sum')
         percentage_df['weight'] = percentage_df['flow']/percentage_df['total']
-        # write_optimizer_output(optimizer_cnt, percentage_df, desc, "alternative_routing_history.csv")
-        # write_optimizer_output(optimizer_cnt, concat_pct_df, desc, "concat_pct_df.csv")
-    logger.info(f"after run_optimizer optimizer_cnt-{optimizer_cnt}")
-    logger.info(f"run_optimizer optimizer_cnt-{optimizer_cnt}, result: {desc}")
+        # write_optimizer_output(temp_counter, percentage_df, desc, "alternative_routing_history.csv")
+        # write_optimizer_output(temp_counter, concat_pct_df, desc, "concat_pct_df.csv")
+    logger.info(f"after run_optimizer temp_counter-{temp_counter}")
+    logger.info(f"run_optimizer temp_counter-{temp_counter}, result: {desc}")
     if percentage_df.empty:
         logger.error(f"ERROR: run_optimizer FAIL (**{desc}**) return without updating percentage_df")
-    write_optimizer_output(optimizer_cnt, percentage_df, desc, "routing_history.csv")
+    write_optimizer_output(temp_counter, percentage_df, desc, "routing_history.csv")
     ''' end of optimizer_entrypoint '''
 
 def fit_polynomial_regression(data, y_col_name, svc_name, ep_str, cid, degree):
@@ -1582,7 +1614,9 @@ def load_coef():
     checkoutcart_endpoints = ["frontend@POST@/cart/checkout", "recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations", "sslateingress@POST@/cart/checkout", "checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder", "cartservice@POST@/hipstershop.CartService/GetCart", "paymentservice@POST@/hipstershop.PaymentService/Charge", "currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies", "emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation", "shippingservice@POST@/hipstershop.ShippingService/ShipOrder"]
     
     addtocart_endpoints = ['frontend@POST@/cart', 'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct', 'sslateingress@POST@/cart', 'cartservice@POST@/hipstershop.CartService/AddItem']
-        
+    
+    check_file_exist("coef.csv")
+    
     try:
         coef_csv_col = ["svc_name","endpoint","feature","value"]
         df = pd.read_csv(f"coef.csv", names=coef_csv_col, header=None)
@@ -1606,7 +1640,9 @@ def load_coef():
                         loaded_coef[svc_name][endpoint][row["feature"]] = float(row["value"])*2
                         logger.warning(f"!!! Double the coefficient for {svc_name} {endpoint} {row['feature']} {row['value']}\n"*10)
                     else:
+                        logger.info(f"loaded_coef,{svc_name},{endpoint},{row['feature']},{row['value']}")
                         loaded_coef[svc_name][endpoint][row["feature"]] = float(row["value"])
+                            
     except Exception as e:
         logger.error(f"!!! ERROR !!!: failed to read coef.csv with error: {e}")
         logger.error(f"!!! ERROR !!!: failed to read coef.csv with error: {e}")
@@ -2146,6 +2182,7 @@ def training_phase():
     for region in inter_cluster_latency:
         if region not in stitched_traces:
             stitched_traces[region] = stitched_traces["us-west-1"].copy()
+            logger.info(f"Replicate trace for {region}")
     
     try:
         initialize_global_datastructure(stitched_traces=stitched_traces)
@@ -2233,6 +2270,8 @@ def read_config_file():
     global load_coef_flag
     global state
     global hillclimb_interval
+    global hillclimb_enabled
+    global hillclimb_stepsize
     # global all_clusters
     global traffic_segmentation
     
@@ -2346,6 +2385,10 @@ def read_config_file():
                 thread = int(line[1])
             elif line[0] == "hillclimb_interval":
                 hillclimb_interval = int(line[1])
+            elif line[0] == "hillclimb_enabled":
+                hillclimb_enabled = int(line[1])
+            elif line[0] == "hillclimb_stepsize":
+                hillclimb_stepsize = int(line[1])
             else:
                 logger.debug(f"SKIP parsing unknown config: {line}")
                 # logger.error(f"ERROR: unknown config: {line}")
@@ -2374,7 +2417,6 @@ def aggregate_rps_by_region_or_zero():
     global per_pod_ep_rps
     global aggregated_rps
     global temp_counter
-    logger.info("aggregate_rps_by_region_or_zero")
     for region in all_endpoints:
         if region not in aggregated_rps: aggregated_rps[region] = dict()
         for svc_name in all_endpoints[region]:
@@ -2395,7 +2437,7 @@ def aggregate_rps_by_region_or_zero():
         for svc in per_pod_ep_rps[region]:
             for endpoint in per_pod_ep_rps[region][svc]:
                 for podname in per_pod_ep_rps[region][svc][endpoint]:
-                    logger.info(f"{temp_counter},per_pod_ep_rps,{region},{svc},{endpoint},{podname},{per_pod_ep_rps[region][svc][endpoint][podname]}")
+                    logger.debug(f"{temp_counter},per_pod_ep_rps,{region},{svc},{endpoint},{podname},{per_pod_ep_rps[region][svc][endpoint][podname]}")
     # logger.info("-"*80)
     # for region in aggregated_rps:
     #     for svc in aggregated_rps[region]:
@@ -2409,7 +2451,6 @@ def aggregated_rps_routine():
     global agg_root_node_rps
     global temp_counter
     global prev_ts
-    logger.info(f"called aggregated_rps_routine")
     # aggregate_rps_by_region_or_zero(per_pod_ep_rps)
     aggregate_rps_by_region_or_zero()
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
@@ -2423,7 +2464,7 @@ def aggregated_rps_routine():
                 for endpoint in agg_root_node_rps[region][svc]:
                     logger.warning(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
         logger.warning("-"*80)
-        temp_counter += 1
+    temp_counter += 1
         
 def state_check():
     global state

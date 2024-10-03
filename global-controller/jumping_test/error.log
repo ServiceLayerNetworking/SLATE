@@ -1,0 +1,6 @@
+optimizer_test - run_optimizer(line:867) - XXXXXXXXXXXXXXXXXXXXXXXXXXX
+optimizer_test - run_optimizer(line:868) - XXXX INFEASIBLE MODEL! XXXX
+optimizer_test - run_optimizer(line:869) - XXXXXXXXXXXXXXXXXXXXXXXXXXX
+optimizer_test - run_optimizer(line:867) - XXXXXXXXXXXXXXXXXXXXXXXXXXX
+optimizer_test - run_optimizer(line:868) - XXXX INFEASIBLE MODEL! XXXX
+optimizer_test - run_optimizer(line:869) - XXXXXXXXXXXXXXXXXXXXXXXXXXX
