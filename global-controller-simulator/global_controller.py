@@ -1327,7 +1327,7 @@ def load_coef():
     
     addtocart_endpoints = ['frontend@POST@/cart', 'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct', 'sslateingress@POST@/cart', 'cartservice@POST@/hipstershop.CartService/AddItem']
     
-    check_file_exist("coef.csv")
+    # check_file_exist("coef.csv")
     
     try:
         coef_csv_col = ["svc_name","endpoint","feature","value"]
@@ -2066,13 +2066,14 @@ def read_config_file():
             else:
                 logger.debug(f"SKIP parsing unknown config: {line}")
 
+# west central south east
 
 import sys
 if __name__ == "__main__":
-    agg_root_node_rps = { "us-west-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 400}}\
-                        , "us-east-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 100}}\
+    agg_root_node_rps = { "us-west-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 100}}\
+                        , "us-east-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 400}}\
                         , "us-south-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 100}}\
-                        , "us-central-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 100}}}
+                        , "us-central-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 500}}}
     trainig_input_trace_file=sys.argv[1]
     read_config_file()
     training_phase(trainig_input_trace_file, agg_root_node_rps)

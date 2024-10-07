@@ -48,7 +48,7 @@ warnings.filterwarnings("ignore", message="The behavior of DataFrame concatenati
 '''runtime (optimizer)'''
 endpoint_level_inflight = {}
 # endpoint_level_rps = {}
-aggregated_rps = {}
+aggregated_rps = {} # dict of region -> svcname -> endpoint -> rps
 agg_root_node_rps = {}
 endpoint_level_rps_mutex = Lock()
 per_pod_ep_rps = {}
@@ -61,15 +61,19 @@ temp_counter = 0
 prev_ts = time.time()
 load_coef_flag = False
 init_done = False
+use_optimizer_output = False
 
 endpoint_sizes = {}
 
 placement = {}
 coef_dict = {}
+e2e_coef_dict = {}
 degree = 0
 endpoint_to_placement = dict()
 svc_to_placement = dict()
 percentage_df = pd.DataFrame()
+jumping_df = pd.DataFrame()
+prev_jumping_df = pd.DataFrame()
 # optimizer_cnt = 0
 endpoint_rps_cnt = 0
 inter_cluster_latency = dict()
@@ -140,18 +144,12 @@ last_policy_request = dict() # svc -> time.time()
 last_policy_request_mutex = Lock()
 cur_hillclimbing = dict() # svc -> endpoint
 
-@app.post('/wasmsync')
-def handleWasmSync():
-    global first_replica_sync_s
-    global first_replica_mutex
-    first_replica_mutex.acquire(blocking=True)
-    if first_replica_sync_s == -1:
-        first_replica_sync_s = time.time()
-        first_replica_mutex.release()
-        return f"{int(first_replica_sync_counter)}"
-    else:
-        first_replica_mutex.release()
-        return f"{int(first_replica_sync_counter - (time.time() - first_replica_sync_s))}"
+jumping_last_seen_opt_output = pd.DataFrame() # the last seen routing rules from the jumping perspective
+
+
+global_processing_latencies = dict() # svc -> region -> pod -> method@path -> {latency_avg, num_reqs}
+global_prev_processing_latencies = dict()
+processing_latencies_mutex = Lock()
 
 
 @app.post('/hillclimbingLatency') # from wasm
@@ -159,52 +157,367 @@ def handleHillclimbLatency():
     global next_hillclimb_latency
     global hillclimb_latency_lock
     global cur_hillclimbing
-    svc = request.headers.get('x-slate-servicename').split("-us-")[0]
-    needHill = request.headers.get('x-slate-need-hillclimbing', '')
-    if needHill == "true":
-        if svc not in cur_hillclimbing:
-            return "WAIT"
-        else:
-            return cur_hillclimbing[svc]
+    global global_processing_latencies
+    svc = request.headers.get('x-slate-servicename').split("-us-")[0]    
     region = request.headers.get('x-slate-region')
     podname = request.headers.get('x-slate-podname')[-5:]
-    avgLatency = int(request.headers.get('x-slate-avg-latency'))
-    totalReqs = int(request.headers.get('x-slate-total-reqs'))
-    curHill = request.headers.get('x-slate-cur-hillclimbing', '')
-    cur_hillclimbing[svc] = curHill
-    # cur_hillclimbing[svc] = 
-    logger.info(f"hillclimbingLatency for (pod {podname}, svc {svc}): avgLatency: {avgLatency}, totalReqs: {totalReqs}")
-    hillclimb_latency_lock.acquire(blocking=True)
-    if svc not in next_hillclimb_latency:
-        next_hillclimb_latency[svc] = dict()
-    if region not in next_hillclimb_latency[svc]:
-        next_hillclimb_latency[svc][region] = dict()
-    if podname not in next_hillclimb_latency[svc][region]:
-        next_hillclimb_latency[svc][region][podname] = {
-            "latency_total": (avgLatency * totalReqs),
-            "num_reqs": totalReqs
-        }
-    else:
-        next_hillclimb_latency[svc][region][podname]["latency_total"] += (avgLatency * totalReqs)
-        next_hillclimb_latency[svc][region][podname]["num_reqs"] += totalReqs
-    hillclimb_latency_lock.release()
+
+    body = request.get_data().decode('utf-8')
+    # logger.info(f"hillclimbingLatency for (svc {svc}, pod {podname}, region {region}): body:\n{body}")
+    processing_latencies_mutex.acquire(blocking=True)
+    if svc not in global_processing_latencies:
+        global_processing_latencies[svc] = dict()
+    if region not in global_processing_latencies[svc]:
+        global_processing_latencies[svc][region] = dict()
+    if podname not in global_processing_latencies[svc][region]:
+        global_processing_latencies[svc][region][podname] = dict()
+
+    lines = body.split("\n")
+    parsingOutbound = False
+    for line in lines:
+        if not line:
+            continue
+        if line == "outbound":
+            parsingOutbound = True
+            continue
+        if parsingOutbound:
+            if line == "inbound":
+                parsingOutbound = False
+                continue
+            parts = line.split(" ")
+            if len(parts) != 5:
+                # logger.info(f"hillclimbingLatency for (pod {podname}, svc {svc}): len(parts) != 5, skipping")
+                continue
+            for i in range(len(parts)):
+                parts[i] = parts[i].strip()
+            dstSvc, method, path, avgLatency, numReqs = parts[0], parts[1], parts[2], parts[3], parts[4]
+            # todo parse these into a separate structure (probably for observability)
+        else:
+            parts = line.split(" ")
+            if len(parts) != 4:
+                # logger.info(f"hillclimbingLatency for (pod {podname}, svc {svc}): len(parts) != 4 for inbound, skipping")
+                continue
+            for i in range(len(parts)):
+                parts[i] = parts[i].strip()
+            method, path, avgLatency, numReqs = parts[0], parts[1], parts[2], parts[3]
+            mp = f"{method}@{path}"
+            if mp not in global_processing_latencies[svc][region][podname]:
+                global_processing_latencies[svc][region][podname][mp] = {
+                    "latency_total": float(avgLatency) * int(numReqs),
+                    "num_reqs": int(numReqs)
+                }
+            else:
+                global_processing_latencies[svc][region][podname][mp]["latency_total"] += float(avgLatency) * int(numReqs)
+                global_processing_latencies[svc][region][podname][mp]["num_reqs"] += int(numReqs)
+    processing_latencies_mutex.release()
     return ""
 
 
-# when adjustForHillclimbing is called, we need to adjust the given dataframe based on the current and previous
-# latencies.
-def adjustForHillclimbing(svc: str, region: str, pct_df: pd.Dataframe) -> pd.Dataframe:
-    global cur_hillclimb_latency
-    global prev_hillclimb_latency
-    global next_hillclimb_latency
-    global last_policy_request
-    global hillclimb_latency_lock
-    global hillclimb_interval
-    global last_policy_request_mutex
+def perform_jumping():
+    global percentage_df
+    global jumping_df
+    global prev_jumping_df
+    global jumping_last_seen_opt_output
+    global use_optimizer_output
+    global global_prev_processing_latencies
+    global global_processing_latencies
+    global temp_counter
+    """
+    if use_optimizer_output is true, /proxyLoad will use percentage_df to route traffic.
+    otherwise, it will use jumping_df.
+
+    if jumping_last_seen_opt_output is a lot different from the current percentage_df, we need to fall back
+        to the routing rules the optimizer suggested. set use_optimizer_output to True.
+    otherwise, continue with the jumping we are doing. partition rulesets into underperformers and overperformers, and perform
+        jumping in the disjoint rulesets.
+    """
+
+    # snapshot the current optimizer output and processing latencies
+    cur_last_seen_opt_output = jumping_last_seen_opt_output.copy()
+    jumping_last_seen_opt_output = percentage_df.copy()
+    cur_processing_latencies = global_processing_latencies.copy()
+    prev_processing_latencies = global_prev_processing_latencies.copy()
+    # make the prev processing latencies the current latencies and clear the current latencies
+    global_prev_processing_latencies = global_processing_latencies.copy()
+    global_processing_latencies.clear()
+
+    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1):
+        logger.info(f"loghill rules are different, falling back to optimizer output")
+        use_optimizer_output = True
+        # make jumping_df the same as percentage_df, because /proxyLoad will use percentage_df, so the latencies
+        # in processing_latencies will be based on the percentage_df.
+        jumping_df = percentage_df.copy()
+        # clear the prev processing latencies, because we are going to use the optimizer output and need to restart jumping.
+        global_prev_processing_latencies.clear()
+        return
+
+    use_optimizer_output = False
+
+    # partition the rulesets into underperformers and overperformers
+    # assumes routing rules exist only in the first layer (between sslateingress and frontend).
+    """
+    for each ruleset, direction is represented as two sets of regions, one for underperformers and one for overperformers.
+
+    we measure the last latency and compare it with the current latency to verify we are moving in the right direction.
+     - we have an expected direction (based on the over/underperformers with the current latency).
+     - we stop moving in a direction for 2 reasons:
+        1) we have started oscillating (latency-wise) with the current direction.
+        2) we compute a new direction based on the current latency. in this case <what do we do?>, we can make that the current direction.
+         - could the computed direction also oscillate?
+
+    1) for each rule with source sslateingress and destination frontend, with more than 1 region in that set of rules, create a ruleset.
+    2) for each ruleset, for each destination frontend service (across clusters), calculate the overperformance of each region.
+        a) partition the regions into underperformers and overperformers, based on the average latency (in cur_processing_latencies)
+
+    compare new computed direction with old direction, compare new latency with old latency.
+    ideally, the direction will always be the same, and we just have to check latency...
+    """
+
+    # first adjust jumping_df based on the current and previous latencies (accept the rule from prev_jumping_df to jumping_df)
+    # if the latency has improved. if not, roll back to prev_jumping_df. this is where we detect oscillation.
+    # todo aditya
+    prev_processing_latency = calculate_avg_processing_latency(prev_processing_latencies, "sslateingress", "POST@/cart/checkout")
+    cur_processing_latency = calculate_avg_processing_latency(cur_processing_latencies, "sslateingress", "POST@/cart/checkout")
+    write_latency(cur_processing_latency)
+    logger.info(f"loghill prev_processing_latency: {prev_processing_latency}, cur_processing_latency: {cur_processing_latency}")
+    if len(prev_processing_latencies) > 0 and prev_processing_latency < cur_processing_latency:
+        # cases where prev_processing_latency < cur_processing_latency:
+        # 1) we are oscillating between two rules -- this is fine. in this case, we just roll back and keep oscillating.
+        # 2) we are somehow getting worse with each rule. in this case, rollback becomes a no-op (what are we rolling back to?).
+        #    in this case, we probably want to clear the prev_processing_latencies and start over.
+        if len(prev_jumping_df) == 0:
+            logger.info(f"loghill no previous rule to roll back to, clearing prev_processing_latencies and starting over.")
+            # to rule to rollback to, clear the prev_processing_latencies and start over.
+            global_prev_processing_latencies.clear()
+            return
+        else:
+            logger.info(f"loghill rolling back to prev_jumping_df")
+            jumping_df = prev_jumping_df.copy()
+    else:
+        # the new rule is better than the previous rule, so we accept the new rule.
+        # we now recompute the direction based on latencies
+        # prev_jumping_df was the rule we used to route traffic in the previous iteration.
+        prev_jumping_df = jumping_df.copy()
+        ruleset_overperformance = calculate_ruleset_overperformance(prev_jumping_df, cur_processing_latencies)
+        logger.info(f"loghill ruleset_overperformance: {ruleset_overperformance}")
+        # this is the new calculated direction / weights for that direction.
+        # apply this overperformance to jumping_df, and then apply the jumping_df to the actual routing rules.
+        adjusted_df = adjust_ruleset(prev_jumping_df, "us-central-1", ruleset_overperformance.get("us-central-1", {}))
+        jumping_df = adjusted_df.copy()
+    return
 
 
+def rules_are_different(df1: pd.DataFrame, df2: pd.DataFrame, maxThreshold=0.1):
+    """
+    We compare the two dataframes based on the weight column. If, for the same src_svc, dst_svc, src_endpoint, dst_endpoint, src_cid, dst_cid, 
+    the weight is different by more than maxThreshold, we return True. 
+    If the rule does not exist in one of the dataframes or columns are missing, we return True.
+    """
+
+    required_columns = ["src_svc", "dst_svc", "src_endpoint", "dst_endpoint", "src_cid", "dst_cid", "weight"]
+
+    # Check if all required columns exist in both dataframes
+    for col in required_columns:
+        if col not in df1.columns or col not in df2.columns:
+            return True
+
+    # Set index to compare based on specified columns
+    df1 = df1.set_index(["src_svc", "dst_svc", "src_endpoint", "dst_endpoint", "src_cid", "dst_cid"])
+    df2 = df2.set_index(["src_svc", "dst_svc", "src_endpoint", "dst_endpoint", "src_cid", "dst_cid"])
+
+    # Check rules in df1
+    for idx in df1.index:
+        if idx not in df2.index:
+            return True
+        if abs(df1.loc[idx]["weight"] - df2.loc[idx]["weight"]) > maxThreshold:
+            return True
+
+    # Check rules in df2
+    for idx in df2.index:
+        if idx not in df1.index:
+            return True
+
+    return False
+
+
+def calculate_avg_processing_latency(latencies: dict, svc: str, methodpath: str, region="") -> dict:
+    """
+    calculate_avg_processing_latency will calculate the average processing latency (across all pods and regions for a given method@path) for a given service.
+    returns an int.
+    """
+    total_latency, total_reqs = 0, 0
+    if svc not in latencies:
+        return 0
+    if region and region not in latencies[svc]:
+        return 0
     
-    pass
+    if region:
+        for pod in latencies[svc][region]:
+            if methodpath not in latencies[svc][region][pod]:
+                continue
+            total_latency += latencies[svc][region][pod][methodpath]["latency_total"]
+            total_reqs += latencies[svc][region][pod][methodpath]["num_reqs"]
+    else:
+        for region in latencies[svc]:
+            for pod in latencies[svc][region]:
+                if methodpath not in latencies[svc][region][pod]:
+                    continue
+                total_latency += latencies[svc][region][pod][methodpath]["latency_total"]
+                total_reqs += latencies[svc][region][pod][methodpath]["num_reqs"]
+    return total_latency / total_reqs if total_reqs > 0 else 0
+
+def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict) -> dict:
+    """
+    calculate_ruleset_overperformance will calculate the overperformance of all rulesets based on the current vs expected latencies.
+    the only rulesets considered are between sslateingress and frontend.
+    ruleset is defined as every set of rules originating from a source region to more than one destination region.
+    it calculates overperfomance as (expected latency - actual latency) * requests affected.
+
+    it returns a dictionary of destination region to overperformance. (source region -> destination region -> overperformance)
+    example:
+    {
+        "us-west-1": {
+            "us-west-1": 37,
+            "us-east-1": 12,
+            "us-central-1": 0,
+            "us-south-1": -59   
+        }
+    }
+    It needs access to the processing latencies, the current load conditions, and the processing latency function for frontend.
+    """
+    global aggregated_rps
+    # first filter src_svc being sslateingress and dst_svc being frontend
+    # then, for each of these entries, get the source regions that have more than one destination region
+    # for each of these source regions, calculate the overperformance of the ruleset.
+    # return the overperformance as a dictionary of destination region to overperformance.
+
+    # todo aditya problem: latency is not being injected right...
+    logger.info(f"calculate_ruleset_overperformance: rules:\n{rules.columns}")
+    if "src_svc" not in rules.columns or "dst_svc" not in rules.columns or "src_cid" not in rules.columns or "dst_cid" not in rules.columns:
+        return dict()
+    filtered_rules = rules[(rules["src_svc"] == "sslateingress") & (rules["dst_svc"] == "frontend")]
+    src_regions = filtered_rules["src_cid"].unique()
+    logger.info(f"calculate_ruleset_overperformance: src_regions: {src_regions}")
+    overperformance = dict()
+    for src_region in src_regions:
+        src_rules = filtered_rules[filtered_rules["src_cid"] == src_region]
+        dst_regions = src_rules["dst_cid"].unique()
+        if len(dst_regions) < 2:
+            continue
+        else:
+            logger.info(f"calculate_ruleset_overperformance: src_region: {src_region}, dst_regions: {dst_regions}")
+        overperformance[src_region] = dict()
+        for dst_region in dst_regions:
+            # calculate the overperformance for this rule
+            # get the expected latency based on the current load conditions
+            # get the actual latency from cur_latencies
+            # calculate the overperformance as (expected - actual) * requests
+            # requests is the total requests for a certain traffic class at a service in a region.
+            expected_latency = get_expected_latency_for_rule(0, "frontend", "POST@/cart/checkout")
+            actual_latency = calculate_avg_processing_latency(cur_latencies, "frontend", "POST@/cart/checkout", region=dst_region)
+            load = aggregated_rps.get(src_region, {}).get("frontend", {}).get("frontend@POST@/cart/checkout", 0)
+            logger.info(f"loghill calculate_ruleset_overperformance: src_region: {src_region}, dst_region: {dst_region}, expected_latency: {expected_latency}, actual_latency: {actual_latency}, load: {load}")
+            overperformance[src_region][dst_region] = (expected_latency - actual_latency) * load
+    return overperformance
+
+
+def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, step_size=0.05) -> pd.DataFrame:
+    """
+    adjust_ruleset will adjust the (source region) ruleset based on the overperformance of the ruleset.
+    overperformance is expected to be in the form of a dictionary of destination region to overperformance.
+    it will find the average performance in the source region, partition the destination regions into underperformers and overperformers,
+    and adjust the ruleset accordingly.
+    """
+    # first, get the average performance of the ruleset in the source region
+    # then, partition the destination regions into underperformers and overperformers
+    # adjust the ruleset based on the overperformance of the ruleset.
+    # return the adjusted ruleset.
+    if len(overperformance) == 0:
+        return ruleset
+    
+    # get the destination regions, and the average performance of the ruleset (for those destination regions)
+    src_svc, dst_svc, src_endpoint, dst_endpoint = "sslateingress", "frontend", "sslateingress@POST@/cart/checkout", "frontend@POST@/cart/checkout"
+    dst_cids = list(overperformance.keys())
+    avg_performance = 0
+    for dst_cid in dst_cids:
+        avg_performance += overperformance[dst_cid]
+    avg_performance /= len(dst_cids)
+    # partition the destination regions into underperformers and overperformers
+    underperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] < avg_performance]
+    overperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] >= avg_performance]
+    logger.info(f"loghill for ruleset [{region}] underperformers: {underperformers}, overperformers: {overperformers}")
+
+    # proportionally adjust underperformers and overperformers.
+    # calculate the weight each underperformer/overperformer has wieh their respective set, and
+    # add/subtract that weight * step_size to the weight of the rule.
+    # todo do we need to normalize the weights? (weight based on distance from average performance)
+    # also todo, we need to make sure the weights don't go below 0 or above 1 (globally) and that the weights always sum to 1.
+    adjusted_ruleset = ruleset.copy()
+    for dst_cid in underperformers:
+        total_underperformance = sum([overperformance[dst_cid] for dst_cid in underperformers])
+        weight = overperformance[dst_cid] / total_underperformance if total_underperformance > 0 else 0
+        # make sure we dont go below 0
+        mask = (
+            (adjusted_ruleset["src_cid"] == region) &
+            (adjusted_ruleset["dst_cid"] == dst_cid) &
+            (adjusted_ruleset["src_svc"] == src_svc) &
+            (adjusted_ruleset["dst_svc"] == dst_svc) &
+            (adjusted_ruleset["src_endpoint"] == src_endpoint) &
+            (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
+        )
+        cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
+        step = weight * step_size
+        if cur_weight - step < 0:
+            adjusted_ruleset.loc[mask, "weight"] = 0
+        else:
+            adjusted_ruleset.loc[mask, "weight"] -= step
+    for dst_cid in overperformers:
+        total_overperformance = sum([overperformance[dst_cid] for dst_cid in overperformers])
+        weight = overperformance[dst_cid] / total_overperformance if total_overperformance > 0 else 0
+        # make sure we dont go above 1
+        mask = (
+            (adjusted_ruleset["src_cid"] == region) &
+            (adjusted_ruleset["dst_cid"] == dst_cid) &
+            (adjusted_ruleset["src_svc"] == src_svc) &
+            (adjusted_ruleset["dst_svc"] == dst_svc) &
+            (adjusted_ruleset["src_endpoint"] == src_endpoint) &
+            (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
+        )
+        cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
+        step = weight * step_size
+        if cur_weight + step > 1:
+            adjusted_ruleset.loc[mask, "weight"] = 1
+        else:
+            adjusted_ruleset.loc[mask, "weight"] += step
+    # log the old and adjusted rulesets, with just the weights (something in the form of source region -> destination region -> weight for old and new.)
+    # hold the dest service (frontend) and the source service (sslateingress) constant.
+    logger.info(f"loghill old ruleset: {ruleset.loc[(ruleset['src_cid'] == region) & (ruleset['src_svc'] == src_svc) & (ruleset['dst_svc'] == dst_svc)]}")
+    logger.info(f"loghill adjusted ruleset: {adjusted_ruleset.loc[(adjusted_ruleset['src_cid'] == region) & (adjusted_ruleset['src_svc'] == src_svc) & (adjusted_ruleset['dst_svc'] == dst_svc)]}")
+    return adjusted_ruleset
+
+
+def get_expected_latency_for_rule(load: int, svc: str, methodpath: str) -> int:
+    """
+    get_expected_latency_for_rule will calculate the expected e2e latency for a given rule based on the current load conditions.
+    """
+    global e2e_coef_dict
+    ep = svc + "@" + methodpath
+    if svc not in e2e_coef_dict:
+        return -1
+    if ep not in e2e_coef_dict[svc]:
+        return -1
+    a = e2e_coef_dict[svc][ep][ep]
+    c = e2e_coef_dict[svc][ep]["intercept"]
+    # in form ax^2 + c
+    return a * load * load + c
+
+
+def write_latency(avg_processing_latency: int):
+    global temp_counter
+    # write processing latency in the form of temp_counter, avg_processing_latency
+    with open("jumping_latency.csv", "a") as f:
+        f.write(f"{temp_counter},{avg_processing_latency}\n")
+
 
 @app.post('/hillclimbingPolicy') # from wasm
 def handleHillclimbPolicy():
@@ -679,6 +992,7 @@ def handleProxyLoad():
     global endpoint_level_inflight
     global percentage_df
     # global trace_str_list
+    global jumping_df
     global ROUTING_RULE
     global mode
     global list_of_span
@@ -686,6 +1000,7 @@ def handleProxyLoad():
     global endpoint_level_rps_mutex
     global per_pod_ep_rps
     # global optimizer_cnt
+    global use_optimizer_output
     global temp_counter
     
     ''' * HEADER in request from WASM * 
@@ -912,7 +1227,11 @@ def handleProxyLoad():
                 ############################################################
                 return csv_string
             else:
-                temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
+                temp_df: pd.DataFrame = None
+                if use_optimizer_output:
+                    temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
+                else:
+                    temp_df = jumping_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
                 if len(temp_df) == 0:
                     logger.debug(f"WARNING, Rollback to local routing. {region}, {full_podname}. percentage_df becomes empty after filtering.")
                     _, csv_string = local_and_failover_routing_rule(svc, region)
@@ -1202,6 +1521,7 @@ def write_optimizer_output(temp_counter, percentage_df, desc, fn):
         logger.info(f"sim_percentage_df:\n{sim_percentage_df.to_csv()}")
         
 
+
 ## All variables are global variables
 def optimizer_entrypoint():
     global coef_dict
@@ -1229,6 +1549,8 @@ def optimizer_entrypoint():
     global parent_of_bottleneck_service
     global aggregated_rps
     global agg_root_node_rps
+    global use_optimizer_output
+    global jumping_df
     # aggregated_rps = aggregate_rps_by_region()
     # record_endpoint_rps(aggregated_rps)
     # agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
@@ -1557,6 +1879,7 @@ def optimizer_entrypoint():
     if percentage_df.empty:
         logger.error(f"ERROR: run_optimizer FAIL (**{desc}**) return without updating percentage_df")
     write_optimizer_output(temp_counter, percentage_df, desc, "routing_history.csv")
+    write_optimizer_output(temp_counter, percentage_df if use_optimizer_output else jumping_df, desc, "jumping_routing_history.csv")
     ''' end of optimizer_entrypoint '''
 
 def fit_polynomial_regression(data, y_col_name, svc_name, ep_str, cid, degree):
@@ -1607,7 +1930,7 @@ def fit_linear_regression(data, y_col_name):
         coef[row['Feature']] = row['Coefficient']
     return coef
 
-def load_coef():
+def load_coef(coef_file="coef.csv"):
     loaded_coef = dict()
     
     ## Online boutique endpoint 
@@ -1615,11 +1938,11 @@ def load_coef():
     
     addtocart_endpoints = ['frontend@POST@/cart', 'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct', 'sslateingress@POST@/cart', 'cartservice@POST@/hipstershop.CartService/AddItem']
     
-    check_file_exist("coef.csv")
+    check_file_exist(coef_file)
     
     try:
         coef_csv_col = ["svc_name","endpoint","feature","value"]
-        df = pd.read_csv(f"coef.csv", names=coef_csv_col, header=None)
+        df = pd.read_csv(coef_file, names=coef_csv_col, header=None)
         for svc_name in df["svc_name"].unique():
             if svc_name not in loaded_coef:
                 loaded_coef[svc_name] = dict()
@@ -2111,6 +2434,7 @@ def set_zero_coef(coef_dict):
 
 def training_phase():
     global coef_dict
+    global e2e_coef_dict
     global endpoint_level_inflight
     global placement
     global all_endpoints
@@ -2212,7 +2536,8 @@ def training_phase():
         assert False
     if load_coef_flag:
         try:
-            coef_dict = load_coef()
+            coef_dict = load_coef(coef_file="coef.csv")
+            e2e_coef_dict = load_coef(coef_file="e2e-coef.csv")
         except Exception as e:
             logger.error(f"!!! ERROR !!!: failed to load coef with error: {e}")
             state = "[!!! PANIC !!!] load_coef() in training_phase()"
@@ -2233,6 +2558,8 @@ def training_phase():
             assert False
     
     check_negative_coef(coef_dict)
+    if e2e_coef_dict != None:
+        check_negative_coef(e2e_coef_dict)
     
     if ROUTING_RULE == "WATERFALL" or ROUTING_RULE == "WATERFALL2":
         set_zero_coef(coef_dict)
@@ -2245,6 +2572,13 @@ def training_phase():
             for ep_str in coef_dict[svc_name]:
                 logger.info(f'final coef_dict[{svc_name}][{ep_str}]: {coef_dict[svc_name][ep_str]}')
                 f.write(f'{svc_name},{ep_str},{coef_dict[svc_name][ep_str]}\n')
+
+    with open("e2e-coefficient.csv", "w") as f:
+        f.write("svc_name, endpoint, coef\n")
+        for svc_name in e2e_coef_dict:
+            for ep_str in e2e_coef_dict[svc_name]:
+                logger.info(f'final coef_dict[{svc_name}][{ep_str}]: {e2e_coef_dict[svc_name][ep_str]}')
+                f.write(f'{svc_name},{ep_str},{e2e_coef_dict[svc_name][ep_str]}\n')
                         
     ''' It will be used as a constraint in the optimizer'''
     train_done = True # train done!
@@ -2487,9 +2821,11 @@ if __name__ == "__main__":
     scheduler.add_job(func=training_phase, trigger="interval", seconds=1)
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
+    # scheduler.add_job(func=write_load_conditions, trigger="interval", seconds=10)
+    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=15)
     scheduler.add_job(func=state_check, trigger="interval", seconds=1)
-    scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)
-    scheduler.add_job(func=write_global_hillclimb_history_to_file, trigger="interval", seconds=15)
+    # scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)
+    # scheduler.add_job(func=write_global_hillclimb_history_to_file, trigger="interval", seconds=15)
     scheduler.start()
     atexit.register(lambda: scheduler.shutdown())
     app.run(host='0.0.0.0', port=8080)
