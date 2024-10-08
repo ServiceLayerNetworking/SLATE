@@ -158,6 +158,7 @@ def handleHillclimbLatency():
     global hillclimb_latency_lock
     global cur_hillclimbing
     global global_processing_latencies
+    global processing_latencies_mutex
     svc = request.headers.get('x-slate-servicename').split("-us-")[0]    
     region = request.headers.get('x-slate-region')
     podname = request.headers.get('x-slate-podname')[-5:]
@@ -221,6 +222,7 @@ def perform_jumping():
     global use_optimizer_output
     global global_prev_processing_latencies
     global global_processing_latencies
+    global processing_latencies_mutex
     global temp_counter
     """
     if use_optimizer_output is true, /proxyLoad will use percentage_df to route traffic.
@@ -235,11 +237,13 @@ def perform_jumping():
     # snapshot the current optimizer output and processing latencies
     cur_last_seen_opt_output = jumping_last_seen_opt_output.copy()
     jumping_last_seen_opt_output = percentage_df.copy()
+    processing_latencies_mutex.acquire(blocking=True)
     cur_processing_latencies = global_processing_latencies.copy()
     prev_processing_latencies = global_prev_processing_latencies.copy()
     # make the prev processing latencies the current latencies and clear the current latencies
     global_prev_processing_latencies = global_processing_latencies.copy()
     global_processing_latencies.clear()
+    processing_latencies_mutex.release()
 
     if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1):
         logger.info(f"loghill rules are different, falling back to optimizer output")
@@ -438,10 +442,7 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, st
     # get the destination regions, and the average performance of the ruleset (for those destination regions)
     src_svc, dst_svc, src_endpoint, dst_endpoint = "sslateingress", "frontend", "sslateingress@POST@/cart/checkout", "frontend@POST@/cart/checkout"
     dst_cids = list(overperformance.keys())
-    avg_performance = 0
-    for dst_cid in dst_cids:
-        avg_performance += overperformance[dst_cid]
-    avg_performance /= len(dst_cids)
+    avg_performance = sum([overperformance[dst_cid] for dst_cid in dst_cids]) / len(dst_cids)
     # partition the destination regions into underperformers and overperformers
     underperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] < avg_performance]
     overperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] >= avg_performance]
@@ -453,9 +454,11 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, st
     # todo do we need to normalize the weights? (weight based on distance from average performance)
     # also todo, we need to make sure the weights don't go below 0 or above 1 (globally) and that the weights always sum to 1.
     adjusted_ruleset = ruleset.copy()
+    out_of_bounds = False
     for dst_cid in underperformers:
         total_underperformance = sum([overperformance[dst_cid] for dst_cid in underperformers])
-        weight = overperformance[dst_cid] / total_underperformance if total_underperformance > 0 else 0
+        logger.info(f"loghill underperformer: {dst_cid}, total_underperformance: {total_underperformance}")
+        weight = overperformance[dst_cid] / total_underperformance if total_underperformance != 0 else 0
         # make sure we dont go below 0
         mask = (
             (adjusted_ruleset["src_cid"] == region) &
@@ -468,12 +471,16 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, st
         cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
         step = weight * step_size
         if cur_weight - step < 0:
-            adjusted_ruleset.loc[mask, "weight"] = 0
+            out_of_bounds = True
         else:
-            adjusted_ruleset.loc[mask, "weight"] -= step
+            logger.info(f"loghill underperformer: {dst_cid}, cur_weight: {cur_weight}, step: {step}")
+            adjusted_ruleset.loc[(adjusted_ruleset["src_cid"] == region) & (adjusted_ruleset["dst_cid"] == dst_cid) 
+                             & (adjusted_ruleset["src_svc"] == src_svc) & (adjusted_ruleset["dst_svc"] == dst_svc) 
+                             & (adjusted_ruleset["src_endpoint"] == src_endpoint) & (adjusted_ruleset["dst_endpoint"] == dst_endpoint), "weight"] -= weight * step_size
     for dst_cid in overperformers:
         total_overperformance = sum([overperformance[dst_cid] for dst_cid in overperformers])
-        weight = overperformance[dst_cid] / total_overperformance if total_overperformance > 0 else 0
+        logger.info(f"loghill total_overperformance: {total_overperformance}")
+        weight = overperformance[dst_cid] / total_overperformance if total_overperformance != 0 else 0
         # make sure we dont go above 1
         mask = (
             (adjusted_ruleset["src_cid"] == region) &
@@ -486,14 +493,17 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, st
         cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
         step = weight * step_size
         if cur_weight + step > 1:
-            adjusted_ruleset.loc[mask, "weight"] = 1
+            out_of_bounds = True
         else:
-            adjusted_ruleset.loc[mask, "weight"] += step
+            logger.info(f"loghill overperformer: {dst_cid}, weight: {weight}, step: {step}")
+            adjusted_ruleset.loc[(adjusted_ruleset["src_cid"] == region) & (adjusted_ruleset["dst_cid"] == dst_cid) 
+                                & (adjusted_ruleset["src_svc"] == src_svc) & (adjusted_ruleset["dst_svc"] == dst_svc) 
+                                & (adjusted_ruleset["src_endpoint"] == src_endpoint) & (adjusted_ruleset["dst_endpoint"] == dst_endpoint), "weight"] += weight * step_size
     # log the old and adjusted rulesets, with just the weights (something in the form of source region -> destination region -> weight for old and new.)
     # hold the dest service (frontend) and the source service (sslateingress) constant.
     logger.info(f"loghill old ruleset: {ruleset.loc[(ruleset['src_cid'] == region) & (ruleset['src_svc'] == src_svc) & (ruleset['dst_svc'] == dst_svc)]}")
     logger.info(f"loghill adjusted ruleset: {adjusted_ruleset.loc[(adjusted_ruleset['src_cid'] == region) & (adjusted_ruleset['src_svc'] == src_svc) & (adjusted_ruleset['dst_svc'] == dst_svc)]}")
-    return adjusted_ruleset
+    return adjusted_ruleset if not out_of_bounds else ruleset
 
 
 def get_expected_latency_for_rule(load: int, svc: str, methodpath: str) -> int:
