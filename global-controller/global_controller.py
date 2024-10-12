@@ -145,6 +145,7 @@ hillclimb_latency_lock = Lock()
 prev_hillclimb_latency = dict() # svc -> region -> pod -> {latency_total, num_reqs}
 cur_hillclimb_latency = dict()
 next_hillclimb_latency = dict()
+prev_ruleset_overperformance = dict()
 hillclimb_interval = -1
 hillclimb_enabled = "Unknown"
 hillclimb_stepsize = -1
@@ -238,6 +239,7 @@ def perform_jumping():
     global use_optimizer_output
     global cur_jumping_ruleset
     global completed_rulesets
+    global prev_ruleset_overperformance
     global jumping_towards_optimizer
     global jumping_ruleset_num_iterations
     global jumping_ruleset_convergence_iterations
@@ -278,7 +280,7 @@ def perform_jumping():
     jumping_ruleset_num_iterations += 1
     prev_processing_latency = calculate_avg_processing_latency(prev_processing_latencies, "sslateingress", "POST@/cart/checkout")
     cur_processing_latency = calculate_avg_processing_latency(cur_processing_latencies, "sslateingress", "POST@/cart/checkout")
-    write_latency("sslateingress", cur_processing_latency)
+    write_latency("sslateingress", cur_processing_latency, cur_processing_latencies)
     logger.info(f"loghill prev_processing_latency: {prev_processing_latency}, cur_processing_latency: {cur_processing_latency}")
 
     ruleset_overperformance = calculate_ruleset_overperformance(jumping_df.copy(), cur_processing_latencies)
@@ -286,7 +288,7 @@ def perform_jumping():
 
 
     if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1):
-        logger.info(f"loghill rules are different, stepping towards optimizer output, old rules:\n{cur_last_seen_opt_output}, new rules:\n{percentage_df}, cur jumping_df:\n{jumping_df}")
+        logger.info(f"loghill rules are different, stepping towards optimizer output, old rules:\n{compute_traffic_matrix(cur_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
         # here, we want to start defensive jumping towards the optimizer output.
         # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
         # use_optimizer_output = True
@@ -297,6 +299,8 @@ def perform_jumping():
         # jumping_df = percentage_df.copy()
         if len(jumping_df) == 0:
             jumping_df = percentage_df.copy()
+            # this means that the rules are different from what we last saw, but we haven't started jumping yet / don't have a state, so we can just return.
+            return
         starting_df = jumping_df.copy()
         desired_df = percentage_df.copy()
         cur_convex_comb_value = 0
@@ -339,6 +343,8 @@ def perform_jumping():
             completed_rulesets.clear()
             cur_jumping_ruleset = pick_best_ruleset(jumping_df.copy(), ruleset_overperformance, completed_rulesets)
             logger.info(f"loghill picked new ruleset: {cur_jumping_ruleset}")
+            prev_processing_latencies.clear()
+            prev_jumping_df = jumping_df.copy()
             return
         if len(prev_processing_latencies) > 0 and prev_processing_latency < cur_processing_latency: # gangmuk: statistical model
             # reverse direction
@@ -376,6 +382,9 @@ def perform_jumping():
         ideally, the direction will always be the same, and we just have to check latency...
         """
 
+        if cur_jumping_ruleset == "":
+            cur_jumping_ruleset = pick_best_ruleset(jumping_df.copy(), ruleset_overperformance, completed_rulesets)
+            logger.info(f"loghill picked new ruleset: {cur_jumping_ruleset}")
         # first adjust jumping_df based on the current and previous latencies (accept the rule from prev_jumping_df to jumping_df)
         # if the latency has improved. if not, roll back to prev_jumping_df. this is where we detect oscillation.
         # todo aditya
@@ -399,9 +408,9 @@ def perform_jumping():
             prev_jumping_df = jumping_df.copy()
             # this is the new calculated direction / weights for that direction.
             # apply this overperformance to jumping_df, and then apply the jumping_df to the actual routing rules.
-            adjusted_df = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset, ruleset_overperformance.get(cur_jumping_ruleset, {}))
+            adjusted_df = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset, ruleset_overperformance.get(cur_jumping_ruleset, {}), step_size=0.1)
             jumping_df = adjusted_df.copy()
-            logger.info(f"loghill adjusted_df:\n{adjusted_df}")
+            logger.info(f"loghill adjusted_df (ruleset {cur_jumping_ruleset}):\n{compute_traffic_matrix(adjusted_df)}")
         else:
             jumping_df = percentage_df.copy()
     return
@@ -665,6 +674,7 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, st
     # adjust the ruleset based on the overperformance of the ruleset.
     # return the adjusted ruleset.
     if len(overperformance) == 0:
+        logger.info(f"loghill no overperformance for ruleset [{region}]")
         return ruleset
     
     # get the destination regions, and the average performance of the ruleset (for those destination regions)
@@ -729,8 +739,7 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, st
                                 & (adjusted_ruleset["src_endpoint"] == src_endpoint) & (adjusted_ruleset["dst_endpoint"] == dst_endpoint), "weight"] += weight * step_size
     # log the old and adjusted rulesets, with just the weights (something in the form of source region -> destination region -> weight for old and new.)
     # hold the dest service (frontend) and the source service (sslateingress) constant.
-    logger.info(f"loghill old ruleset: {ruleset.loc[(ruleset['src_cid'] == region) & (ruleset['src_svc'] == src_svc) & (ruleset['dst_svc'] == dst_svc)]}")
-    logger.info(f"loghill adjusted ruleset: {adjusted_ruleset.loc[(adjusted_ruleset['src_cid'] == region) & (adjusted_ruleset['src_svc'] == src_svc) & (adjusted_ruleset['dst_svc'] == dst_svc)]}")
+    logger.info(f"loghill old ruleset: {compute_traffic_matrix(ruleset)}\nadjusted ruleset: {compute_traffic_matrix(adjusted_ruleset)}")
     return adjusted_ruleset if not out_of_bounds else ruleset
 
 
@@ -750,12 +759,15 @@ def get_expected_latency_for_rule(load: int, svc: str, methodpath: str) -> int:
     return a * load * load + c
 
 
-def write_latency(svc: str, avg_processing_latency: int):
+def write_latency(svc: str, avg_processing_latency: int, latency_dict: dict):
     global temp_counter
     global historical_svc_latencies
     # write processing latency in the form of temp_counter, avg_processing_latency
     with open("jumping_latency.csv", "a") as f:
         f.write(f"{temp_counter},{avg_processing_latency}\n")
+    with open ("region_jumping_latency.csv", "a") as f:
+        for region in ["us-west-1", "us-central-1", "us-south-1", "us-east-1"]:
+            f.write(f"{temp_counter},{region},{calculate_avg_processing_latency(latency_dict, svc, 'POST@/cart/checkout', region)}\n")
     if svc not in historical_svc_latencies:
         historical_svc_latencies[svc] = list()
     historical_svc_latencies[svc].append(avg_processing_latency)
