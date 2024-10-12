@@ -62,6 +62,7 @@ prev_ts = time.time()
 load_coef_flag = False
 init_done = False
 use_optimizer_output = False
+jumping_towards_optimizer = False
 
 endpoint_sizes = {}
 
@@ -74,6 +75,16 @@ svc_to_placement = dict()
 percentage_df = pd.DataFrame()
 jumping_df = pd.DataFrame()
 prev_jumping_df = pd.DataFrame()
+starting_df = pd.DataFrame()
+desired_df = pd.DataFrame()
+cur_convex_comb_value = 0 # between 0 and 1
+convex_comb_step = 0.25
+convex_comb_direction = 1 # 1 or -1
+jumping_ruleset_num_iterations = 0
+jumping_ruleset_convergence_iterations = 10
+cur_jumping_ruleset = ""
+completed_rulesets = set()
+historical_svc_latencies = dict() # svc -> list of latencies
 # optimizer_cnt = 0
 endpoint_rps_cnt = 0
 inter_cluster_latency = dict()
@@ -219,7 +230,17 @@ def perform_jumping():
     global jumping_df
     global prev_jumping_df
     global jumping_last_seen_opt_output
+    global starting_df
+    global desired_df
+    global cur_convex_comb_value
+    global convex_comb_step
+    global convex_comb_direction
     global use_optimizer_output
+    global cur_jumping_ruleset
+    global completed_rulesets
+    global jumping_towards_optimizer
+    global jumping_ruleset_num_iterations
+    global jumping_ruleset_convergence_iterations
     global global_prev_processing_latencies
     global global_processing_latencies
     global processing_latencies_mutex
@@ -230,6 +251,12 @@ def perform_jumping():
 
     if jumping_last_seen_opt_output is a lot different from the current percentage_df, we need to fall back
         to the routing rules the optimizer suggested. set use_optimizer_output to True.
+    otherwise, continue with the jumping we are doing. partition rulesets into underperformers and overperformers, and perform
+        jumping in the disjoint rulesets.
+
+    if jumping_last_seen_opt_output is a lot different from the current percentage_df, we need to start jumping towards the optimizer output.
+        here, we don't pick rulesets, we just jump by some step towards the optimizer output as long as latency keeps improving. this is called defensive jumping.
+        once the latency stops improving (oscillation), we start jumping in the disjoint rulesets (offensive jumping).
     otherwise, continue with the jumping we are doing. partition rulesets into underperformers and overperformers, and perform
         jumping in the disjoint rulesets.
     """
@@ -245,69 +272,138 @@ def perform_jumping():
     global_processing_latencies.clear()
     processing_latencies_mutex.release()
 
-    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1):
-        logger.info(f"loghill rules are different, falling back to optimizer output")
-        use_optimizer_output = True
-        # make jumping_df the same as percentage_df, because /proxyLoad will use percentage_df, so the latencies
-        # in processing_latencies will be based on the percentage_df.
-        jumping_df = percentage_df.copy()
-        # clear the prev processing latencies, because we are going to use the optimizer output and need to restart jumping.
-        global_prev_processing_latencies.clear()
+    if len(cur_last_seen_opt_output) == 0:
+        # we haven't seen the optimizer output yet just return
         return
-
-    use_optimizer_output = False
-
-    # partition the rulesets into underperformers and overperformers
-    # assumes routing rules exist only in the first layer (between sslateingress and frontend).
-    """
-    for each ruleset, direction is represented as two sets of regions, one for underperformers and one for overperformers.
-
-    we measure the last latency and compare it with the current latency to verify we are moving in the right direction.
-     - we have an expected direction (based on the over/underperformers with the current latency).
-     - we stop moving in a direction for 2 reasons:
-        1) we have started oscillating (latency-wise) with the current direction.
-        2) we compute a new direction based on the current latency. in this case <what do we do?>, we can make that the current direction.
-         - could the computed direction also oscillate?
-
-    1) for each rule with source sslateingress and destination frontend, with more than 1 region in that set of rules, create a ruleset.
-    2) for each ruleset, for each destination frontend service (across clusters), calculate the overperformance of each region.
-        a) partition the regions into underperformers and overperformers, based on the average latency (in cur_processing_latencies)
-
-    compare new computed direction with old direction, compare new latency with old latency.
-    ideally, the direction will always be the same, and we just have to check latency...
-    """
-
-    # first adjust jumping_df based on the current and previous latencies (accept the rule from prev_jumping_df to jumping_df)
-    # if the latency has improved. if not, roll back to prev_jumping_df. this is where we detect oscillation.
-    # todo aditya
+    jumping_ruleset_num_iterations += 1
     prev_processing_latency = calculate_avg_processing_latency(prev_processing_latencies, "sslateingress", "POST@/cart/checkout")
     cur_processing_latency = calculate_avg_processing_latency(cur_processing_latencies, "sslateingress", "POST@/cart/checkout")
-    write_latency(cur_processing_latency)
+    write_latency("sslateingress", cur_processing_latency)
     logger.info(f"loghill prev_processing_latency: {prev_processing_latency}, cur_processing_latency: {cur_processing_latency}")
-    if len(prev_processing_latencies) > 0 and prev_processing_latency < cur_processing_latency:
-        # cases where prev_processing_latency < cur_processing_latency:
-        # 1) we are oscillating between two rules -- this is fine. in this case, we just roll back and keep oscillating.
-        # 2) we are somehow getting worse with each rule. in this case, rollback becomes a no-op (what are we rolling back to?).
-        #    in this case, we probably want to clear the prev_processing_latencies and start over.
-        if len(prev_jumping_df) == 0:
-            logger.info(f"loghill no previous rule to roll back to, clearing prev_processing_latencies and starting over.")
-            # to rule to rollback to, clear the prev_processing_latencies and start over.
-            global_prev_processing_latencies.clear()
-            return
+
+    ruleset_overperformance = calculate_ruleset_overperformance(jumping_df.copy(), cur_processing_latencies)
+    logger.info(f"loghill ruleset_overperformance: {ruleset_overperformance}")
+
+
+    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1):
+        logger.info(f"loghill rules are different, stepping towards optimizer output, old rules:\n{cur_last_seen_opt_output}, new rules:\n{percentage_df}, cur jumping_df:\n{jumping_df}")
+        # here, we want to start defensive jumping towards the optimizer output.
+        # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
+        # use_optimizer_output = True
+        jumping_towards_optimizer = True
+        jumping_ruleset_num_iterations = 0
+        # make jumping_df the same as percentage_df, because /proxyLoad will use percentage_df, so the latencies
+        # in processing_latencies will be based on the percentage_df.
+        # jumping_df = percentage_df.copy()
+        if len(jumping_df) == 0:
+            jumping_df = percentage_df.copy()
+        starting_df = jumping_df.copy()
+        desired_df = percentage_df.copy()
+        cur_convex_comb_value = 0
+        convex_comb_direction = 1
+        # clear the prev processing latencies, because we will be making a measurement based on the current rules, compared to the proposed (step) rules.
+        global_prev_processing_latencies.clear()
+        return
+    
+    if latency_is_oscillating("sslateingress", 5) and jumping_ruleset_num_iterations > jumping_ruleset_convergence_iterations:
+        # change the ruleset or whether or not we jump towards the optimizer
+        logger.info(f"loghill oscillation detected")
+        if jumping_towards_optimizer:
+            # we were jumping towards the optimizer, but we started oscillating, so we switch to offensive jumping.
+            logger.info(f"loghill oscillation detected, switching to offensive jumping")
+            jumping_towards_optimizer = False
+            completed_rulesets.clear()
         else:
-            logger.info(f"loghill rolling back to prev_jumping_df")
-            jumping_df = prev_jumping_df.copy()
+            # add the current ruleset to the completed rulesets (this one has converged).
+            completed_rulesets.add(cur_jumping_ruleset)
+        jumping_ruleset_num_iterations = 0
+        cur_jumping_ruleset = pick_best_ruleset(jumping_df.copy(), ruleset_overperformance, completed_rulesets)
+        logger.info(f"loghill picked new ruleset: {cur_jumping_ruleset}")
+
+    if jumping_towards_optimizer:
+        # we perform the first jumping iteration here (this means there will be some delay between detecting rule changes and starting to jump)
+
+        # compute the convex combination of the starting_df and desired_df for traffic matrix of regions between services sslateingress and frontend
+        # the convex combination is based on cur_convex_comb_value, which is between 0 and 1.
+        # current = (1 - t) * starting + t * desired
+        # as long as latency gets better, increase t by convex_comb_step, otherwise decrease t by convex_comb_step.
+        # if we start oscillating, we stop jumping towards the optimizer output and start jumping in the disjoint rulesets.
+        # if we reach t = 1, we stop jumping towards the optimizer output and start jumping in the disjoint rulesets.
+        
+        # this means we took a that resulted in a worse latency, so we reverse direction.
+
+        if cur_convex_comb_value == 1:
+            # we have reached the optimizer output, stop jumping towards the optimizer output.
+            logger.info(f"loghill reached optimizer output, switching to offensive jumping")
+            jumping_towards_optimizer = False
+            completed_rulesets.clear()
+            cur_jumping_ruleset = pick_best_ruleset(jumping_df.copy(), ruleset_overperformance, completed_rulesets)
+            logger.info(f"loghill picked new ruleset: {cur_jumping_ruleset}")
+            return
+        if len(prev_processing_latencies) > 0 and prev_processing_latency < cur_processing_latency: # gangmuk: statistical model
+            # reverse direction
+            logger.info(f"loghill reversing direction from {convex_comb_direction} to {-convex_comb_direction}")
+            convex_comb_direction = -convex_comb_direction
+        logger.info(f"loghill old cur_convex_comb_value: {cur_convex_comb_value}")
+        proposed = cur_convex_comb_value + convex_comb_direction * convex_comb_step
+        if proposed < 0:
+            proposed = 0
+            convex_comb_direction = 1
+        elif proposed > 1:
+            proposed = 1
+            convex_comb_direction = -1
+        cur_convex_comb_value = proposed
+        logger.info(f"loghill new cur_convex_comb_value: {cur_convex_comb_value}")
+        jumping_df = jump_towards_optimizer_desired(starting_df, desired_df, cur_convex_comb_value).copy()
     else:
-        # the new rule is better than the previous rule, so we accept the new rule.
-        # we now recompute the direction based on latencies
-        # prev_jumping_df was the rule we used to route traffic in the previous iteration.
-        prev_jumping_df = jumping_df.copy()
-        ruleset_overperformance = calculate_ruleset_overperformance(prev_jumping_df, cur_processing_latencies)
-        logger.info(f"loghill ruleset_overperformance: {ruleset_overperformance}")
-        # this is the new calculated direction / weights for that direction.
-        # apply this overperformance to jumping_df, and then apply the jumping_df to the actual routing rules.
-        adjusted_df = adjust_ruleset(prev_jumping_df, "us-central-1", ruleset_overperformance.get("us-central-1", {}))
-        jumping_df = adjusted_df.copy()
+        # partition the rulesets into underperformers and overperformers
+        # assumes routing rules exist only in the first layer (between sslateingress and frontend).
+        """
+        for each ruleset, direction is represented as two sets of regions, one for underperformers and one for overperformers.
+
+        we measure the last latency and compare it with the current latency to verify we are moving in the right direction.
+        - we have an expected direction (based on the over/underperformers with the current latency).
+        - we stop moving in a direction for 2 reasons:
+            1) we have started oscillating (latency-wise) with the current direction.
+            2) we compute a new direction based on the current latency. in this case <what do we do?>, we can make that the current direction.
+            - could the computed direction also oscillate?
+
+        1) for each rule with source sslateingress and destination frontend, with more than 1 region in that set of rules, create a ruleset.
+        2) for each ruleset, for each destination frontend service (across clusters), calculate the overperformance of each region.
+            a) partition the regions into underperformers and overperformers, based on the average latency (in cur_processing_latencies)
+
+        compare new computed direction with old direction, compare new latency with old latency.
+        ideally, the direction will always be the same, and we just have to check latency...
+        """
+
+        # first adjust jumping_df based on the current and previous latencies (accept the rule from prev_jumping_df to jumping_df)
+        # if the latency has improved. if not, roll back to prev_jumping_df. this is where we detect oscillation.
+        # todo aditya
+        if len(prev_processing_latencies) > 0 and prev_processing_latency < cur_processing_latency: # gangmuk: statistical model
+            # cases where prev_processing_latency < cur_processing_latency:
+            # 1) we are oscillating between two rules -- this is fine. in this case, we just roll back and keep oscillating.
+            # 2) we are somehow getting worse with each rule. in this case, rollback becomes a no-op (what are we rolling back to?).
+            #    in this case, we probably want to clear the prev_processing_latencies and start over.
+            if len(prev_jumping_df) == 0:
+                logger.info(f"loghill no previous rule to roll back to, clearing prev_processing_latencies and starting over.")
+                # to rule to rollback to, clear the prev_processing_latencies and start over.
+                global_prev_processing_latencies.clear()
+                return
+            else:
+                logger.info(f"loghill rolling back to prev_jumping_df")
+                jumping_df = prev_jumping_df.copy()
+        elif len(jumping_df) > 0:
+            # the new rule is better than the previous rule, so we accept the new rule.
+            # we now recompute the direction based on latencies
+            # prev_jumping_df was the rule we used to route traffic in the previous iteration.
+            prev_jumping_df = jumping_df.copy()
+            # this is the new calculated direction / weights for that direction.
+            # apply this overperformance to jumping_df, and then apply the jumping_df to the actual routing rules.
+            adjusted_df = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset, ruleset_overperformance.get(cur_jumping_ruleset, {}))
+            jumping_df = adjusted_df.copy()
+            logger.info(f"loghill adjusted_df:\n{adjusted_df}")
+        else:
+            jumping_df = percentage_df.copy()
     return
 
 
@@ -323,7 +419,7 @@ def rules_are_different(df1: pd.DataFrame, df2: pd.DataFrame, maxThreshold=0.1):
     # Check if all required columns exist in both dataframes
     for col in required_columns:
         if col not in df1.columns or col not in df2.columns:
-            return True
+            return False
 
     # Set index to compare based on specified columns
     df1 = df1.set_index(["src_svc", "dst_svc", "src_endpoint", "dst_endpoint", "src_cid", "dst_cid"])
@@ -331,18 +427,150 @@ def rules_are_different(df1: pd.DataFrame, df2: pd.DataFrame, maxThreshold=0.1):
 
     # Check rules in df1
     for idx in df1.index:
-        if idx not in df2.index:
-            return True
-        if abs(df1.loc[idx]["weight"] - df2.loc[idx]["weight"]) > maxThreshold:
+        if idx in df2.index and abs(df1.loc[idx]["weight"] - df2.loc[idx]["weight"]) > maxThreshold:
             return True
 
-    # Check rules in df2
-    for idx in df2.index:
-        if idx not in df1.index:
-            return True
+    # # Check rules in df2
+    # for idx in df2.index:
+    #     if idx not in df1.index:
+    #         return True
 
     return False
 
+
+# Function to compute traffic matrix from DataFrame
+def compute_traffic_matrix(df):
+    filtered = df[(df['src_svc'] == 'sslateingress') & (df['dst_svc'] == 'frontend')]
+    traffic_matrix = filtered.pivot_table(
+        index='src_cid',
+        columns='dst_cid',
+        values='weight',
+        aggfunc='sum',
+        fill_value=0
+    )
+    return traffic_matrix
+
+def jump_towards_optimizer_desired(starting_df: pd.DataFrame, desired_df: pd.DataFrame, cur_convex_comb_value: float) -> pd.DataFrame:
+    global temp_counter
+    """
+    jump_towards_optimizer_desired computes the convex combination of two traffic matrices
+    represented by starting_df and desired_df based on cur_convex_comb_value.
+    
+    Args:
+        starting_df (pd.DataFrame): The starting traffic matrix DataFrame.
+        desired_df (pd.DataFrame): The desired traffic matrix DataFrame.
+        cur_convex_comb_value (float): The convex combination factor (between 0 and 1).
+        
+    Returns:
+        pd.DataFrame: The new traffic matrix as a DataFrame in the same format as the inputs.
+    """
+    # Validate cur_convex_comb_value
+    if not (0 <= cur_convex_comb_value <= 1):
+        raise ValueError("cur_convex_comb_value must be between 0 and 1.")
+    
+
+    required_columns = {'src_svc', 'dst_svc'}
+    for df_name, df in zip(['starting_df', 'desired_df'], [starting_df, desired_df]):
+        if not required_columns.issubset(df.columns):
+            raise ValueError(f"{df_name} must contain columns: {required_columns} (has columns: {df.columns})")
+
+    # Compute traffic matrices for starting and desired DataFrames
+    starting_matrix = compute_traffic_matrix(starting_df)
+    desired_matrix = compute_traffic_matrix(desired_df)
+    
+    # Identify all unique regions across both matrices
+    all_regions = sorted(set(starting_matrix.index).union(set(starting_matrix.columns))
+                        .union(set(desired_matrix.index)).union(set(desired_matrix.columns)))
+    
+    starting_matrix = starting_matrix.reindex(index=all_regions, columns=all_regions, fill_value=0)
+    desired_matrix = desired_matrix.reindex(index=all_regions, columns=all_regions, fill_value=0)
+    
+    # Compute the convex combination
+    combined_matrix = (1 - cur_convex_comb_value) * starting_matrix + cur_convex_comb_value * desired_matrix
+    combined_matrix = combined_matrix.round(6)
+    logger.info(f"loghill (defensive jumping) new traffic matrix:\n{combined_matrix}\nstarting_matrix:\n{starting_matrix}\ndesired_matrix:\n{desired_matrix}")
+    
+    # Transform the combined matrix back into a DataFrame
+    combined_df = combined_matrix.reset_index().melt(id_vars='src_cid', var_name='dst_cid', value_name='weight')
+    combined_df = combined_df[combined_df['weight'] > 0].reset_index(drop=True)
+    
+    # Merge with starting_df to get 'total' and 'counter' information
+    # First, prepare a mapping from (src_cid, dst_cid) to 'total' and other columns
+    # We'll prioritize starting_df's 'total'; if not present, use desired_df's 'total'
+    
+    # Create a helper DataFrame with 'total' from starting_df
+    starting_totals = starting_df[(starting_df['src_svc'] == 'sslateingress') & (starting_df['dst_svc'] == 'frontend')][
+        ['src_cid', 'dst_cid', 'total']
+    ].drop_duplicates()
+    
+    # Similarly, from desired_df
+    desired_totals = desired_df[(desired_df['src_svc'] == 'sslateingress') & (desired_df['dst_svc'] == 'frontend')][
+        ['src_cid', 'dst_cid', 'total']
+    ].drop_duplicates()
+    
+    # Merge combined_df with starting_totals
+    combined_df = combined_df.merge(
+        starting_totals,
+        on=['src_cid', 'dst_cid'],
+        how='left',
+        suffixes=('', '_start')
+    )
+    
+    # For rows where 'total' is NaN, fill from desired_totals
+    combined_df = combined_df.merge(
+        desired_totals,
+        on=['src_cid', 'dst_cid'],
+        how='left',
+        suffixes=('', '_desired')
+    )
+    
+    # Fill 'total' from starting_df; if missing, use desired_df's 'total'; else set to 1 to avoid division by zero
+    combined_df['total'] = combined_df['total'].fillna(combined_df['total_desired']).fillna(1)
+    
+    # Compute 'flow' as weight * total
+    combined_df['flow'] = combined_df['weight'] * combined_df['total']
+    
+    # Add 'src_svc' and 'dst_svc' columns
+    combined_df['src_svc'] = 'sslateingress'
+    combined_df['dst_svc'] = 'frontend'
+    
+    # Assuming endpoints are in the format: {svc}@POST@/cart/checkout
+    combined_df['src_endpoint'] = combined_df['src_svc'] + '@POST@/cart/checkout'
+    combined_df['dst_endpoint'] = combined_df['dst_svc'] + '@POST@/cart/checkout'
+    
+    # Reorder and select columns to match the original format
+    final_df = combined_df[
+        ['src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint',
+         'src_cid', 'dst_cid', 'flow', 'total', 'weight']
+    ]
+    final_df = final_df.sort_values(by=['src_cid', 'dst_cid']).reset_index(drop=True)
+    
+    return final_df
+    
+
+def latency_is_oscillating(svc: str, last_iters: int, thresh_ms=6) -> bool:
+    global historical_svc_latencies
+    """
+    latency_is_oscillating will read the last last_iters latencies for a given service and determine if the latencies are oscillating.
+    oscillating means the latencies tend to increase & decrease in a cycle, and that the difference between the the max and min is less than thresh_ms.
+    """
+    if svc not in historical_svc_latencies:
+        return False
+    if len(historical_svc_latencies[svc]) < last_iters:
+        return False
+    last_latencies = historical_svc_latencies[svc][-last_iters:]
+    max_latency = max(last_latencies)
+    min_latency = min(last_latencies)
+    # todo check for cycles in the latencies
+    return max_latency - min_latency < thresh_ms
+
+def pick_best_ruleset(rules: pd.DataFrame, overperformance: dict, exclude_rulesets: set) -> str:
+    """
+    pick_best_ruleset will pick the best ruleset based on the variance in overperformance of each ruleset.
+    It will return the best ruleset which is not in the exclude_rulesets set.
+    It expects overperformance to be a dictionary of destination region to overperformance.
+    """
+    return "us-central-1" # todo aditya
 
 def calculate_avg_processing_latency(latencies: dict, svc: str, methodpath: str, region="") -> dict:
     """
@@ -522,12 +750,15 @@ def get_expected_latency_for_rule(load: int, svc: str, methodpath: str) -> int:
     return a * load * load + c
 
 
-def write_latency(avg_processing_latency: int):
+def write_latency(svc: str, avg_processing_latency: int):
     global temp_counter
+    global historical_svc_latencies
     # write processing latency in the form of temp_counter, avg_processing_latency
     with open("jumping_latency.csv", "a") as f:
         f.write(f"{temp_counter},{avg_processing_latency}\n")
-
+    if svc not in historical_svc_latencies:
+        historical_svc_latencies[svc] = list()
+    historical_svc_latencies[svc].append(avg_processing_latency)
 
 @app.post('/hillclimbingPolicy') # from wasm
 def handleHillclimbPolicy():
@@ -1230,7 +1461,7 @@ def handleProxyLoad():
             if train_done == False:
                 _, csv_string = local_and_failover_routing_rule(svc, region)
                 return csv_string
-            if percentage_df.empty:
+            if percentage_df.empty or (not use_optimizer_output and jumping_df.empty):
                 logger.debug(f"WARNING, Rollback to local routing. {region}, {full_podname}, percentage_df is empty.")
                 ############################################################
                 _, csv_string = local_and_failover_routing_rule(svc, region)
@@ -1241,7 +1472,7 @@ def handleProxyLoad():
                 if use_optimizer_output:
                     temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
                 else:
-                    temp_df = jumping_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
+                    temp_df = jumping_df.loc[(jumping_df['src_svc'] == svc) & (jumping_df['src_cid'] == region)].copy()
                 if len(temp_df) == 0:
                     logger.debug(f"WARNING, Rollback to local routing. {region}, {full_podname}. percentage_df becomes empty after filtering.")
                     _, csv_string = local_and_failover_routing_rule(svc, region)
@@ -2832,7 +3063,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_load_conditions, trigger="interval", seconds=10)
-    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=15)
+    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=10)
     scheduler.add_job(func=state_check, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)
     # scheduler.add_job(func=write_global_hillclimb_history_to_file, trigger="interval", seconds=15)

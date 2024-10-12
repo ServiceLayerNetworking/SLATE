@@ -2073,7 +2073,7 @@ if __name__ == "__main__":
     agg_root_node_rps = { "us-west-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 100}}\
                         , "us-east-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 400}}\
                         , "us-south-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 100}}\
-                        , "us-central-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 500}}}
+                        , "us-central-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 700}}}
     trainig_input_trace_file=sys.argv[1]
     read_config_file()
     training_phase(trainig_input_trace_file, agg_root_node_rps)
