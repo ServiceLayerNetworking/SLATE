@@ -1,6 +1,34 @@
 import pandas as pd
 import numpy as np
 temp_counter=69
+
+
+def overperformances_are_different(op1: dict, op2: dict, maxPctDiff=0.5) -> bool:
+    """
+    overperformances_are_different compares two dictionaries of overperformances (source region -> destination region -> overperformance)
+    and checks if any given overperformance is different by more than maxPctDiff percent. If so, it returns True.
+    """
+    for src_region in op1:
+        if src_region not in op2:
+            return True
+        for dst_region in op1[src_region]:
+            if dst_region not in op2[src_region]:
+                return True
+            op1_value = op1[src_region][dst_region]
+            op2_value = op2[src_region][dst_region]
+            print(f"{src_region} -> {dst_region}: {abs(abs(op1_value - op2_value) / max(abs(op1_value), abs(op2_value)))}")
+            if abs(abs(op1_value - op2_value) / min(abs(op1_value), abs(op2_value))) > maxPctDiff:
+                return True
+    
+    for src_region in op2:
+        if src_region not in op1:
+            return True
+        for dst_region in op2[src_region]:
+            if dst_region not in op1[src_region]:
+                return True
+    return False
+    
+    return False
 def jump_towards_optimizer_desired(starting_df: pd.DataFrame, desired_df: pd.DataFrame, cur_convex_comb_value: float) -> pd.DataFrame:
     global temp_counter
     """
@@ -138,15 +166,22 @@ desired_data = {
     'weight': [0.3, 1.0, 0.171428, 1.0]
 }
 
-starting_df = pd.DataFrame(starting_data)
-desired_df = pd.DataFrame(desired_data)
-print("Starting DataFrame:")
-print(starting_df)
-print("\nDesired DataFrame:")
-print(desired_df)
+# starting_df = pd.DataFrame(starting_data)
+# desired_df = pd.DataFrame(desired_data)
+# print("Starting DataFrame:")
+# print(starting_df)
+# print("\nDesired DataFrame:")
+# print(desired_df)
 
-# Compute convex combination with cur_convex_comb_value = 0.5
-jumping_df = jump_towards_optimizer_desired(starting_df, desired_df, 0.5)
+# # Compute convex combination with cur_convex_comb_value = 0.5
+# jumping_df = jump_towards_optimizer_desired(starting_df, desired_df, 0.5)
 
-print("Jumping DataFrame (Convex Combination):")
-print(jumping_df)
+# print("Jumping DataFrame (Convex Combination):")
+# print(jumping_df)
+
+
+
+op2 = {'us-central-1': {'us-central-1': -1096.6242774566474, 'us-south-1': -5077.978896103896, 'us-west-1': -1597.1198099049523}, 'us-east-1': {'us-east-1': -12254.233459033252, 'us-south-1': -45937.99512987013}}
+op1 = {'us-central-1': {'us-central-1': -1493.5474254742546, 'us-south-1': -2410.538707467458, 'us-west-1': -2065.0}, 'us-east-1': {'us-east-1': -11610.0, 'us-south-1': -15811.49965745604}}
+
+print(overperformances_are_different(op1, op2, 2.5))
