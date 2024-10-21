@@ -259,24 +259,55 @@ def remove_incomplete_trace_in_bookinfo(traces_):
     return ret_traces_
 
 
-def change_to_relative_time(single_trace):
+# def change_to_relative_time(single_trace):
+#     try:
+#         ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(single_trace)
+#         root_ep = opt_func.find_root_node(ep_str_cg)
+#         if root_ep == False:
+#             # print(f"ERROR: too many root node in callgraph")
+#             return False
+#         base_t = 0
+#     except Exception as error:
+#         print(error)
+#         assert False
+#     for span in single_trace:
+#         if span.endpoint_str == root_ep:
+#             base_t = span.st
+#     for span in single_trace:
+#         span.st -= base_t
+#         span.et -= base_t
+#         assert span.st >= 0
+#         assert span.et >= 0
+#         assert span.et >= span.st
+
+def single_trace_to_span_callgraph(single_trace):
+    callgraph = dict()
+    for parent_span in single_trace:
+        if parent_span not in callgraph:
+            callgraph[parent_span] = list()
+        for child_span in single_trace:
+            if child_span.parent_span_id == parent_span.span_id:
+                callgraph[parent_span].append(child_span)
+    for parent_span in callgraph:
+        callgraph[parent_span] = sorted(callgraph[parent_span], key=lambda x: (x.svc_name, x.method, x.url))
+    return callgraph
+
+def change_to_relative_time(single_trace, tid):
     try:
-        # sp_cg = single_trace_to_span_callgraph(single_trace)
-        ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(single_trace)
-        root_ep = opt_func.find_root_node(ep_str_cg)
-        base_t = 0
-        for span in single_trace:
-            if span.endpoint_str == root_ep:
-                base_t = span.st
+        sp_cg = single_trace_to_span_callgraph(single_trace)
+        root_span = opt_func.find_root_node(sp_cg)
+        if root_span == False:
+            return False
+        base_t = root_span.st
     except Exception as error:
         print(error)
         assert False
     for span in single_trace:
         span.st -= base_t
         span.et -= base_t
-        assert span.st >= 0
-        assert span.et >= 0
-        assert span.et >= span.st
+        if span.st < 0.0 or span.et < 0.0 or span.et < span.st:
+            return False
+    return True
 
 
 def print_single_trace(single_trace):
@@ -351,30 +382,33 @@ def single_trace_to_endpoint_str_callgraph(single_trace):
                 callgraph[parent_ep_str].append(child_ep_str)
     for parent_ep_str in callgraph:
         callgraph[parent_ep_str].sort()
-    tot_num_node_in_topology = 0
-    for parent_ep_str in callgraph:
-        tot_num_node_in_topology += 1
-        for child_ep_str in callgraph[parent_ep_str]:
-            tot_num_node_in_topology += 1
-    return callgraph, tot_num_node_in_topology
+    return callgraph
 
-def get_endpoint_to_cg_key_map(traces_):
-    endpoint_to_cg_key = dict()
-    for cid in traces_:
-        for tid, single_trace in traces_[cid].items():
-            ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(single_trace)
-            cg_key = get_callgraph_key(ep_str_cg)
-            for span in single_trace:
-                if span.endpoint_str not in endpoint_to_cg_key:
-                    endpoint_to_cg_key[span.endpoint_str] = set()
-                endpoint_to_cg_key[span.endpoint_str].add(cg_key)
-    for ep_str in endpoint_to_cg_key:
-        if len(endpoint_to_cg_key[ep_str]) > 1:
-            print(f"ERROR: endpoint {ep_str} has more than one callgraph key")
-            print(f'endpoint_to_cg_key[{ep_str}]: {endpoint_to_cg_key[ep_str]}')
-            assert False
-        endpoint_to_cg_key[ep_str] = list(endpoint_to_cg_key[ep_str])[0]
-    return endpoint_to_cg_key
+def count_num_node_in_callgraph(callgraph):
+    node_set = set()
+    for parent_ep_str in callgraph:
+        node_set.add(parent_ep_str)
+        for child_ep_str in callgraph[parent_ep_str]:
+            node_set.add(child_ep_str)
+    return len(node_set)
+
+# def get_endpoint_to_cg_key_map(traces_):
+#     endpoint_to_cg_key = dict()
+#     for cid in traces_:
+#         for tid, single_trace in traces_[cid].items():
+#             ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
+#             cg_key = get_callgraph_key(ep_str_cg)
+#             for span in single_trace:
+#                 if span.endpoint_str not in endpoint_to_cg_key:
+#                     endpoint_to_cg_key[span.endpoint_str] = set()
+#                 endpoint_to_cg_key[span.endpoint_str].add(cg_key)
+#     for ep_str in endpoint_to_cg_key:
+#         if len(endpoint_to_cg_key[ep_str]) > 1:
+#             print(f"ERROR: endpoint {ep_str} has more than one callgraph key")
+#             print(f'endpoint_to_cg_key[{ep_str}]: {endpoint_to_cg_key[ep_str]}')
+#             assert False
+#         endpoint_to_cg_key[ep_str] = list(endpoint_to_cg_key[ep_str])[0]
+#     return endpoint_to_cg_key
 
 # def find_root_span_in_trace(single_trace):
 #     span_cg = single_trace_to_span_callgraph(single_trace)
@@ -433,13 +467,13 @@ def static_hash(value):
     return hash_object.hexdigest()
 
 
-def traces_to_endpoint_str_callgraph_table(traces):
+def traces_to_endpoint_str_callgraph_table(traces): # being used by global_controller.py
     ep_str_callgraph_table = dict()
     cg_key_hashmap = dict()
     for cid in traces:
         for tid in traces[cid]:
             single_trace = traces[cid][tid]
-            ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(single_trace)
+            ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
             cg_key = get_callgraph_key(ep_str_cg)
             if cg_key == False:
                 continue
@@ -507,7 +541,6 @@ def get_callgraph_key(cg):
     root_node = opt_func.find_root_node(cg)
     if root_node == False:
         return False
-    # logger.info(f"[TIME_ST] get_callgraph_key root_node: {root_node}")
     cg_key = list()
     bfs_callgraph(root_node, cg_key, cg)
     # print(f'cg_key: {cg_key}')
@@ -541,7 +574,7 @@ def calc_exclusive_time(single_trace):
                         exclude_child_rt = child_span_list[i].rt + child_span_list[j].rt
         parent_span.xt = parent_span.rt - exclude_child_rt
         # print(f"Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
-        if parent_span.xt < 0.0:
+        if parent_span.xt <= 0.0:
             # print(f"ERROR: parent_span,{parent_span.svc_name}, span_id,{parent_span.span_id} exclusive time cannot be negative value: {parent_span.xt}")
             # print(f"ERROR: st,{parent_span.st}, et,{parent_span.et}, rt,{parent_span.rt}, xt,{parent_span.xt}")
             # print("trace")
@@ -575,11 +608,11 @@ def print_traces(traces_):
 #                 span.depth = depth_dict[svc]
 #                 span.call_size = depth_dict[svc]*10
 
-def print_callgraph(callgraph):
-    print(f"callgraph key: {get_callgraph_key(callgraph)}")
-    for parent_span in callgraph:
-        for child_span in callgraph[parent_span]:
-            print("{}->{}".format(parent_span.get_class(), child_span.get_class()))
+# def print_callgraph(callgraph):
+#     print(f"callgraph key: {get_callgraph_key(callgraph)}")
+#     for parent_span in callgraph:
+#         for child_span in callgraph[parent_span]:
+#             print("{}->{}".format(parent_span.get_class(), child_span.get_class()))
 
 def print_callgraph_table(callgraph_table):
     print("print_callgraph_table")
@@ -625,20 +658,37 @@ def analyze_critical_path_time(single_trace):
             return False
     return True
 
-
-def trace_to_df(traces_):
-    list_of_unfold_span = list()
+def trace_to_unfolded_df(traces_):
     colname = list()
+    list_of_unfold_span = list()
     for cid in traces_:
         for tid, single_trace in traces_[cid].items():
             for span in single_trace:
                 unfold_span = span.unfold()
                 if len(colname) == 0:
                     colname = unfold_span.keys()
-                    # print("colname, ", colname)
-                # print(f"unfold_span: {unfold_span}")
                 list_of_unfold_span.append(unfold_span)
     df = pd.DataFrame(list_of_unfold_span)
+    
+    allowed_clusters = ['us-west-1', 'us-east-1', 'us-central-1', 'us-south-1']
+    logger.info(f"df.columns: {df.columns}")
+    logger.info(f"df['cluster_id'].unique(): {df['cluster_id'].unique()}")
+    logger.info(f"original len(df): {len(df)}")
+    df_filtered = df[df['cluster_id'].isin(allowed_clusters)]
+    logger.info(f"len(df_filtered): {len(df_filtered)}")
+    df_filtered.sort_values(by=["trace_id"])
+    df_filtered.reset_index(drop=True)
+    return df_filtered
+
+
+def trace_to_df(traces_):
+    list_of_span_str = list()
+    for cid in traces_:
+        for tid, single_trace in traces_[cid].items():
+            for span in single_trace:
+                list_of_span_str.append(str(span))
+    col = ["cluster_id","svc_name","method","url","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size"]
+    df = pd.DataFrame(list_of_span_str, columns=col)
     df.sort_values(by=["trace_id"])
     df.reset_index(drop=True)
     return df
@@ -654,32 +704,41 @@ def get_placement_from_trace(traces):
                 placement[cid].add(span.svc_name)
     return placement
 
+def filter_by_num_endpoint(traces, num_endpoint):
+    ret_traces = dict()
+    for cid in traces:
+        for tid in traces[cid]:
+            # total_num_node = count_num_node_in_callgraph(single_trace)
+            # if total_num_node == num_endpoint:
+            if len(traces[cid][tid]) == num_endpoint:
+                if cid not in ret_traces:
+                    ret_traces[cid] = dict()
+                ret_traces[cid][tid] = traces[cid][tid]
+            else:
+                logger.warning(f"filtered out trace {tid}, number of endpoint is {len(traces[cid][tid])} != {num_endpoint}")
+    return ret_traces
+
 
 def stitch_time(traces):
     ret_traces = dict()
     for cid in traces:
         for tid in traces[cid]:
-            ret = stitch_trace(traces[cid][tid])
+            ret = stitch_trace(traces[cid][tid], tid)
             if ret == True:
                 if cid not in ret_traces:
                     ret_traces[cid] = dict()
                 ret_traces[cid][tid] = traces[cid][tid]
-    # df = trace_to_df(traces)
-    # print_all_trace(traces)
-    
     return ret_traces
 
 
-def stitch_trace(trace):
-    ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(trace)
-    # print(f"tot_num_node_in_topology: {tot_num_node_in_topology}")
+def stitch_trace(trace, tid):
+    ep_str_cg = single_trace_to_endpoint_str_callgraph(trace)
     root_ep_str = opt_func.find_root_node(ep_str_cg)
-    # print(f"root_ep: {root_ep_str}")
-    # pprint(f"ep_str_cg: {ep_str_cg}")
-    # exit()
-    change_to_relative_time(trace)
+    if root_ep_str == False:
+        return False # too many root nodes or no root node
+    relative_time_ret = change_to_relative_time(trace, tid)
     xt_ret = calc_exclusive_time(trace)
     ct_ret = analyze_critical_path_time(trace)
-    if xt_ret == False or ct_ret == False:
+    if xt_ret == False or ct_ret == False or relative_time_ret == False:
         return False
     return True

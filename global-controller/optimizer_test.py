@@ -327,7 +327,7 @@ def run_optimizer(coef_dict, \
     max_egress_cost_list = list()
     flattened_callsize_dict = {inner_key: value for outer_key, inner_dict in callsize_dict.items() for inner_key, value in inner_dict.items()}
     for key in flattened_callsize_dict:
-        logger.info(f"flattened_callsize_dict[{key}]: {flattened_callsize_dict[key]}")
+        logger.debug(f"flattened_callsize_dict[{key}]: {flattened_callsize_dict[key]}")
         
     for var_name in network_arc_var_name:
         if type(var_name) == tuple:

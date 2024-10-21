@@ -31,7 +31,10 @@ COPY ./vimrc_file /root/.vimrc
 
 ENTRYPOINT ["python3"]
 
+###########################
+## original version
 CMD ["global_controller.py"]
+###########################
 
 # CMD ["app.py"]
 

@@ -31,7 +31,10 @@ COPY ./vimrc_file /root/.vimrc
 
 ENTRYPOINT ["python3"]
 
-CMD ["global_controller.py"]
+###########################
+## with continous profiling
+CMD ["global_controller-continuous.py"]
+###########################
 
 # CMD ["app.py"]
 
