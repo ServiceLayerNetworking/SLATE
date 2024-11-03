@@ -55,7 +55,8 @@ class Span:
         trace_id="TRACE_ID", span_id="SPAN_ID", parent_span_id="PARENT_SPAN_ID", \
         st=-1, et=-1, xt=-1, callsize=-1, \
         rps_dict={str(Endpoint("svc_A","GET","/recommendation")):0, str(Endpoint("svc_A","POST","/hotel")):0}, \
-        num_inflight_dict={str(Endpoint("svc_A","GET","/recommendation")):0, str(Endpoint("svc_A","POST","/hotel")):0}):
+        num_inflight_dict={str(Endpoint("svc_A","GET","/recommendation")):0, str(Endpoint("svc_A","POST","/hotel")):0}, \
+            reported_time=0):
         logger = logging.getLogger(__name__)
         self.method = method
         self.url = url
@@ -86,6 +87,7 @@ class Span:
         self.critical_child_spans = list()
         self.call_size = callsize
         self.depth = 0 # ingress gw's depth: 0, frontend's depth: 1
+        self.time = reported_time
     
     
     def get_class(self):
@@ -102,6 +104,26 @@ class Span:
     #     for endpoint in self.rps_dict:
     #         colname += f",rps_{endpoint}"
     #     return colname
+    
+    def to_dict(self):
+        temp = dict()
+        temp["cluster_id"] = self.cluster_id
+        temp["trace_id"] = self.trace_id
+        temp["span_id"] = self.span_id
+        temp["parent_span_id"] = self.parent_span_id
+        temp["svc_name"] = self.svc_name
+        temp["method"] = self.method
+        temp["endpoint_str"] = self.endpoint_str
+        temp["path"] = self.url
+        temp["st"] = self.st
+        temp["et"] = self.et
+        temp["rt"] = self.rt
+        temp["xt"] = self.xt
+        temp["ct"] = self.ct
+        temp["call_size"] = self.call_size
+        temp["inflight_dict"] = self.num_inflight_dict
+        temp["rps_dict"] = self.rps_dict
+        return temp
         
     def __str__(self):
         temp = f"{self.cluster_id},{self.svc_name},{self.method},{self.url},{self.trace_id},{self.span_id},{self.parent_span_id},{self.st},{self.et},{self.rt},{self.xt},{self.ct},{self.call_size},"

@@ -182,103 +182,6 @@ def parse_trace_file_ver2(log_path):
     return traces_
 
 
-## Deprecated
-# NOTE: This function is bookinfo specific
-def remove_incomplete_trace_in_bookinfo(traces_):
-    ##############################
-    FRONTEND_svc = "productpage-v1"
-    span_id_of_FRONTEND_svc = ""
-    REVIEW_V1_svc = "reviews-v1"
-    REVIEW_V2_svc = "reviews-v2"
-    REVIEW_V3_svc = "reviews-v3"
-    RATING_svc = "ratings-v1"
-    DETAIL_svc = "details-v1"
-    ##############################
-    FILTER_REVIEW_V1 = True # False
-    FILTER_REVIEW_V2 = True # False
-    FILTER_REVIEW_V3 = False# False
-    ##############################
-    # ratings-v1 and reviews-v1 should not exist in the same trace
-    MIN_TRACE_LEN = 3
-    MAX_TRACE_LEN = 4
-    ret_traces_ = dict()
-    what = [0]*9
-    weird_span_id = 0
-    for cid in traces_:
-        if cid not in ret_traces_:
-            ret_traces_[cid] = dict()
-        for tid, single_trace in traces_[cid].items():
-            if FRONTEND_svc not in single_trace or DETAIL_svc not in single_trace:
-                # if FRONTEND_svc not in single_trace:
-                #     print("no frontend")
-                # if DETAIL_svc not in single_trace:
-                #     print("no detail")
-                # print(f"single_trace: {single_trace}")
-                # for svc, span in single_trace.items():
-                #     print(svc, " ")
-                #     print(span)
-                # print()
-                what[0] += 1
-            elif len(single_trace) < MIN_TRACE_LEN:
-                what[1] += 1
-            elif len(single_trace) > MAX_TRACE_LEN:
-                what[2] += 1
-            elif len(single_trace) == MIN_TRACE_LEN and (REVIEW_V1_svc not in single_trace or REVIEW_V2_svc in single_trace or REVIEW_V3_svc in single_trace):
-                what[3] += 1
-            elif len(single_trace) == MAX_TRACE_LEN and REVIEW_V2_svc not in single_trace and REVIEW_V3_svc not in single_trace:
-                what[4] += 1
-            elif single_trace[FRONTEND_svc].parent_span_id != span_id_of_FRONTEND_svc:
-                print("single_trace[FRONTEND_svc].parent_span_id: ", single_trace[FRONTEND_svc].parent_span_id)
-                print("span_id_of_FRONTEND_svc: ", span_id_of_FRONTEND_svc)
-                weird_span_id += 1
-                what[5] += 1
-            elif FILTER_REVIEW_V1 and REVIEW_V1_svc in single_trace:
-                if len(single_trace) != 3:
-                    print_single_trace(single_trace)
-                assert len(single_trace) == 3
-                what[6] += 1
-            elif FILTER_REVIEW_V2 and REVIEW_V2_svc in single_trace:
-                if len(single_trace) != 4:
-                    print_single_trace(single_trace)
-                assert len(single_trace) == 4
-                what[7] += 1
-            elif FILTER_REVIEW_V3 and REVIEW_V3_svc in single_trace:
-                if len(single_trace) != 4:
-                    print_single_trace(single_trace)
-                assert len(single_trace) == 4
-                what[8] += 1
-            else:
-                if tid not in ret_traces_[cid]:
-                    ret_traces_[cid][tid] = dict()
-                ret_traces_[cid][tid] = single_trace
-        print(f"weird_span_id: {weird_span_id}")
-        print(f"filter stats: {what}")
-        print(f"Cluster {cid}")
-        print(f"#return trace: {len(ret_traces_[cid])}")
-        print(f"#input trace: {len(traces_[cid])}")
-    return ret_traces_
-
-
-# def change_to_relative_time(single_trace):
-#     try:
-#         ep_str_cg, tot_num_node_in_topology = single_trace_to_endpoint_str_callgraph(single_trace)
-#         root_ep = opt_func.find_root_node(ep_str_cg)
-#         if root_ep == False:
-#             # print(f"ERROR: too many root node in callgraph")
-#             return False
-#         base_t = 0
-#     except Exception as error:
-#         print(error)
-#         assert False
-#     for span in single_trace:
-#         if span.endpoint_str == root_ep:
-#             base_t = span.st
-#     for span in single_trace:
-#         span.st -= base_t
-#         span.et -= base_t
-#         assert span.st >= 0
-#         assert span.et >= 0
-#         assert span.et >= span.st
 
 def single_trace_to_span_callgraph(single_trace):
     callgraph = dict()
@@ -392,51 +295,13 @@ def count_num_node_in_callgraph(callgraph):
             node_set.add(child_ep_str)
     return len(node_set)
 
-# def get_endpoint_to_cg_key_map(traces_):
-#     endpoint_to_cg_key = dict()
-#     for cid in traces_:
-#         for tid, single_trace in traces_[cid].items():
-#             ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
-#             cg_key = get_callgraph_key(ep_str_cg)
-#             for span in single_trace:
-#                 if span.endpoint_str not in endpoint_to_cg_key:
-#                     endpoint_to_cg_key[span.endpoint_str] = set()
-#                 endpoint_to_cg_key[span.endpoint_str].add(cg_key)
-#     for ep_str in endpoint_to_cg_key:
-#         if len(endpoint_to_cg_key[ep_str]) > 1:
-#             print(f"ERROR: endpoint {ep_str} has more than one callgraph key")
-#             print(f'endpoint_to_cg_key[{ep_str}]: {endpoint_to_cg_key[ep_str]}')
-#             assert False
-#         endpoint_to_cg_key[ep_str] = list(endpoint_to_cg_key[ep_str])[0]
-#     return endpoint_to_cg_key
-
-# def find_root_span_in_trace(single_trace):
-#     span_cg = single_trace_to_span_callgraph(single_trace)
-#     root_span = opt_func.find_root_node(span_cg)
-#     temp = dict()
-#     root_node = list()
-#     for ep1 in cg:
-#         temp[ep1] = "True"
-#         for ep2 in cg:
-#             if ep1 in cg[ep2]:
-#                 temp[ep1] = "False"
-#         if temp[ep1] == "True":
-#             root_node.append(ep1)
-#     if len(root_node) == 0:
-#         print(f'ERROR: cannot find root node in callgraph')
-#         assert False
-#     if len(root_node) > 1:
-#         print(f'ERROR: too many root node in callgraph')
-#         assert False
-#     return root_node[0]
-
 def get_all_endpoints(traces):
     all_endpoints = dict()
     for cid in traces:
         if cid not in all_endpoints:
             all_endpoints[cid] = dict()
         for tid in traces[cid]:
-            single_trace = traces[cid][tid]
+            single_trace = traces[cid][tid]['span']
             for span in single_trace:
                 if span.svc_name not in all_endpoints[cid]:
                     all_endpoints[cid][span.svc_name] = set()
@@ -472,7 +337,7 @@ def traces_to_endpoint_str_callgraph_table(traces): # being used by global_contr
     cg_key_hashmap = dict()
     for cid in traces:
         for tid in traces[cid]:
-            single_trace = traces[cid][tid]
+            single_trace = traces[cid][tid]['span']
             ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
             cg_key = get_callgraph_key(ep_str_cg)
             if cg_key == False:
@@ -589,10 +454,10 @@ def calc_exclusive_time(single_trace):
         ###########################################
     return True
 
-def print_traces(traces_):
-    for cid in traces_:
-        for tid in traces_[cid]:
-            for single_trace in traces_[cid][tid]:
+def print_traces(traces):
+    for cid in traces:
+        for tid in traces[cid]:
+            for single_trace in traces[cid][tid]['span']:
                 print(f"======================= ")
                 print(f"Trace: " + str(tid))
                 for span in single_trace:
@@ -658,34 +523,38 @@ def analyze_critical_path_time(single_trace):
             return False
     return True
 
-def trace_to_unfolded_df(traces_):
+def trace_to_unfolded_df(traces):
     colname = list()
     list_of_unfold_span = list()
-    for cid in traces_:
-        for tid, single_trace in traces_[cid].items():
+    for region in traces:
+        for tid in traces[region]:
+            single_trace = traces[region][tid]['span']
+            assert type(single_trace) == type([])
             for span in single_trace:
                 unfold_span = span.unfold()
                 if len(colname) == 0:
                     colname = unfold_span.keys()
                 list_of_unfold_span.append(unfold_span)
     df = pd.DataFrame(list_of_unfold_span)
-    
     allowed_clusters = ['us-west-1', 'us-east-1', 'us-central-1', 'us-south-1']
-    logger.info(f"df.columns: {df.columns}")
-    logger.info(f"df['cluster_id'].unique(): {df['cluster_id'].unique()}")
-    logger.info(f"original len(df): {len(df)}")
+    try:
+        logger.debug(f"df['cluster_id'].unique(): {df['cluster_id'].unique()}")
+    except Exception as error:
+        logger.error(f"df.columns: {df.columns}")
+        logger.error(f"unfold_span: {unfold_span}")
+    logger.debug(f"original len(df): {len(df)}")
     df_filtered = df[df['cluster_id'].isin(allowed_clusters)]
-    logger.info(f"len(df_filtered): {len(df_filtered)}")
+    logger.debug(f"len(df_filtered): {len(df_filtered)}")
     df_filtered.sort_values(by=["trace_id"])
     df_filtered.reset_index(drop=True)
     return df_filtered
 
 
-def trace_to_df(traces_):
+def trace_to_df(traces):
     list_of_span_str = list()
-    for cid in traces_:
-        for tid, single_trace in traces_[cid].items():
-            for span in single_trace:
+    for region in traces:
+        for tid, single_trace in traces[region].items():
+            for span in single_trace['span']:
                 list_of_span_str.append(str(span))
     col = ["cluster_id","svc_name","method","url","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size"]
     df = pd.DataFrame(list_of_span_str, columns=col)
@@ -696,38 +565,57 @@ def trace_to_df(traces_):
 
 def get_placement_from_trace(traces):
     placement = dict()
-    for cid in traces:
-        if cid not in placement:
-            placement[cid] = set()
-        for tid, single_trace in traces[cid].items():
-            for span in single_trace:
-                placement[cid].add(span.svc_name)
+    for region in traces:
+        if region not in placement:
+            placement[region] = set()
+        for tid, single_trace in traces[region].items():
+            for span in single_trace['span']:
+                placement[region].add(span.svc_name)
     return placement
 
-def filter_by_num_endpoint(traces, num_endpoint):
+
+def filter_by_num_endpoint(given_traces, num_endpoint):
     ret_traces = dict()
-    for cid in traces:
-        for tid in traces[cid]:
-            # total_num_node = count_num_node_in_callgraph(single_trace)
-            # if total_num_node == num_endpoint:
-            if len(traces[cid][tid]) == num_endpoint:
-                if cid not in ret_traces:
-                    ret_traces[cid] = dict()
-                ret_traces[cid][tid] = traces[cid][tid]
-            else:
-                logger.warning(f"filtered out trace {tid}, number of endpoint is {len(traces[cid][tid])} != {num_endpoint}")
+    for region in given_traces:
+        num_broken_trace = 0
+        for tid in given_traces[region]:
+            if len(given_traces[region][tid]['span']) == num_endpoint:
+                if region not in ret_traces:
+                    ret_traces[region] = dict()
+                broken_trace = False
+                for span in given_traces[region][tid]['span']:
+                    if len(span.rps_dict) != 1: # limitation
+                        logger.info(f"len(span.rps_dict), {len(span.rps_dict)} != 1, {span.rps_dict}")
+                        broken_trace = True
+                        break
+                if broken_trace:
+                    num_broken_trace += 1
+                    continue
+                if tid not in ret_traces[region]:
+                    ret_traces[region][tid] = dict()
+                ret_traces[region][tid] = given_traces[region][tid]
+            # else:
+            #     logger.debug(f"filtered out trace {tid}, number of endpoint is {len(traces[region][tid])} != {num_endpoint}")
+        success = len(ret_traces[region])
+        total = len(given_traces[region])
+        success_ratio = success/total
+        logger.debug(f"given_traces[{region}], {len(given_traces[region])}, num_broken_trace[{region}], {num_broken_trace}, success_ratio, {success_ratio}")
+        num_broken_trace = 0
     return ret_traces
 
 
 def stitch_time(traces):
     ret_traces = dict()
-    for cid in traces:
-        for tid in traces[cid]:
-            ret = stitch_trace(traces[cid][tid], tid)
+    for region in traces:
+        for tid in traces[region]:
+            # logger.debug(f"traces[region][tid]['span']: {str(traces[region][tid]['span'])}")
+            ret = stitch_trace(traces[region][tid]['span'], tid)
             if ret == True:
-                if cid not in ret_traces:
-                    ret_traces[cid] = dict()
-                ret_traces[cid][tid] = traces[cid][tid]
+                if region not in ret_traces:
+                    ret_traces[region] = dict()
+                # if tid not in ret_traces[region]:
+                #     ret_traces[region][tid] = dict()
+                ret_traces[region][tid] = traces[region][tid]
     return ret_traces
 
 
