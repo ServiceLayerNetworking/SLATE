@@ -54,9 +54,8 @@ class Span:
     def __init__(self, method="METHOD", url="URL", svc_name="SVC", cluster_id="CID",\
         trace_id="TRACE_ID", span_id="SPAN_ID", parent_span_id="PARENT_SPAN_ID", \
         st=-1, et=-1, xt=-1, callsize=-1, \
-        rps_dict={str(Endpoint("svc_A","GET","/recommendation")):0, str(Endpoint("svc_A","POST","/hotel")):0}, \
-        num_inflight_dict={str(Endpoint("svc_A","GET","/recommendation")):0, str(Endpoint("svc_A","POST","/hotel")):0}, \
-            reported_time=0):
+        rps_dict={}, num_inflight_dict={}, \
+        reported_time=0, rps=-100, load_bucket=-1):
         logger = logging.getLogger(__name__)
         self.method = method
         self.url = url
@@ -88,6 +87,11 @@ class Span:
         self.call_size = callsize
         self.depth = 0 # ingress gw's depth: 0, frontend's depth: 1
         self.time = reported_time
+        if rps < 0:
+            logger.error(f"rps({rps}) cannot be negative")
+            assert False
+        self.rps = rps
+        self.load_bucket = load_bucket
     
     
     def get_class(self):

@@ -64,9 +64,6 @@ load_coef_flag = False
 init_done = False
 use_optimizer_output = False
 jumping_towards_optimizer = False
-
-endpoint_sizes = {}
-
 placement = {}
 coef_dict = {}
 model="poly"
@@ -101,50 +98,29 @@ objective = "avg_latency"
 DOLLAR_PER_MS = 1
 first_write_flag_for_profiled_trace=True
 state = "empty"
-# all_clusters = set() # not used for now
 workload = dict()
-
 frontend_coef_history = dict()
-
-# Target is checkoutcart request type
-## checkoutcart + cart, shipping, payment, email
-
-## checkout service only (for partial replication)
 exclude_svc = {}
 # exclude_svc = {"us-central-1": ["paymentservice", 'emailservice', 'shippingservice']}
 # exclude_svc = {"us-central-1": ['cartservice']}
 # exclude_svc = {"us-central-1": ['checkoutservice']}
 # exclude_svc = {"us-central-1": ['checkoutservice'], "us-east-1":['productcatalogservice']}
-
 runtime_model_updating=False
-
-'''waterfall'''
-region_pct_df = dict()
-
-'''waterfall2'''
-parent_of_bottleneck_service = ""
-# bottleneck_service = "a"
-bottleneck_service = ""
-
-'''profiling (training)'''
+region_pct_df = dict() # waterfall
+parent_of_bottleneck_service = "" # waterfall2
+bottleneck_service = "" # "a"
 list_of_span = list() # unorganized list of spanss
-
-# Rotate them to avoid locking
-handleproxy_trace_pointer = 0
+handleproxy_trace_pointer = 0 # Rotate them to avoid locking
 update_traces_pointer = 1
 trace_df = pd.DataFrame()
 incomplete_traces = [dict(), dict()]
 incomplete_traces_mutex_dict = dict() # :Key: region, service_name, Value: Lock()
 stitched_complete_traces = dict() # filtered traces
 stitched_complete_traces_mutex = Lock()
-num_newly_added_trace_history = dict()
 num_stitched_trace_history = dict()
-
 train_done = False
 train_start = False
 still_training = False
-
-# trace_str_list = list() # internal data structure of traces before writing it to a file
 profile_output_file="trace_string.csv" # traces_str_list -> profile_output_file in write_trace_str_to_file() function every 5s
 latency_func = {}
 trainig_input_trace_file="trace.csv" # NOTE: It should be updated when the app is changed
@@ -179,13 +155,55 @@ first_replica_sync_counter = 1000 # arbitrary number
 last_policy_request = dict() # svc -> time.time()
 last_policy_request_mutex = Lock()
 cur_hillclimbing = dict() # svc -> endpoint
-
 jumping_last_seen_opt_output = pd.DataFrame() # the last seen routing rules from the jumping perspective
-
-
 global_processing_latencies = dict() # svc -> region -> pod -> method@path -> {latency_avg, num_reqs}
 global_prev_processing_latencies = dict()
 processing_latencies_mutex = Lock()
+endpoint_sizes = {
+    "/cart": 520,
+    "/cart/checkout": 520,
+    "/cart/empty": 259,
+    "/setCurrency": 275,
+    
+    "/cart": 200000,
+    "/cart/checkout": 200000,
+    "/cart/empty": 2000,
+    "/setCurrency": 2000,
+    
+    "/cart/addItem": 520,\
+    "/hipstershop.CartService/AddItem": 520,
+    "/hipstershop.CartService/EmptyCart": 259,
+
+    "/cart/getCart": 5483,
+    "/hipstershop.CartService/GetCart": 5483,
+    
+    "/hipstershop.RecommendationService/ListRecommendations": 5442,
+    "/recommendation/listRecommendations": 5442,
+    
+    "/hipstershop.ProductCatalogService/GetProduct": 124687,
+    "/productCatalog/getProduct": 259,
+    
+    "/hipstershop.ShippingService/ShipOrder": 5485,
+    "/shipping/shipOrder": 5485,
+    
+    
+    "/currency/convert": 274,
+    
+    "/hipstershop.PaymentService/Charge": 1055,
+    "/payment/charge": 1055,
+    
+    "/hipstershop.EmailService/SendOrderConfirmation": 6032,
+    "/email/sendOrderConfirmation": 6032,
+    
+    "/checkout/placeOrder": 1832,
+    "/hipstershop.CheckoutService/PlaceOrder": 1832,
+    
+    "/productCatalog/listProducts": 124687,
+    "/ad/getAds": 6437,
+    "/currency/getSupportedCurrencies": 5183,
+    "/productCatalog/searchProducts": 124687,
+    "/shipping/getQuote": 5485,
+}
 
 
 @app.post('/hillclimbingLatency') # from wasm
@@ -1079,22 +1097,21 @@ def write_global_hillclimb_history_to_file():
 
 def set_endpoint_to_placement(all_endpoints):
     endpoint_to_placement = dict()
-    for cid in all_endpoints:
-        for svc_name in all_endpoints[cid]:
-            for ep in all_endpoints[cid][svc_name]:
+    for region in all_endpoints:
+        for svc_name in all_endpoints[region]:
+            for ep in all_endpoints[region][svc_name]:
                 if ep not in endpoint_to_placement:
                     endpoint_to_placement[ep] = set()
-                endpoint_to_placement[ep].add(cid)
+                endpoint_to_placement[ep].add(region)
     return endpoint_to_placement
 
 def set_svc_to_placement(all_endpoints):
-    svc_to_placement = dict()
-    for cid in all_endpoints:
-        for svc_name in all_endpoints[cid]:
+    global svc_to_placement
+    for region in all_endpoints:
+        for svc_name in all_endpoints[region]:
             if svc_name not in svc_to_placement:
                 svc_to_placement[svc_name] = set()
-            svc_to_placement[svc_name].add(cid)
-    return svc_to_placement
+            svc_to_placement[svc_name].add(region)
 
 
 '''
@@ -1131,6 +1148,7 @@ A@PUT@/update, C@PUT@/update, us-west-1, us-west-1, 0.0
 def local_and_failover_routing_rule(src_svc, src_cid):
     global ep_str_callgraph_table
     global endpoint_to_placement
+    global svc_to_placement
     if len(ep_str_callgraph_table) == 0:
         logger.debug(f"ERROR: ep_str_callgraph_table is empty.")
         return pd.DataFrame(), ""
@@ -1271,6 +1289,7 @@ def parse_stats_into_spans(body, given_svc_name):
         assert given_svc_name == serviceName
         method = ss[2]
         path = ss[3]
+        endpoint_str = f"{serviceName}@{method}@{path}"
         traceId = ss[4]
         spanId = ss[5]
         parentSpanId = ss[6]
@@ -1293,16 +1312,16 @@ def parse_stats_into_spans(body, given_svc_name):
         inflight_dict = dict()
         negative_rps_flag = False
         for ep_load in endpointInflightStats:
-            method_and_path = ep_load.split(",")[0]
-            method = method_and_path.split("@")[0]
-            path = method_and_path.split("@")[1]
+            ep_load_method_and_path = ep_load.split(",")[0]
+            ep_load_method = ep_load_method_and_path.split("@")[0]
+            ep_load_path = ep_load_method_and_path.split("@")[1]
+            ep_load_endpoint_str = f"{serviceName}@{ep_load_method}@{ep_load_path}"
             
-            if "hipstershop.CurrencyService/Convert" in method_and_path or "/hipstershop.ProductCatalogService/GetProduct" in method_and_path:
+            if "hipstershop.CurrencyService/Convert" in ep_load_method_and_path or "/hipstershop.ProductCatalogService/GetProduct" in ep_load_method_and_path:
                 """ This is critical. ProductCatalogService receives two different endpoints. One is GetProduct, the other is ListProducts. And GetProduct endpoint receives more than 1:1 ratio of incoming requests. We will ignore GetProduct for now. Same for CurrencyService/Convert endpoint. """
                 logger.debug(f"Excluding {ep_load} in rps_dict")
                 continue
             # endpoint = sp.Endpoint(svc_name=serviceName, method=method, url=path)
-            endpoint_str = f"{serviceName}@{method}@{path}"
             rps = int(ep_load.split(",")[1])
             if rps <= 0:
                 logger.info(f"Skip this span: rps is non-positive {rps}") # filtering condition 5 (negative rps)
@@ -1310,19 +1329,25 @@ def parse_stats_into_spans(body, given_svc_name):
                 rps_filtering += 1
                 continue
             inflight = int(ep_load.split(",")[2])
-            rps_dict[endpoint_str] = rps
-            inflight_dict[endpoint_str] = inflight
+            rps_dict[ep_load_endpoint_str] = rps
+            inflight_dict[ep_load_endpoint_str] = inflight
         if len(rps_dict) != 1:
             logger.debug(f"Skip this span: len(rps_dict) != 1, {rps_dict}")
             continue
         if negative_rps_flag:
             continue
+        num_pod = len(per_pod_ep_rps[region][serviceName][endpoint_str])
+        load_bucket = (rps*num_pod-50)//100 + 1
+        logger.debug(f"num_pod({region}, {serviceName}): {num_pod}, rps: {rps}, load_bucket: {load_bucket}")
+        assert rps > 0
         temp_span = sp.Span(method, path, serviceName, region, \
             traceId, spanId, parentSpanId, \
             startTime, endTime, bodySize, \
             rps_dict=rps_dict, \
             num_inflight_dict=inflight_dict, \
-            reported_time = time.time())
+            reported_time=time.time(), \
+            rps=rps, \
+            load_bucket=load_bucket) # 0-49: 0 50-149: 1, 150-249: 2, 250-349: 3, ...
         
         # temp_span_dict = dict()
         # temp_span_dict["cluster_id"] = region
@@ -1392,6 +1417,43 @@ defaultresponse = """sslateingress@POST@/cart,frontend@POST@/cart,us-west-1,us-w
 sslateingress@POST@/cart,frontend@POST@/cart,us-west-1,us-east-1,0.0
 """
 
+def add_span_to_traces(given_traces, span):
+    # given_traces[region][load_bucket][trace_id]['span'] = [span1, span2, ...]
+    # given_traces[region][load_bucket][trace_id]['time'] = [time1, time2, ...]
+    region = span.cluster_id
+    load_bucket = span.load_bucket
+    trace_id = span.trace_id
+    if region not in given_traces:
+        given_traces[region] = dict()
+    if load_bucket not in given_traces[region]:
+        try:
+            given_traces[region][load_bucket] = dict() ## 
+        except Exception as e:
+            logger.error(e)
+            logger.error(f"given_traces[region]: {given_traces[region]}")
+            logger.error(f"type(given_traces[region]): {type(given_traces[region])}")
+            logger.error(f"given_traces[region][load_bucket]: {given_traces[region][load_bucket]}")
+            logger.error(f"type(given_traces[region][load_bucket]: {type(given_traces[region][load_bucket])}")
+            assert False
+    if trace_id not in given_traces[region][load_bucket]:
+        given_traces[region][load_bucket][trace_id] = dict()
+    if 'span' not in given_traces[region][load_bucket][trace_id]:
+        given_traces[region][load_bucket][trace_id]['span'] = []
+    if 'time' not in given_traces[region][load_bucket][trace_id]:
+        given_traces[region][load_bucket][trace_id]['time'] = []
+    if len(span.rps_dict) == 1:
+        given_traces[region][load_bucket][trace_id]['span'].append(span)
+        given_traces[region][load_bucket][trace_id]['time'].append(time.time())
+    else:
+        logger.error(f"Skip this span: not having two endpoints {span}")
+
+def get_num_trace(given_traces, region):
+    num_trace = 0
+    for load_bucket in given_traces[region]:
+        num_trace += len(given_traces[region][load_bucket])
+    return num_trace
+
+
 ############################################
 ## Continuous profiling
 ############################################
@@ -1413,7 +1475,6 @@ def handleProxyLoad():
     global incomplete_traces_mutex
     global incomplete_traces
     global handleproxy_trace_pointer
-    global update_traces_pointer
     
     svc = request.headers.get('x-slate-servicename')
     region = request.headers.get('x-slate-region')
@@ -1473,20 +1534,8 @@ def handleProxyLoad():
     for span in spans:
         list_of_span.append(span) # part of continuous profiling
         """ I suspect the incomplete_traces_mutex was causing the problem of missing some traces. Not confirmed yet, though. """
-
-        if region not in incomplete_traces[handleproxy_trace_pointer]:
-            incomplete_traces[handleproxy_trace_pointer][region] = dict()
-        if span.trace_id not in incomplete_traces[handleproxy_trace_pointer][region]:
-            incomplete_traces[handleproxy_trace_pointer][region][span.trace_id] = dict()
-        if 'span' not in incomplete_traces[handleproxy_trace_pointer][region][span.trace_id]:
-            incomplete_traces[handleproxy_trace_pointer][region][span.trace_id]['span'] = []
-        if 'time' not in incomplete_traces[handleproxy_trace_pointer][region][span.trace_id]:
-            incomplete_traces[handleproxy_trace_pointer][region][span.trace_id]['time'] = []
-        if len(span.rps_dict) == 1:
-            incomplete_traces[handleproxy_trace_pointer][region][span.trace_id]['span'].append(span)
-            incomplete_traces[handleproxy_trace_pointer][region][span.trace_id]['time'].append(time.time())
-        else:
-            logger.debug(f"Skip this span: not having two endpoints {span}")
+        add_span_to_traces(incomplete_traces[handleproxy_trace_pointer], span)
+        
     if mode == "profile":
         _, csv_string = local_and_failover_routing_rule(svc, region) # response to wasm
         return csv_string
@@ -1940,7 +1989,7 @@ def optimizer_entrypoint():
             DOLLAR_PER_MS, \
             max_rps = 1000)
         state = "empty"
-        logger.info(f"optimizer runtime: {time.time()-optimizer_start_ts} s")
+        logger.info(f"optimizer runtime: {int(time.time()-optimizer_start_ts)}s")
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
     elif ROUTING_RULE == "WATERFALL2":
@@ -2133,7 +2182,7 @@ def optimizer_entrypoint():
                         curr_remaining_capacity, \
                         degree, \
                         inter_cluster_latency)
-                logger.info(f"run_optimizer runtime, {time.time()-ts} seconds")
+                logger.info(f"run_optimizer runtime, {time.time()-ts}s")
                 
                 if not pct_df.empty:
                     region_pct_df[target_region] = pct_df
@@ -2243,7 +2292,7 @@ put unorganized spans into traces data structure
 filter incomplete traces
 - ceil(avg_num_svc)
 '''
-def trace_string_file_to_trace_data_structure():
+def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
     # us-east-1, # cluster_id
     # productcatalogservice, # svc_name
     # POST, # method
@@ -2260,7 +2309,6 @@ def trace_string_file_to_trace_data_structure():
     # productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct:0|, # inflight_dict
     # productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct:131|, # rps_dictt
     # productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct # endpoint
-    global trainig_input_trace_file
     col = ["cluster_id","svc_name","method","path","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size","inflight_dict","rps_dict"]
     try:
         df = pd.read_csv(trainig_input_trace_file, names=col, header=None)
@@ -2268,7 +2316,7 @@ def trace_string_file_to_trace_data_structure():
         logger.error(f"!!! ERROR !!!: failed to read {trainig_input_trace_file} with error: {e}")
         assert False
     spans = list()
-    for index, row in df.iterrows():
+    for _, row in df.iterrows():
         if row["cluster_id"] == "SLATE_UNKNOWN_REGION" or row["svc_name"] == "consul":
             logger.debug(f"svc_name: {row['svc_name']}, cluster_id: {row['cluster_id']} is filtered out")
             continue
@@ -2318,53 +2366,6 @@ def trace_string_file_to_trace_data_structure():
             # svc_name = ep.split("@")[0]
             # method = ep.split("@")[1]
             # path = ep.split("@")[2]
-        
-        global endpoint_sizes
-        endpoint_sizes = {
-            "/cart": 520,
-            "/cart/checkout": 520,
-            "/cart/empty": 259,
-            "/setCurrency": 275,
-            
-            "/cart": 200000,
-            "/cart/checkout": 200000,
-            "/cart/empty": 2000,
-            "/setCurrency": 2000,
-            
-            "/cart/addItem": 520,\
-            "/hipstershop.CartService/AddItem": 520,
-            "/hipstershop.CartService/EmptyCart": 259,
-
-            "/cart/getCart": 5483,
-            "/hipstershop.CartService/GetCart": 5483,
-            
-            "/hipstershop.RecommendationService/ListRecommendations": 5442,
-            "/recommendation/listRecommendations": 5442,
-            
-            "/hipstershop.ProductCatalogService/GetProduct": 124687,
-            "/productCatalog/getProduct": 259,
-            
-            "/hipstershop.ShippingService/ShipOrder": 5485,
-            "/shipping/shipOrder": 5485,
-            
-            
-            "/currency/convert": 274,
-            
-            "/hipstershop.PaymentService/Charge": 1055,
-            "/payment/charge": 1055,
-            
-            "/hipstershop.EmailService/SendOrderConfirmation": 6032,
-            "/email/sendOrderConfirmation": 6032,
-            
-            "/checkout/placeOrder": 1832,
-            "/hipstershop.CheckoutService/PlaceOrder": 1832,
-            
-            "/productCatalog/listProducts": 124687,
-            "/ad/getAds": 6437,
-            "/currency/getSupportedCurrencies": 5183,
-            "/productCatalog/searchProducts": 124687,
-            "/shipping/getQuote": 5485,
-        }
         normalize = 0.01
         for key, value in endpoint_sizes.items():
             endpoint_sizes[key] = value * normalize
@@ -2372,75 +2373,71 @@ def trace_string_file_to_trace_data_structure():
             call_size = endpoint_sizes[row["path"]]
         else:
             call_size = int(row["call_size"])
-        
         try:
+            assert rps > 0
             span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
                 row["trace_id"], row["span_id"], row["parent_span_id"], \
                     st=float(row["st"]), et=float(row["et"]), xt=int(row["xt"]), \
-                    callsize=call_size, rps_dict=rps_dict, num_inflight_dict=num_inflight_dict, reported_time=0)
+                    callsize=call_size, rps_dict=rps_dict, num_inflight_dict=num_inflight_dict, reported_time=0, rps=rps, load_bucket=(rps-50)//100 + 1)
         except Exception as e:
             logger.error(f"!!! ERROR !!!: failed to create span with error: {e}")
             logger.error(f"!!! ERROR !!!: row: \n{row}")
             assert False
         spans.append(span)
-        
-    # Put spans to traces data structure
     traces = dict()
     for span in spans:
-        if span.cluster_id not in traces:
-            traces[span.cluster_id] = dict()
-        if span.trace_id not in traces[span.cluster_id]:
-            traces[span.cluster_id][span.trace_id] = dict()
-        if 'span' not in traces[span.cluster_id][span.trace_id]:
-            traces[span.cluster_id][span.trace_id]['span'] = list()
-        if 'time' not in traces[span.cluster_id][span.trace_id]:
-            traces[span.cluster_id][span.trace_id]['time'] = list()
-        traces[span.cluster_id][span.trace_id]['span'].append(span)
-        traces[span.cluster_id][span.trace_id]['time'].append(time.time())
-        
-    for cid in traces:
-        logger.info(f"len(traces[{cid}]): {len(traces[cid])}")
+        add_span_to_traces(traces, span)
+    for region in traces:
+        logger.info(f"num trace in traces[{region}]: {get_num_trace(traces, region)}")
     return traces
+
 
 def file_write_traces(given_traces):
     with open("continuously_profiled_traces.csv", "a") as f:
         for region in given_traces:
-            for tid in given_traces[region]:
-                for i in range(len(given_traces[region][tid]['span'])):
-                    span_str = str(given_traces[region][tid]['span'][i])
-                    span_reported_time = given_traces[region][tid]['time'][i]
-                    f.write(f"{span_reported_time},{span_str}\n")
-                f.write(f"-----------------------------\n")
+            for load_bucket in given_traces[region]:
+                for tid in given_traces[region][load_bucket]:
+                    single_trace = given_traces[region][load_bucket][tid]
+                    for i in range(len(single_trace['span'])):
+                        span_str = str(single_trace['span'][i])
+                        span_reported_time = single_trace['time'][i]
+                        f.write(f"{span_reported_time},{span_str}\n")
+                    f.write(f"-----------------------------\n")
     
-def filter_incomplete_traces(given_incomplete_traces, log=False):
+    
+def filter_incomplete_traces(given_traces, log=False):
     global required_total_num_services
     global continuous_profiling_traces
-    if log: file_write_traces(given_incomplete_traces)
+    if log: file_write_traces(given_traces)
     ret_traces = dict()
-    for region in given_incomplete_traces:
-        if region not in ret_traces:
-            ret_traces[region] = dict()
+    for region in given_traces:
         num_failed_traces = 0
         num_success_traces = 0
-        num_svc = list()
-        for tid in given_incomplete_traces[region]:
-            trace = given_incomplete_traces[region][tid]['span']
-            reported_time = given_incomplete_traces[region][tid]['time']
-            num_svc.append(len(trace))
-            if len(trace) == required_total_num_services:
-                assert type(trace) == type([])
-                assert type(reported_time) == type([])
-                ret_traces[region][tid] = dict()
-                ret_traces[region][tid]['span'] = trace
-                ret_traces[region][tid]['time'] = reported_time
-                num_success_traces += 1
-            else:
-                num_failed_traces += 1
-        
-        total_num_traces = len(given_incomplete_traces[region])
+        total_num_span = 0
+        for load_bucket in given_traces[region]:
+            for tid in given_traces[region][load_bucket]:
+                single_trace = given_traces[region][load_bucket][tid]
+                total_num_span += len(single_trace['span'])
+                if len(single_trace['span']) == required_total_num_services:
+                    assert type(single_trace['span']) == type([])
+                    assert type(single_trace['time']) == type([])
+                    if region not in ret_traces:
+                        ret_traces[region] = dict()
+                    if load_bucket not in ret_traces[region]:
+                        ret_traces[region][load_bucket] = dict()
+                    if tid not in ret_traces[region][load_bucket]:
+                        ret_traces[region][load_bucket][tid] = dict()
+                    # ret_traces[region][load_bucket][tid]['span'] = list()
+                    ret_traces[region][load_bucket][tid]['span'] = single_trace['span']
+                    ret_traces[region][load_bucket][tid]['time'] = single_trace['time']
+                    num_success_traces += 1
+                else:
+                    num_failed_traces += 1
+        total_num_traces = get_num_trace(given_traces, region)
         success_ratio = int((num_success_traces/total_num_traces) * 100)
-        logger.info(f"region: {region}, num_total_traces: {total_num_traces}, num_success_traces: {num_success_traces}, num_failed_traces: {num_failed_traces}, avg_num_svc: {sum(num_svc)/total_num_traces}, success_ratio, {success_ratio}%")
+        logger.info(f"region: {region}, num_total_traces: {total_num_traces}, num_success_traces: {num_success_traces}, num_failed_traces: {num_failed_traces}, avg_num_svc: {total_num_span/total_num_traces}, success_ratio, {success_ratio}%")
     return ret_traces
+
 
 def init_max_capacity_per_service(capacity):
     global max_capacity_per_service
@@ -2533,14 +2530,13 @@ def initialize_global_datastructure(stitched_traces):
     global degree
     global init_done
     global num_stitched_trace_history
-    global num_newly_added_trace_history
     assert init_done == False
     
     logger.info(f"Clusters in stitched_traces: {stitched_traces.keys()}")
     assert len(stitched_traces.keys()) > 0
     all_endpoints = tst.get_all_endpoints(stitched_traces)
     endpoint_to_placement = set_endpoint_to_placement(all_endpoints)
-    svc_to_placement = set_svc_to_placement(all_endpoints)
+    set_svc_to_placement(all_endpoints)
     logger.info(f'svc_to_placement {svc_to_placement}')
     assert len(svc_to_placement) > 0
     placement = tst.get_placement_from_trace(stitched_traces)
@@ -2579,8 +2575,6 @@ def initialize_global_datastructure(stitched_traces):
     for region in placement:
         if region not in num_stitched_trace_history:
             num_stitched_trace_history[region] = list()
-        if region not in num_newly_added_trace_history:
-            num_newly_added_trace_history[region] = list()
         
     for region in placement:
         if region not in incomplete_traces[0]:
@@ -2662,6 +2656,7 @@ def new_read_trace_csv(trace_csv):
         assert False
     return df
 
+
 def new_fit_mm1_model(df, ep_str):
     from scipy.optimize import curve_fit
     exclusive_time_list = df["xt"].tolist()
@@ -2682,28 +2677,45 @@ def new_fit_polynomial_regression(df, degree, ep_str):
     model.fit(X_transformed, exclusive_time_list)
     return {ep_str: model.coef_[0], 'intercept': model.coef_[1]}
 
+# def new_train_latency_function_with_trace(model, df, degree):
+#     coef_dict = dict()
+#     for cid in df["cluster_id"].unique():
+#         cid_df = df[df["cluster_id"]==cid]
+#         for svc_name in cid_df["svc_name"].unique():
+#             cid_svc_df = cid_df[cid_df["svc_name"]==svc_name]
+#             if svc_name not in latency_func:
+#                 latency_func[svc_name] = dict()
+#             for ep_str in cid_svc_df["endpoint_str"].unique():
+#                 ep_df = cid_svc_df[cid_svc_df["endpoint_str"]==ep_str]
+                
+#                 if cid not in coef_dict:
+#                     coef_dict[cid] = dict()
+#                 if svc_name not in coef_dict[cid]:
+#                     coef_dict[cid][svc_name] = dict()
+#                 if model == "poly":
+#                     coef_dict[cid][svc_name][ep_str] = new_fit_polynomial_regression(ep_df, degree, ep_str)
+#                 elif model == "mm1":
+#                     coef_dict[cid][svc_name][ep_str] = new_fit_mm1_model(ep_df, ep_str)
+#                 else:
+#                     logger.error(f"ERROR: model: {model}")
+#                     assert False
+#     return coef_dict
+
+
 def new_train_latency_function_with_trace(model, df, degree):
-    coef_dict = dict()
-    for cid in df["cluster_id"].unique():
-        if cid not in coef_dict:
-            coef_dict[cid] = dict()
-        cid_df = df[df["cluster_id"]==cid]
-        for svc_name in cid_df["svc_name"].unique():
-            cid_svc_df = cid_df[cid_df["svc_name"]==svc_name]
-            if svc_name not in latency_func:
-                latency_func[svc_name] = dict()
-            if svc_name not in coef_dict[cid]:
-                coef_dict[cid][svc_name] = dict()
-            for ep_str in cid_svc_df["endpoint_str"].unique():
-                ep_df = cid_svc_df[cid_svc_df["endpoint_str"]==ep_str]
-                if model == "poly":
-                    coef_dict[cid][svc_name][ep_str] = new_fit_polynomial_regression(ep_df, degree, ep_str)
-                elif model == "mm1":
-                    coef_dict[cid][svc_name][ep_str] = new_fit_mm1_model(ep_df, ep_str)
-                else:
-                    logger.error(f"ERROR: model: {model}")
-                    assert False
+    coef_dict = {}
+    for (cid, svc_name, ep_str), ep_df in df.groupby(["cluster_id", "svc_name", "endpoint_str"]):
+        coef_dict.setdefault(cid, {}).setdefault(svc_name, {})
+        latency_func.setdefault(svc_name, {})
+        if model == "poly":
+            coef_dict[cid][svc_name][ep_str] = new_fit_polynomial_regression(ep_df, degree, ep_str)
+        elif model == "mm1":
+            coef_dict[cid][svc_name][ep_str] = new_fit_mm1_model(ep_df, ep_str)
+        else:
+            logger.error(f"ERROR: Unsupported model type '{model}' specified")
+            raise ValueError(f"Invalid model: {model}")
     return coef_dict
+
 
 
 def training_phase():
@@ -2730,9 +2742,8 @@ def training_phase():
     global stitched_complete_traces_mutex
     global still_training
     global num_stitched_trace_history
-    global num_newly_added_trace_history
     if os.path.isfile(trainig_input_trace_file) == False: # trace.csv
-        logger.error(f"[ERROR] {trainig_input_trace_file} does not exist.\n"*10)
+        logger.warning(f"{trainig_input_trace_file} does not exist.\n"*10)
         return
     if init_done:
         logger.debug(f"Return trianing_phase routine. reason: Training initialization is done.")
@@ -2744,26 +2755,24 @@ def training_phase():
     logger.warning("Training starts")
     ts1 = time.time()
     still_training = True
-    
-    
-    traces = trace_string_file_to_trace_data_structure()
+    traces = trace_string_file_to_trace_data_structure(trainig_input_trace_file)
     for region in traces:
-        logger.info(f"len(traces[{region}]): {len(traces[region])}")
+        logger.info(f"num traces[{region}]: {get_num_trace(traces, region)}")
     complete_traces = filter_incomplete_traces(traces, log=False) # filtering condition 6 (#endpoints in a trace)
     for region in complete_traces:
-        logger.info(f"len(complete_traces[{region}]): {len(complete_traces[region])}")
+        logger.info(f"num complete_traces[{region}]: {get_num_trace(complete_traces, region)}")
     logger.info("start stitch_time")
     stitched_traces = tst.stitch_time(complete_traces)
     for region in stitched_traces:
-        logger.info(f"len(stitched_traces[{region}]): {len(stitched_traces[region])}")
+        logger.info(f"num stitched_traces[{region}]: {get_num_trace(stitched_traces, region)}")
     stitched_complete_traces = tst.filter_by_num_endpoint(stitched_traces, required_total_num_services)
     for region in stitched_complete_traces:
-        logger.info(f"len(stitched_complete_traces[{region}]): {len(stitched_complete_traces[region])}")
+        logger.info(f"num stitched_complete_traces[{region}]: {get_num_trace(stitched_complete_traces, region)}")
     ep_str_callgraph_table, _ = tst.traces_to_endpoint_str_callgraph_table(stitched_complete_traces)
     initialize_global_datastructure(stitched_complete_traces)
     
     for region in stitched_complete_traces:
-        logger.info(f"len(stitched_complete_traces[{region}]): {len(stitched_complete_traces[region])}")
+        logger.info(f"num stitched_complete_traces[{region}]: {get_num_trace(stitched_complete_traces, region)}")
     
     
     init_done = True
@@ -3088,50 +3097,50 @@ def continuous_model_update():
     global frontend_coef_history
     global state
     with coef_dict_mutex:
-        logger.info(f"continuous_model_update")
-        mm1_coef_dict = trace_parser.train_latency_function_with_trace("mm1", stitched_complete_traces, directory=".", degree=None)
-        poly_coef_dict = trace_parser.train_latency_function_with_trace("poly", stitched_complete_traces, directory=".", degree=degree)
+        ts1 = time.time()
         if model == "mm1":
-            coef_dict = mm1_coef_dict
+            coef_dict = trace_parser.train_latency_function_with_trace("mm1", stitched_complete_traces, directory=".", degree=None)
         elif model == "poly":
-            coef_dict = poly_coef_dict
+            ts2 = time.time()
+            df = tst.trace_to_unfolded_df(stitched_complete_traces)
+            logger.info(f"trace_to_unfolded_df, runtime {int(time.time() - ts2)}s")
+            ts2 = time.time()
+            coef_dict = new_train_latency_function_with_trace("poly", df, degree=degree)
+            logger.info(f"new_train_latency_function_with_trace, runtime {int(time.time() - ts2)}s")
         else:
             logger.error(f"!!! ERROR !!!: unknown model: {model}")
             state = "[!!! PANIC !!!] unknown latency model"
             assert False
+        logger.info(f"train_latency_function_with_trace took {int(time.time() - ts1)}s")
+        
         for region in coef_dict:
             if region not in frontend_coef_history:
                 frontend_coef_history[region] = list()
             frontend_coef_history[region].append(coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'])
             logger.info(f"frontend_coef_history[{region}]: {frontend_coef_history[region]}")
-            
-        logger.info(f"poly_coef_dict: {poly_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
-        logger.info(f"mm1_coef_dict: {mm1_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
+        # logger.info(f"poly_coef_dict: {poly_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
+        # logger.info(f"mm1_coef_dict: {mm1_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
         logger.info(f"coef_dict: {coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
-        
         check_negative_coef(coef_dict)
         record_continuous_coef_dict(coef_dict)
         
-    # for region in coef_dict:
-    #     for svc_name in coef_dict[region]:
-    #         if svc_name == "frontend":
-    #             for ep_str in coef_dict[region][svc_name]:
-    #                 logger.debug(f"Updated coef_dict,{region},{svc_name},{coef_dict[region][svc_name][ep_str]}")
-    
 def add_new_traces_to_stitched_complete_traces(new_traces):
     global stitched_complete_traces
     global stitched_complete_traces_mutex
     with stitched_complete_traces_mutex:
         for region in new_traces:
-            logger.debug(f"newly added stitched_complete_traces[{region}]): {len(new_traces[region])}")
+            logger.debug(f"newly added stitched_complete_traces[{region}]): {get_num_trace(new_traces, region)}")
         for region in new_traces:
             if region not in stitched_complete_traces:
                 stitched_complete_traces[region] = dict()
-            for trace_id in new_traces[region]:
-                if trace_id not in stitched_complete_traces[region]:
-                    stitched_complete_traces[region][trace_id] = dict()
-                    stitched_complete_traces[region][trace_id]['span'] = new_traces[region][trace_id]['span']
-                    stitched_complete_traces[region][trace_id]['time'] = new_traces[region][trace_id]['time'] 
+            for load_bucket in new_traces[region]:
+                if load_bucket not in stitched_complete_traces[region]:
+                    stitched_complete_traces[region][load_bucket] = dict()
+                for trace_id in new_traces[region][load_bucket]:
+                    if trace_id not in stitched_complete_traces[region][load_bucket]:
+                        stitched_complete_traces[region][load_bucket][trace_id] = new_traces[region][load_bucket][trace_id]
+                    else:
+                        logger.error(f"trace_id: {trace_id} already exists in stitched_complete_traces[{region}][{load_bucket}]")
                 
 
 def swap_trace_pointer():
@@ -3139,85 +3148,156 @@ def swap_trace_pointer():
     global update_traces_pointer
     handleproxy_trace_pointer = 1 - handleproxy_trace_pointer
     update_traces_pointer = 1 - handleproxy_trace_pointer
+    logger.info(f"swap_trace_pointer: handleproxy_trace_pointer: {handleproxy_trace_pointer}, update_traces_pointer: {update_traces_pointer}")
 
+def print_num_trace_in_all_regions(given_traces, trace_name):
+    for region in given_traces:
+        logger.info(f"num {trace_name}[{region}]: {get_num_trace(given_traces, region)}")
 
 def update_traces():
     global train_done
     global init_done
     global incomplete_traces
     global incomplete_traces_mutex
-    global handleproxy_trace_pointer
     global update_traces_pointer
     global stitched_complete_traces
     global stitched_complete_traces_mutex
     global temp_counter
     global num_stitched_trace_history
-    global num_newly_added_trace_history
     if not train_done:
         logger.info(f"Train has not been done yet. train_done: {train_done}")
         return
     if not init_done:
         logger.info(f"Init has not been done yet. init_done: {init_done}")
         return
+    ts = time.time()
+    start_counter = temp_counter
+    logger.info(f"counter[{start_counter}], update_traces starts")
     swap_trace_pointer()
-
-    for region in incomplete_traces[update_traces_pointer]:
-        logger.info(f"incomplete_traces[{update_traces_pointer}][{region}]: {len(incomplete_traces[update_traces_pointer][region])}")
+    logger.info(f"counter[{start_counter}], swapped trace pointers")
+    print_num_trace_in_all_regions(incomplete_traces[update_traces_pointer], "incomplete_traces")
+    
     complete_traces = filter_incomplete_traces(incomplete_traces[update_traces_pointer], log=False)
-    for region in incomplete_traces[update_traces_pointer]:
-        logger.info(f"complete_traces[{region}]: {len(complete_traces[region])}")
+    logger.info(f"counter[{start_counter}], filter_incomplete_traces")
+    print_num_trace_in_all_regions(complete_traces, "complete_traces")
     
-    # def sliding_window(given_traces):
-    #     for region in given_traces:
-    #         for tid in given_traces[region]:
-    #             single_trace = given_traces[region][tid]['span']
-    #             if len(given_traces[region]) > 100:
-    #                 sorted_trace_ids = sorted(
-    #                     given_traces[region].items(), 
-    #                     key=lambda item: item[1][-1]['time'],  # Access the time of the last span
-    #                     reverse=True
-    #                 )[:100]
-    #                 given_traces[region] = dict(sorted_trace_ids)
-    # sliding_window(complete_traces)
-                
+    logger.info(f"counter[{start_counter}], start stitch_time")
+    ts2 = time.time()
     stitched_traces = tst.stitch_time(complete_traces)
-    for region in incomplete_traces[update_traces_pointer]:
-        logger.info(f"stitched_traces[{region}]: {len(stitched_traces[region])}")
-        
-    new_stitched_traces = tst.filter_by_num_endpoint(stitched_traces, required_total_num_services)
-    for region in new_stitched_traces:
-        num_newly_added_trace_history[region].append(len(new_stitched_traces[region]))
-    for region in incomplete_traces[update_traces_pointer]:
-        logger.info(f"new_stitched_traces[{region}]: {len(new_stitched_traces[region])}")
-        
-    add_new_traces_to_stitched_complete_traces(new_stitched_traces)
-    for region in incomplete_traces[update_traces_pointer]:
-        logger.info(f"stitched_complete_traces[{region}]: {len(stitched_complete_traces[region])}")
+    logger.info(f"counter[{start_counter}], stitch_time, runtime: {int(time.time() - ts2)}s")
+    print_num_trace_in_all_regions(stitched_traces, "stitched_traces")
 
-    continuous_model_update()
+    new_stitched_traces = tst.filter_by_num_endpoint(stitched_traces, required_total_num_services)
+    logger.info(f"counter[{start_counter}], filter_by_num_endpoint")
+    print_num_trace_in_all_regions(new_stitched_traces, "new_stitched_traces")
+        
+    print_num_trace_in_all_regions(stitched_complete_traces, "prev stitched_complete_traces")
+    add_new_traces_to_stitched_complete_traces(new_stitched_traces)
+    logger.info(f"counter[{start_counter}], add_new_traces_to_stitched_complete_traces")
+    print_num_trace_in_all_regions(stitched_complete_traces, "curr stitched_complete_traces")
+
     
+    # ## method 1
+    # def enforce_trace_limit(max_num_trace):
+    #     global stitched_complete_traces
+    #     new_stitched_complete_traces = {}
+    #     with stitched_complete_traces_mutex:
+    #         for region in stitched_complete_traces:
+    #             new_stitched_complete_traces[region] = {}
+    #             for load_bucket in stitched_complete_traces[region]:
+    #                 trace_times = []
+    #                 for trace_id, trace_data in stitched_complete_traces[region][load_bucket].items():
+    #                     most_recent_time = max(trace_data["time"])
+    #                     trace_times.append((trace_id, most_recent_time))
+    #                 trace_times.sort(key=lambda x: x[1])
+    #                 traces_to_keep = trace_times[-max_num_trace:]
+    #                 new_stitched_complete_traces[region][load_bucket] = {
+    #                     trace_id: stitched_complete_traces[region][load_bucket][trace_id]
+    #                     for trace_id, _ in traces_to_keep
+    #                 }
+    #                 logger.info(f"Retained {len(traces_to_keep)} traces in region '{region}', load_bucket '{load_bucket}'")
+    #     return new_stitched_complete_traces
+    # stitched_complete_traces = enforce_trace_limit(max_num_trace=100)
+    
+    
+    # ## method 2
+    # def enforce_trace_limit(max_num_trace):
+    #     with stitched_complete_traces_mutex:
+    #         for region in stitched_complete_traces:
+    #             for load_bucket in stitched_complete_traces[region]:
+    #                 previous_count = len(stitched_complete_traces[region][load_bucket])
+    #                 if len(stitched_complete_traces[region][load_bucket]) > max_num_trace:
+    #                     trace_times = []
+    #                     for trace_id, trace_data in stitched_complete_traces[region][load_bucket].items():
+    #                         most_recent_time = max(trace_data["time"])
+    #                         trace_times.append((trace_id, most_recent_time))
+    #                     trace_times.sort(key=lambda x: x[1])
+    #                     traces_to_remove = trace_times[:len(trace_times) - max_num_trace]
+    #                     trace_ids_to_delete = [trace_id for trace_id, _ in traces_to_remove]
+    #                     for trace_id in trace_ids_to_delete:
+    #                         del stitched_complete_traces[region][load_bucket][trace_id]
+    #                     current_count = len(stitched_complete_traces[region][load_bucket])
+    #                     logger.info(f"counter[{start_counter}], sliding window, region,{region}, load_bucket[{load_bucket}]: {previous_count} -> {current_count}")
+    # enforce_trace_limit(max_num_trace=100)
+            
+    ## method 3 (probably the most efficient)  
+    import heapq
+    def enforce_trace_limit(max_num_trace=100):
+        with stitched_complete_traces_mutex:
+            for region in stitched_complete_traces:
+                for load_bucket in stitched_complete_traces[region]:
+                    previous_count = len(stitched_complete_traces[region][load_bucket])
+                    if previous_count > max_num_trace:
+                        # Collect trace IDs with their most recent time
+                        trace_times = [
+                            (trace_id, max(trace_data["time"])) 
+                            for trace_id, trace_data in stitched_complete_traces[region][load_bucket].items()
+                        ]
+                        # Find the traces to remove using heapq.nsmallest for efficiency
+                        traces_to_remove = heapq.nsmallest(previous_count - max_num_trace, trace_times, key=lambda x: x[1])
+                        trace_ids_to_delete = [trace_id for trace_id, _ in traces_to_remove]
+                        # Delete the oldest traces
+                        for trace_id in trace_ids_to_delete:
+                            del stitched_complete_traces[region][load_bucket][trace_id]
+                        # Log the results
+                        current_count = len(stitched_complete_traces[region][load_bucket])
+                        logger.info(f"counter[{start_counter}], sliding window, region {region}, load_bucket[{load_bucket}]: {previous_count} -> {current_count}")
+    ts3 = time.time()
+    enforce_trace_limit(max_num_trace=100)
+    logger.info(f"counter[{start_counter}], sliding window ends, runtime: {int(time.time() - ts3)}s")
+    
+    print_num_trace_in_all_regions(stitched_complete_traces, "after sliding window, stitched_complete_traces")
+        
     for region in stitched_complete_traces:
-        num_stitched_trace_history[region].append(len(stitched_complete_traces[region]))
+        num_stitched_trace = 0
+        for load_bucket in stitched_complete_traces[region]:
+            num_stitched_trace += len(stitched_complete_traces[region][load_bucket])
+        num_stitched_trace_history[region].append(num_stitched_trace)
+    
+    ###################################################################################
+    ###################################################################################
+    logger.info(f"counter[{start_counter}], continuous_model_update starts")
+    ts4 = time.time()
+    continuous_model_update()
+    logger.info(f"counter[{start_counter}], continuous_model_update ends, runtime: {int(time.time() - ts4)}s")
+    ###################################################################################
+    ###################################################################################
+    
     for region in incomplete_traces[update_traces_pointer]:
-        incomplete_traces[update_traces_pointer][region] = list()
-    logger.info(f"Reinitialize incomplete_trace[{update_traces_pointer}]")
+        for load_bucket in incomplete_traces[update_traces_pointer][region]:
+            incomplete_traces[update_traces_pointer][region][load_bucket] = dict()
+    logger.info(f"counter[{start_counter}], Reinitialize incomplete_trace[{update_traces_pointer}]")
+    logger.info(f"counter[{start_counter}], update_traces ends, runtime: {int(time.time() - ts)}s")
     
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
-    
-    ''' update mode '''
     scheduler.add_job(func=read_config_file, trigger="interval", seconds=1)
-    
-    ''' mode: profile '''
     scheduler.add_job(func=write_spans_to_file, trigger="interval", seconds=5)
-    
-    ''' mode: runtime '''
     time.sleep(3)
-    scheduler.add_job(func=update_traces, trigger="interval", seconds=5) # continuous profiling
+    scheduler.add_job(func=update_traces, trigger="interval", seconds=10) # continuous profiling
     scheduler.add_job(func=training_phase, trigger="interval", seconds=1) # training_phase()
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
-    # scheduler.add_job(func=write_load_conditions, trigger="interval", seconds=10)
     scheduler.add_job(func=perform_jumping, trigger="interval", seconds=10)
     scheduler.add_job(func=state_check, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)

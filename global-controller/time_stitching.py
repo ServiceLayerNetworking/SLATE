@@ -185,32 +185,15 @@ def parse_trace_file_ver2(log_path):
 
 def single_trace_to_span_callgraph(single_trace):
     callgraph = dict()
-    for parent_span in single_trace:
+    for parent_span in single_trace['span']:
         if parent_span not in callgraph:
             callgraph[parent_span] = list()
-        for child_span in single_trace:
+        for child_span in single_trace['span']:
             if child_span.parent_span_id == parent_span.span_id:
                 callgraph[parent_span].append(child_span)
     for parent_span in callgraph:
         callgraph[parent_span] = sorted(callgraph[parent_span], key=lambda x: (x.svc_name, x.method, x.url))
     return callgraph
-
-def change_to_relative_time(single_trace, tid):
-    try:
-        sp_cg = single_trace_to_span_callgraph(single_trace)
-        root_span = opt_func.find_root_node(sp_cg)
-        if root_span == False:
-            return False
-        base_t = root_span.st
-    except Exception as error:
-        print(error)
-        assert False
-    for span in single_trace:
-        span.st -= base_t
-        span.et -= base_t
-        if span.st < 0.0 or span.et < 0.0 or span.et < span.st:
-            return False
-    return True
 
 
 def print_single_trace(single_trace):
@@ -273,19 +256,6 @@ callgraph = {A_span: [B_span, C_span], B_span:[D_span], C_span:[], D_span:[]}
 #         callgraph[parent_span] = sorted(callgraph[parent_span], key=lambda x: (x.svc_name, x.method, x.url))
 #     return callgraph
 
-def single_trace_to_endpoint_str_callgraph(single_trace):
-    callgraph = dict()
-    for parent_span in single_trace:
-        parent_ep_str = parent_span.endpoint_str
-        if parent_ep_str not in callgraph:
-            callgraph[parent_ep_str] = list()
-        for child_span in single_trace:
-            child_ep_str = child_span.endpoint_str
-            if child_span.parent_span_id == parent_span.span_id:
-                callgraph[parent_ep_str].append(child_ep_str)
-    for parent_ep_str in callgraph:
-        callgraph[parent_ep_str].sort()
-    return callgraph
 
 def count_num_node_in_callgraph(callgraph):
     node_set = set()
@@ -295,17 +265,18 @@ def count_num_node_in_callgraph(callgraph):
             node_set.add(child_ep_str)
     return len(node_set)
 
-def get_all_endpoints(traces):
+def get_all_endpoints(given_traces):
     all_endpoints = dict()
-    for cid in traces:
-        if cid not in all_endpoints:
-            all_endpoints[cid] = dict()
-        for tid in traces[cid]:
-            single_trace = traces[cid][tid]['span']
-            for span in single_trace:
-                if span.svc_name not in all_endpoints[cid]:
-                    all_endpoints[cid][span.svc_name] = set()
-                all_endpoints[cid][span.svc_name].add(span.endpoint_str)
+    for region in given_traces:
+        if region not in all_endpoints:
+            all_endpoints[region] = dict()
+        for load_bucket in given_traces[region]:
+            for tid in given_traces[region][load_bucket]:
+                single_trace = given_traces[region][load_bucket][tid]
+                for span in single_trace['span']:
+                    if span.svc_name not in all_endpoints[region]:
+                        all_endpoints[region][span.svc_name] = set()
+                    all_endpoints[region][span.svc_name].add(span.endpoint_str)
     return all_endpoints
 
 
@@ -335,21 +306,22 @@ def static_hash(value):
 def traces_to_endpoint_str_callgraph_table(traces): # being used by global_controller.py
     ep_str_callgraph_table = dict()
     cg_key_hashmap = dict()
-    for cid in traces:
-        for tid in traces[cid]:
-            single_trace = traces[cid][tid]['span']
-            ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
-            cg_key = get_callgraph_key(ep_str_cg)
-            if cg_key == False:
-                continue
-            hash_key = static_hash(cg_key)[:8]
-            cg_key_hashmap[hash_key] = cg_key
-            # print(f'cg_key: {cg_key}')
-            # if cg_key not in ep_str_callgraph_table:
-            if hash_key not in ep_str_callgraph_table:
-                logger.info(f"new callgraph key: {hash_key}, {cg_key} in cluster {cid}")
-                # NOTE: It is currently overwriting for the existing cg_key
-                ep_str_callgraph_table[hash_key] = ep_str_cg
+    for region in traces:
+        for load_bucket in traces[region]:
+            for tid in traces[region][load_bucket]:
+                single_trace = traces[region][load_bucket][tid]
+                ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
+                cg_key = get_callgraph_key(ep_str_cg)
+                if cg_key == False:
+                    continue
+                hash_key = static_hash(cg_key)[:8]
+                cg_key_hashmap[hash_key] = cg_key
+                # print(f'cg_key: {cg_key}')
+                # if cg_key not in ep_str_callgraph_table:
+                if hash_key not in ep_str_callgraph_table:
+                    logger.info(f"new callgraph key: {hash_key}, {cg_key} in cluster {region}")
+                    # NOTE: It is currently overwriting for the existing cg_key
+                    ep_str_callgraph_table[hash_key] = ep_str_cg
     return ep_str_callgraph_table, cg_key_hashmap
 
 def file_write_callgraph_table(sp_callgraph_table):
@@ -398,7 +370,7 @@ def find_root_span(cg):
             if sp.are_they_same_endpoint(parent_span, child_span):
                 break
         return parent_span
-    print(f'ERROR: cannot find root node in callgraph')
+    logger.error(f'cannot find root node in callgraph')
     assert False
 
 
@@ -417,50 +389,13 @@ def get_callgraph_key(cg):
     return cg_key_str
 
 
-def calc_exclusive_time(single_trace):
-    for parent_span in single_trace:
-        child_span_list = list()
-        for span in single_trace:
-            if span.parent_span_id == parent_span.span_id:
-                child_span_list.append(span)
-        if len(child_span_list) == 0:
-            exclude_child_rt = 0
-        elif  len(child_span_list) == 1:
-            exclude_child_rt = child_span_list[0].rt
-        else: # else is redundant but still I leave it there to make the if/else logic easy to follow
-            for i in range(len(child_span_list)):
-                for j in range(i+1, len(child_span_list)):
-                    is_parallel = is_parallel_execution(child_span_list[i], child_span_list[j])
-                    if is_parallel == 1 or is_parallel == 2: # parallel execution
-                        # TODO: parallel-1 and parallel-2 should be dealt with individually.
-                        exclude_child_rt = max(child_span_list[i].rt, child_span_list[j].rt)
-                    else: 
-                        # sequential execution
-                        exclude_child_rt = child_span_list[i].rt + child_span_list[j].rt
-        parent_span.xt = parent_span.rt - exclude_child_rt
-        # print(f"Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
-        if parent_span.xt <= 0.0:
-            # print(f"ERROR: parent_span,{parent_span.svc_name}, span_id,{parent_span.span_id} exclusive time cannot be negative value: {parent_span.xt}")
-            # print(f"ERROR: st,{parent_span.st}, et,{parent_span.et}, rt,{parent_span.rt}, xt,{parent_span.xt}")
-            # print("trace")
-            # for span in single_trace:
-            #     print(span)
-            return False
-        ###########################################
-        # if parent_span.svc_name == FRONTEND_svc:
-        #     parent_span.xt = parent_span.rt
-        # else:
-        #     parent_span.xt = 0
-        ###########################################
-    return True
-
 def print_traces(traces):
     for cid in traces:
-        for tid in traces[cid]:
-            for single_trace in traces[cid][tid]['span']:
+        for load_bucket in traces[cid]:
+            for tid in traces[cid][load_bucket]:
+                single_trace = traces[cid][load_bucket][tid]
                 print(f"======================= ")
-                print(f"Trace: " + str(tid))
-                for span in single_trace:
+                for span in single_trace['span']:
                     print(f"{span}")
                 print(f"======================= ")
 
@@ -503,7 +438,7 @@ def set_depth_of_span(cg, parent_svc, children, depth_d, prev_dep):
 
 def analyze_critical_path_time(single_trace):
     # print(f"Critical Path Analysis")
-    for span in single_trace:
+    for span in single_trace['span']:
         sorted_children = sorted(span.child_spans, key=lambda x: x.et, reverse=True)
         if len(span.critical_child_spans) != 0:
             print(f"critical_path_analysis, {span}")
@@ -524,38 +459,73 @@ def analyze_critical_path_time(single_trace):
     return True
 
 def trace_to_unfolded_df(traces):
-    colname = list()
-    list_of_unfold_span = list()
-    for region in traces:
-        for tid in traces[region]:
-            single_trace = traces[region][tid]['span']
-            assert type(single_trace) == type([])
-            for span in single_trace:
-                unfold_span = span.unfold()
-                if len(colname) == 0:
-                    colname = unfold_span.keys()
-                list_of_unfold_span.append(unfold_span)
-    df = pd.DataFrame(list_of_unfold_span)
-    allowed_clusters = ['us-west-1', 'us-east-1', 'us-central-1', 'us-south-1']
-    try:
-        logger.debug(f"df['cluster_id'].unique(): {df['cluster_id'].unique()}")
-    except Exception as error:
-        logger.error(f"df.columns: {df.columns}")
-        logger.error(f"unfold_span: {unfold_span}")
-    logger.debug(f"original len(df): {len(df)}")
-    df_filtered = df[df['cluster_id'].isin(allowed_clusters)]
-    logger.debug(f"len(df_filtered): {len(df_filtered)}")
-    df_filtered.sort_values(by=["trace_id"])
-    df_filtered.reset_index(drop=True)
-    return df_filtered
+    ## new
+    # temp_gen = (
+    #     span.unfold()
+    #     for region_traces in traces.values()
+    #     for load_bucket_traces in region_traces.values()
+    #     for single_trace in load_bucket_traces.values()
+    #     for span in single_trace['span']
+    # )
+    
+    ## To avoid unfold function call
+    temp_gen = (
+        {
+            "method": span.method,
+            "url": span.url,
+            "svc_name": span.svc_name,
+            "endpoint": span.endpoint,
+            "endpoint_str": span.endpoint_str,
+            "span_id": span.span_id,
+            "parent_span_id": span.parent_span_id,
+            "trace_id": span.trace_id,
+            "cluster_id": span.cluster_id,
+            "rps_dict": span.rps_dict,
+            "num_inflight_dict": span.num_inflight_dict,
+            "st": span.st,
+            "et": span.et,
+            "rt": span.rt,
+            "xt": span.xt,
+            "ct": span.ct,
+            "child_spans": span.child_spans,
+            "critical_child_spans": span.critical_child_spans,
+            "call_size": span.call_size,
+            "depth": span.depth,
+            "time": span.time,
+            "rps": span.rps,
+            "load_bucket": span.load_bucket
+        }
+        for region_traces in traces.values()
+        for load_bucket_traces in region_traces.values()
+        for single_trace in load_bucket_traces.values()
+        for span in single_trace['span']
+    )
+
+    df = pd.DataFrame(temp_gen)
+    return df
+    
+    ## old
+    # temp = list()
+    # for region in traces:
+    #     for load_bucket in traces[region]:
+    #         for tid in traces[region][load_bucket]:
+    #             single_trace = traces[region][load_bucket][tid]
+    #             for span in single_trace['span']:
+    #                 temp.append(span.unfold())
+    # df = pd.DataFrame(temp)
+    # # df.sort_values(by=["trace_id"])
+    # # df.reset_index(drop=True)
+    # return df
 
 
 def trace_to_df(traces):
     list_of_span_str = list()
     for region in traces:
-        for tid, single_trace in traces[region].items():
-            for span in single_trace['span']:
-                list_of_span_str.append(str(span))
+        for load_bucket in traces[region]:
+            for tid in traces[region][load_bucket]:
+                single_trace = traces[region][load_bucket][tid]
+                for span in single_trace['span']:
+                    list_of_span_str.append(str(span))
     col = ["cluster_id","svc_name","method","url","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size"]
     df = pd.DataFrame(list_of_span_str, columns=col)
     df.sort_values(by=["trace_id"])
@@ -563,14 +533,16 @@ def trace_to_df(traces):
     return df
 
 
-def get_placement_from_trace(traces):
+def get_placement_from_trace(given_traces):
     placement = dict()
-    for region in traces:
+    for region in given_traces:
         if region not in placement:
             placement[region] = set()
-        for tid, single_trace in traces[region].items():
-            for span in single_trace['span']:
-                placement[region].add(span.svc_name)
+        for load_bucket in given_traces[region]:
+            for tid in given_traces[region][load_bucket]:
+                single_trace = given_traces[region][load_bucket][tid]
+                for span in single_trace['span']:
+                    placement[region].add(span.svc_name)
     return placement
 
 
@@ -578,55 +550,207 @@ def filter_by_num_endpoint(given_traces, num_endpoint):
     ret_traces = dict()
     for region in given_traces:
         num_broken_trace = 0
-        for tid in given_traces[region]:
-            if len(given_traces[region][tid]['span']) == num_endpoint:
-                if region not in ret_traces:
-                    ret_traces[region] = dict()
-                broken_trace = False
-                for span in given_traces[region][tid]['span']:
-                    if len(span.rps_dict) != 1: # limitation
-                        logger.info(f"len(span.rps_dict), {len(span.rps_dict)} != 1, {span.rps_dict}")
-                        broken_trace = True
-                        break
-                if broken_trace:
-                    num_broken_trace += 1
-                    continue
-                if tid not in ret_traces[region]:
-                    ret_traces[region][tid] = dict()
-                ret_traces[region][tid] = given_traces[region][tid]
-            # else:
-            #     logger.debug(f"filtered out trace {tid}, number of endpoint is {len(traces[region][tid])} != {num_endpoint}")
-        success = len(ret_traces[region])
-        total = len(given_traces[region])
-        success_ratio = success/total
-        logger.debug(f"given_traces[{region}], {len(given_traces[region])}, num_broken_trace[{region}], {num_broken_trace}, success_ratio, {success_ratio}")
-        num_broken_trace = 0
+        for load_bucket in given_traces[region]:
+            for tid in given_traces[region][load_bucket]:
+                single_trace = given_traces[region][load_bucket][tid]
+                if len(single_trace['span']) == num_endpoint:
+                    broken_trace = False
+                    for span in single_trace['span']:
+                        if len(span.rps_dict) != 1: # limitation
+                            logger.info(f"len(span.rps_dict), {len(span.rps_dict)} != 1, {span.rps_dict}")
+                            broken_trace = True
+                            break
+                    if broken_trace:
+                        num_broken_trace += 1
+                        continue
+                    if region not in ret_traces:
+                        ret_traces[region] = dict()
+                    if load_bucket not in ret_traces[region]:
+                        ret_traces[region][load_bucket] = dict()
+                    ret_traces[region][load_bucket][tid] = single_trace
+                # else:
+                #     logger.debug(f"filtered out trace {tid}, number of endpoint is {len(traces[region][tid])} != {num_endpoint}")
+        # success = len(ret_traces[region])
+        # total = len(given_traces[region])
+        # success_ratio = success/total
+        # logger.debug(f"given_traces[{region}], {len(given_traces[region])}, num_broken_trace[{region}], {num_broken_trace}, success_ratio, {success_ratio}")
+        # num_broken_trace = 0
     return ret_traces
 
 
-def stitch_time(traces):
-    ret_traces = dict()
-    for region in traces:
-        for tid in traces[region]:
-            # logger.debug(f"traces[region][tid]['span']: {str(traces[region][tid]['span'])}")
-            ret = stitch_trace(traces[region][tid]['span'], tid)
-            if ret == True:
-                if region not in ret_traces:
-                    ret_traces[region] = dict()
-                # if tid not in ret_traces[region]:
-                #     ret_traces[region][tid] = dict()
-                ret_traces[region][tid] = traces[region][tid]
+def stitch_time(given_traces):
+    ret_traces = {}
+    for region, loads in given_traces.items():
+        region_traces = ret_traces.setdefault(region, {})
+        for load_bucket, tids in loads.items():
+            load_traces = region_traces.setdefault(load_bucket, {})
+            for tid, single_trace in tids.items():
+                if stitch_trace(single_trace, tid):
+                    load_traces[tid] = single_trace
+                else:
+                    logging.debug(f"stitch_trace failed for trace {tid}")
     return ret_traces
 
 
-def stitch_trace(trace, tid):
-    ep_str_cg = single_trace_to_endpoint_str_callgraph(trace)
+def stitch_trace(single_trace, tid):
+    ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
     root_ep_str = opt_func.find_root_node(ep_str_cg)
     if root_ep_str == False:
         return False # too many root nodes or no root node
-    relative_time_ret = change_to_relative_time(trace, tid)
-    xt_ret = calc_exclusive_time(trace)
-    ct_ret = analyze_critical_path_time(trace)
+    relative_time_ret = change_to_relative_time(single_trace, tid)
+    xt_ret = calc_exclusive_time(single_trace)
+    # ct_ret = analyze_critical_path_time(single_trace)
+    ct_ret = True
     if xt_ret == False or ct_ret == False or relative_time_ret == False:
         return False
     return True
+
+def single_trace_to_endpoint_str_callgraph(single_trace):
+    callgraph = {}
+    for span in single_trace['span']:
+        endpoint_str = f"{span.svc_name}.{span.method}.{span.url}"
+        if endpoint_str not in callgraph:
+            callgraph[endpoint_str] = []
+        for child_span in single_trace['span']:
+            if child_span.parent_span_id == span.span_id:
+                child_endpoint_str = f"{child_span.svc_name}.{child_span.method}.{child_span.url}"
+                callgraph[endpoint_str].append(child_endpoint_str)
+        if len(callgraph[endpoint_str]) > 1:
+            callgraph[endpoint_str].sort()
+    return callgraph
+
+
+def change_to_relative_time(single_trace, tid):
+    sp_cg = single_trace_to_span_callgraph(single_trace)
+    root_span = opt_func.find_root_node(sp_cg)
+    if not root_span:
+        return False
+
+    base_t = root_span.st
+    for span in single_trace['span']:
+        span.st -= base_t
+        span.et -= base_t
+        if span.st < 0 or span.et < span.st:
+            return False
+    return True
+
+def calc_exclusive_time(single_trace):
+    for parent_span in single_trace['span']:
+        child_spans = [span for span in single_trace['span'] if span.parent_span_id == parent_span.span_id]
+        
+        if not child_spans:
+            exclude_child_rt = 0
+        elif len(child_spans) == 1:
+            exclude_child_rt = child_spans[0].rt
+        else:
+            exclude_child_rt = calculate_exclude_child_rt(child_spans)
+
+        parent_span.xt = parent_span.rt - exclude_child_rt
+        if parent_span.xt <= 0:
+            return False
+    return True
+
+def calculate_exclude_child_rt(child_spans):
+    exclude_child_rt = 0
+    for i in range(len(child_spans)):
+        for j in range(i + 1, len(child_spans)):
+            if is_parallel_execution(child_spans[i], child_spans[j]):
+                exclude_child_rt = max(child_spans[i].rt, child_spans[j].rt)
+            else:
+                exclude_child_rt = child_spans[i].rt + child_spans[j].rt
+    return exclude_child_rt
+
+def single_trace_to_span_callgraph(single_trace):
+    callgraph = {}
+    for parent_span in single_trace['span']:
+        child_spans = [span for span in single_trace['span'] if span.parent_span_id == parent_span.span_id]
+        callgraph[parent_span] = sorted(child_spans, key=lambda x: (x.svc_name, x.method, x.url))
+    return callgraph
+
+
+# ###################################################################
+# ## Old
+# def stitch_time(given_traces):
+#     ret_traces = dict()
+#     for region in given_traces:
+#         for load_bucket in given_traces[region]:
+#             for tid in given_traces[region][load_bucket]:
+#                 single_trace = given_traces[region][load_bucket][tid]
+#                 if stitch_trace(single_trace, tid):
+#                     if region not in ret_traces:
+#                         ret_traces[region] = dict()
+#                     if load_bucket not in ret_traces[region]:
+#                         ret_traces[region][load_bucket] = dict()
+#                     if tid not in ret_traces[region][load_bucket]:
+#                         ret_traces[region][load_bucket][tid] = dict()
+#                     ret_traces[region][load_bucket][tid] = single_trace
+#                 else:
+#                     logger.debug(f"stitch_trace failed for trace {tid}")
+#     return ret_traces
+#
+# def single_trace_to_endpoint_str_callgraph(single_trace):
+#     callgraph = dict()
+#     for parent_span in single_trace['span']:
+#         parent_ep_str = parent_span.endpoint_str
+#         if parent_ep_str not in callgraph:
+#             callgraph[parent_ep_str] = list()
+#         for child_span in single_trace['span']:
+#             child_ep_str = child_span.endpoint_str
+#             if child_span.parent_span_id == parent_span.span_id:
+#                 callgraph[parent_ep_str].append(child_ep_str)
+#     for parent_ep_str in callgraph:
+#         callgraph[parent_ep_str].sort()
+#     return callgraph
+
+# def change_to_relative_time(single_trace, tid):
+#     # logger = logging.getLogger(__name__)
+#     sp_cg = single_trace_to_span_callgraph(single_trace)
+#     root_span = opt_func.find_root_node(sp_cg)
+#     if root_span == False:
+#         return False
+#     base_t = root_span.st
+#     for span in single_trace['span']:
+#         span.st -= base_t
+#         span.et -= base_t
+#         if span.st < 0.0 or span.et < 0.0 or span.et < span.st:
+#             return False
+#     return True
+
+
+# def calc_exclusive_time(single_trace):
+#     for parent_span in single_trace['span']:
+#         child_span_list = list()
+#         for span in single_trace['span']:
+#             if span.parent_span_id == parent_span.span_id:
+#                 child_span_list.append(span)
+#         if len(child_span_list) == 0:
+#             exclude_child_rt = 0
+#         elif  len(child_span_list) == 1:
+#             exclude_child_rt = child_span_list[0].rt
+#         else: # else is redundant but still I leave it there to make the if/else logic easy to follow
+#             for i in range(len(child_span_list)):
+#                 for j in range(i+1, len(child_span_list)):
+#                     is_parallel = is_parallel_execution(child_span_list[i], child_span_list[j])
+#                     if is_parallel == 1 or is_parallel == 2: # parallel execution
+#                         # TODO: parallel-1 and parallel-2 should be dealt with individually.
+#                         exclude_child_rt = max(child_span_list[i].rt, child_span_list[j].rt)
+#                     else: 
+#                         # sequential execution
+#                         exclude_child_rt = child_span_list[i].rt + child_span_list[j].rt
+#         parent_span.xt = parent_span.rt - exclude_child_rt
+#         # print(f"Service: {parent_span.svc_name}, Response time: {parent_span.rt}, Exclude_child_rt: {exclude_child_rt}, Exclusive time: {parent_span.xt}")
+#         if parent_span.xt <= 0.0:
+#             # print(f"ERROR: parent_span,{parent_span.svc_name}, span_id,{parent_span.span_id} exclusive time cannot be negative value: {parent_span.xt}")
+#             # print(f"ERROR: st,{parent_span.st}, et,{parent_span.et}, rt,{parent_span.rt}, xt,{parent_span.xt}")
+#             # print("trace")
+#             # for span in single_trace:
+#             #     print(span)
+#             return False
+#         ###########################################
+#         # if parent_span.svc_name == FRONTEND_svc:
+#         #     parent_span.xt = parent_span.rt
+#         # else:
+#         #     parent_span.xt = 0
+#         ###########################################
+#     return True
+# #############################################################################

@@ -186,7 +186,9 @@ def train_latency_function_with_trace(model, traces, directory, degree):
                 data = {key: value for key, value in data.items() if isinstance(value, list)}
                 # data: {endpoint_str: [rps], "latency": [latency]}
                 if model == "poly":
+                    ts = time.time()
                     coef_dict[region][svc_name][ep_str] = fit_polynomial_regression(data, "latency", svc_name, ep_str, region, directory, degree)
+                    logger.info(f"fit_polynomial_regression, {time.time()-ts}")
                 elif model == "mm1":
                     coef_dict[region][svc_name][ep_str] = fit_mm1_model(data, "latency", svc_name, ep_str, region, directory)
                 else:

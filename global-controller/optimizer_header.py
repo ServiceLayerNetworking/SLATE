@@ -1198,27 +1198,39 @@ def svc_to_cid(svc_order, unique_service):
                 svc_to_placement[idx].append(cid)
     return svc_to_placement
 
+def get_root_status(cg):
+    status = {node: True for node in cg}
+    for node, children in cg.items():
+        for child in children:
+            if child in status:
+                status[child] = False
+    return status
 
 def find_root_node(cg):
-    logger = logging.getLogger(__name__)
-    temp = dict()
-    root_node = list()
-    for parent_node in cg:
-        temp[parent_node] = "True"
-        for child_node in cg:
-            if parent_node in cg[child_node]:
-                temp[parent_node] = "False"
-        if temp[parent_node] == "True":
-            root_node.append(parent_node)
-    if len(root_node) == 0:
-        logger.error(f'ERROR: cannot find root node in callgraph')
+    # logger = logging.getLogger(__name__)
+    # temp = dict()
+    # root_node = list()
+    # for parent_node in cg:
+    #     temp[parent_node] = "True"
+    #     for child_node in cg:
+    #         if parent_node in cg[child_node]:
+    #             temp[parent_node] = "False"
+    #     if temp[parent_node] == "True":
+    #         root_node.append(parent_node)
+    # if len(root_node) == 0:
+    #     logger.debug(f'ERROR: cannot find root node in callgraph')
+    #     return False
+    # if len(root_node) > 1:
+    #     logger.error(f'ERROR: too many root node in callgraph')
+    #     logger.error(f"root_node: {root_node}")
+    #     logger.error(cg)
+    #     return False
+    # return root_node[0]
+    root_nodes = [node for node, is_root in get_root_status(cg).items() if is_root]
+    if len(root_nodes) != 1:
+        logging.error(f'ERROR: Invalid root node count in callgraph: {len(root_nodes)}')
         return False
-    if len(root_node) > 1:
-        logger.error(f'ERROR: too many root node in callgraph')
-        logger.error(f"root_node: {root_node}")
-        logger.error(cg)
-        return False
-    return root_node[0]
+    return root_nodes[0]
 
     
 def create_path(svc_order, comb, unpack_list, callgraph, key):
