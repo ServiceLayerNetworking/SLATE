@@ -197,8 +197,8 @@ def single_trace_to_span_callgraph(single_trace):
 
 
 def print_single_trace(single_trace):
-    print(f"print_sinelg_trace")
-    for span in single_trace:
+    logger.info(f"print_sinelg_trace")
+    for span in single_trace['span']:
         print(f"{span}")
 
 def print_dag(single_dag):
@@ -322,7 +322,8 @@ def traces_to_endpoint_str_callgraph_table(traces): # being used by global_contr
                     logger.info(f"new callgraph key: {hash_key}, {cg_key} in cluster {region}")
                     # NOTE: It is currently overwriting for the existing cg_key
                     ep_str_callgraph_table[hash_key] = ep_str_cg
-    return ep_str_callgraph_table, cg_key_hashmap
+    return ep_str_callgraph_table
+    # return ep_str_callgraph_table, cg_key_hashmap
 
 def file_write_callgraph_table(sp_callgraph_table):
     with open(f"{cfg.OUTPUT_DIR}/callgraph_table.csv", 'w') as file:
@@ -580,40 +581,96 @@ def filter_by_num_endpoint(given_traces, num_endpoint):
 
 def stitch_time(given_traces):
     ret_traces = {}
+    timestamp = {"callgraph": 0, "findroot": 0, "relativetime": 0, "exclusivetime": 0}
     for region, loads in given_traces.items():
         region_traces = ret_traces.setdefault(region, {})
         for load_bucket, tids in loads.items():
             load_traces = region_traces.setdefault(load_bucket, {})
             for tid, single_trace in tids.items():
-                if stitch_trace(single_trace, tid):
+                ret, temp = stitch_trace(single_trace, tid)
+                timestamp["callgraph"] += temp[0]
+                timestamp["findroot"] += temp[1]
+                timestamp["relativetime"] += temp[2]
+                timestamp["exclusivetime"] += temp[3]
+                if ret:
                     load_traces[tid] = single_trace
                 else:
                     logging.debug(f"stitch_trace failed for trace {tid}")
+    logger.info(f"stitch_time, timestamp: {timestamp}")
     return ret_traces
 
 
 def stitch_trace(single_trace, tid):
+    # logger.info(f"start stitch_trace, tid: {tid}")
+    # if detect_cycle(single_trace):
+    #     logging.error(f"Circular reference detected in trace {tid}")
+    #     assert False
+    # logger.info(f"start single_trace_to_endpoint_str_callgraph, {tid}")
+    temp = list()
+    ts = time.time()
     ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
+    temp.append(time.time()-ts)
+    # logger.info(f"end single_trace_to_endpoint_str_callgraph, {tid}")
+    # logger.info(f"start find_root_node, {tid}")
+    ts = time.time()
     root_ep_str = opt_func.find_root_node(ep_str_cg)
     if root_ep_str == False:
         return False # too many root nodes or no root node
+    temp.append(time.time()-ts)
+    # logger.info(f"end find_root_node, {tid}")
+    # logger.info(f"start change_to_relative_time, {tid}")
+    ts = time.time()
     relative_time_ret = change_to_relative_time(single_trace, tid)
+    temp.append(time.time()-ts)
+    # logger.info(f"end change_to_relative_time, {tid}")
+    # logger.info(f"start calc_exclusive_time, {tid}")
+    ts = time.time()
     xt_ret = calc_exclusive_time(single_trace)
+    temp.append(time.time()-ts)
+    # logger.info(f"end calc_exclusive_time, {tid}")
     # ct_ret = analyze_critical_path_time(single_trace)
     ct_ret = True
+    # logger.info(f"ends stitch_trace, tid: {tid}")
     if xt_ret == False or ct_ret == False or relative_time_ret == False:
         return False
-    return True
+    return True, temp
+
+def detect_cycle(single_trace):
+    """
+    Detect if there's a circular reference in the parent-child relationships
+    within single_trace based on parent_span_id.
+    """
+    visited = set()
+    stack = set()
+    def dfs(span_id):
+        if span_id in stack:
+            return True  # Found a cycle
+        if span_id in visited:
+            return False
+        visited.add(span_id)
+        stack.add(span_id)
+        child_spans = [span for span in single_trace['span'] if span.parent_span_id == span_id]
+        for child_span in child_spans:
+            if dfs(child_span.span_id):
+                return True
+        stack.remove(span_id)
+        return False
+    for span in single_trace['span']:
+        if span.parent_span_id is None:  # Root span check
+            if dfs(span.span_id):
+                logging.error(f"Circular reference detected starting from span {span.span_id}")
+                return True
+    return False
 
 def single_trace_to_endpoint_str_callgraph(single_trace):
     callgraph = {}
     for span in single_trace['span']:
-        endpoint_str = f"{span.svc_name}.{span.method}.{span.url}"
+        endpoint_str = f"{span.svc_name}{cfg.ep_del}{span.method}{cfg.ep_del}{span.url}"
         if endpoint_str not in callgraph:
             callgraph[endpoint_str] = []
         for child_span in single_trace['span']:
             if child_span.parent_span_id == span.span_id:
-                child_endpoint_str = f"{child_span.svc_name}.{child_span.method}.{child_span.url}"
+                child_endpoint_str = f"{child_span.svc_name}{cfg.ep_del}{child_span.method}{cfg.ep_del}{child_span.url}"
                 callgraph[endpoint_str].append(child_endpoint_str)
         if len(callgraph[endpoint_str]) > 1:
             callgraph[endpoint_str].sort()

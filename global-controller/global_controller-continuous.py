@@ -59,7 +59,6 @@ endpoint_to_cg_key = {}
 ep_str_callgraph_table = {}
 all_endpoints = {}
 temp_counter = 0
-prev_ts = time.time()
 load_coef_flag = False
 init_done = False
 use_optimizer_output = False
@@ -159,6 +158,9 @@ jumping_last_seen_opt_output = pd.DataFrame() # the last seen routing rules from
 global_processing_latencies = dict() # svc -> region -> pod -> method@path -> {latency_avg, num_reqs}
 global_prev_processing_latencies = dict()
 processing_latencies_mutex = Lock()
+max_num_trace = 0
+load_bucket_size = 0
+
 endpoint_sizes = {
     "/cart": 520,
     "/cart/checkout": 520,
@@ -1322,50 +1324,39 @@ def parse_stats_into_spans(body, given_svc_name):
                 logger.debug(f"Excluding {ep_load} in rps_dict")
                 continue
             # endpoint = sp.Endpoint(svc_name=serviceName, method=method, url=path)
-            rps = int(ep_load.split(",")[1])
-            if rps <= 0:
-                logger.info(f"Skip this span: rps is non-positive {rps}") # filtering condition 5 (negative rps)
+            rps_of_this_pod = int(ep_load.split(",")[1])
+            try:
+                num_pod_of_this_region = len(per_pod_ep_rps[region][serviceName][endpoint_str])
+            except Exception as e:
+                logger.error(e)
+                logger.error(f"ERROR: per_pod_ep_rps does not have {region}, {serviceName}, {endpoint_str}")
+                logger.error(f"per_pod_ep_rps: {per_pod_ep_rps}")
+                assert False
+            rps_of_all_pods = rps_of_this_pod*num_pod_of_this_region # NOTE: This is assuming the homogeneous nodes in each region and perfect roundrobin load balancing
+            if rps_of_all_pods <= 0:
+                logger.info(f"Skip this span: rps_of_all_pods is non-positive {rps_of_all_pods}") # filtering condition 5 (negative rps)
                 negative_rps_flag = True
                 rps_filtering += 1
                 continue
             inflight = int(ep_load.split(",")[2])
-            rps_dict[ep_load_endpoint_str] = rps
+            rps_dict[ep_load_endpoint_str] = rps_of_all_pods
             inflight_dict[ep_load_endpoint_str] = inflight
         if len(rps_dict) != 1:
             logger.debug(f"Skip this span: len(rps_dict) != 1, {rps_dict}")
             continue
         if negative_rps_flag:
             continue
-        num_pod = len(per_pod_ep_rps[region][serviceName][endpoint_str])
-        load_bucket = (rps*num_pod-50)//100 + 1
-        logger.debug(f"num_pod({region}, {serviceName}): {num_pod}, rps: {rps}, load_bucket: {load_bucket}")
-        assert rps > 0
+        load_bucket = max(1, (rps_of_all_pods - (load_bucket_size // 2)) // load_bucket_size + 1)
+        logger.debug(f"num_pod({region}, {serviceName}): {num_pod_of_this_region}, rps_of_all_pods: {rps_of_all_pods}, load_bucket: {load_bucket}")
+        assert rps_of_all_pods > 0
         temp_span = sp.Span(method, path, serviceName, region, \
             traceId, spanId, parentSpanId, \
             startTime, endTime, bodySize, \
             rps_dict=rps_dict, \
             num_inflight_dict=inflight_dict, \
             reported_time=time.time(), \
-            rps=rps, \
+            rps=rps_of_all_pods, \
             load_bucket=load_bucket) # 0-49: 0 50-149: 1, 150-249: 2, 250-349: 3, ...
-        
-        # temp_span_dict = dict()
-        # temp_span_dict["cluster_id"] = region
-        # temp_span_dict["trace_id"] = traceId
-        # temp_span_dict["span_id"] = spanId
-        # temp_span_dict["parent_span_id"] = parentSpanId
-        # temp_span_dict["svc_name"] = serviceName
-        # temp_span_dict["method"] = method
-        # temp_span_dict["path"] = path
-        # temp_span_dict["endpoint_str"] = endpoint_str
-        # temp_span_dict["st"] = startTime
-        # temp_span_dict["et"] = endTime
-        # temp_span_dict["rt"] = responseTime
-        # temp_span_dict["xt"] = 0
-        # temp_span_dict["ct"] = 0
-        # temp_span_dict["call_size"] = 0
-        # temp_span_dict["inflight_dict"] = inflight_dict
-        # temp_span_dict["rps_dict"] = rps_dict
         spans.append(temp_span)
     # logger.info(f"given number spans: {len(requestStats)}, response_time_filtering: {response_time_filtering}, path_filtering: {path_filtering}, rps_filtering: {rps_filtering}, passed spans: {len(spans)}")
     return spans
@@ -1492,41 +1483,40 @@ def handleProxyLoad():
         logger.debug(f"Ignore the request from {region} since there is no inter_cluster_latency info for {region}")
         return ""
     body = request.get_data().decode('utf-8')
-    inflightStats = parse_inflight_stats(body)
-    active_endpoint_stats = inflightStats.split("|")[:-1]
+    inflightStats = parse_inflight_stats(body) # "POST@/cart/checkout,28,0|"
+    active_endpoint_stats = inflightStats.split("|")[:-1] # ["POST@/cart/checkout,28,0"]
     svc_level_rps = parse_service_level_rps(body)
     # with endpoint_level_rps_mutex:
-    if region not in aggregated_rps:
-        aggregated_rps[region] = dict()
-    if svc not in aggregated_rps[region]:
-        aggregated_rps[region][svc] = dict()
-    if region not in per_pod_ep_rps:
-        per_pod_ep_rps[region] = dict()
-    if svc not in per_pod_ep_rps[region]:
-        per_pod_ep_rps[region][svc] = dict()
-    if inflightStats == "":
-        for endpoint in per_pod_ep_rps[region][svc]:
-            per_pod_ep_rps[region][svc][endpoint][podname] = 0
     if region not in service_level_rps:
         service_level_rps[region] = dict()
     service_level_rps[region][svc] = svc_level_rps
     
-    for endpoint_stat in active_endpoint_stats:
-        # E.g., endpoint_stat: GET@/start,4,1
-        logger.debug(f"endpoint_stats: {endpoint_stat}")
-        method_and_url = endpoint_stat.split(",")[0] # GET@/start
-        # method = method_and_url.split("@")[0] # GET
-        # url = method_and_url.split("@")[1] # /start
-        active_ep_ontick_rps = int(endpoint_stat.split(",")[1]) # 4
-        endpoint = svc + cfg.ep_del + method_and_url
-        with per_pod_ep_rps_mutex:
-            if endpoint not in endpoint_to_placement:
-                logger.debug(f"ERROR: Skip per_pod_ep_rps, {endpoint}. this endpoint is not in stitched trace.")
+    for endpoint_stat in active_endpoint_stats: # ["POST@/cart/checkout,28,0"]
+        method = endpoint_stat.split(",")[0].split("@")[0]
+        path = endpoint_stat.split(",")[0].split("@")[1]
+        active_ep_ontick_rps = int(endpoint_stat.split(",")[1]) # 28
+        endpoint_str = svc + cfg.ep_del + method + cfg.ep_del + path # frontend@POST@/cart/checkout"
+        
+        if "/hipstershop.CurrencyService/Convert" not in path and "/hipstershop.ProductCatalogService/GetProduct" not in path and "/hipstershop.ProductCatalogService/ListProducts" not in path: # filtering condition 4 (specific path in onlineboutique app)
+            if region not in aggregated_rps:
+                aggregated_rps[region] = dict()
+            if svc not in aggregated_rps[region]:
+                aggregated_rps[region][svc] = dict()
+            if region not in per_pod_ep_rps:
+                per_pod_ep_rps[region] = dict()
+            if svc not in per_pod_ep_rps[region]:
+                per_pod_ep_rps[region][svc] = dict()
+            if endpoint_str not in per_pod_ep_rps[region][svc]:
+                per_pod_ep_rps[region][svc][endpoint_str] = dict()
+            if inflightStats == "":
+                per_pod_ep_rps[region][svc][endpoint_str][podname] = 0
             else:
-                if endpoint not in per_pod_ep_rps[region][svc]:
-                    per_pod_ep_rps[region][svc][endpoint] = dict()
-                per_pod_ep_rps[region][svc][endpoint][podname] = active_ep_ontick_rps
-                logger.debug(f"per_pod_ep_rps, {region}, {svc}, {endpoint}, {active_ep_ontick_rps}")
+                per_pod_ep_rps[region][svc][endpoint_str][podname] = active_ep_ontick_rps
+                    
+            # with per_pod_ep_rps_mutex:
+            # if endpoint in endpoint_to_placement: # BUG: endpoint_to_placement will be updated only after the initialize_global_datastructure. So, endpoint_str will not be initialized if we use this if condition before the initialize_global_datastructure. Hence, I commented it. But how did it work before!?
+            # else:
+            #     logger.info(f"ERROR: Skip per_pod_ep_rps, {endpoint_str}. this endpoint is not in stitched trace.")
             
     spans = parse_stats_into_spans(body, svc) # filtering condition 3, 4, 5 are here
     # At this point, spans should at least pass all the basic filtering condition (region, svc, path, response time, rps)
@@ -1683,6 +1673,7 @@ def get_root_node_rps(ep_str_callgraph_table, aggregated_rps):
     root_ep = dict()
     for hashed_cg_key in ep_str_callgraph_table:
         root_ep[hashed_cg_key] = opt_func.find_root_node(ep_str_callgraph_table[hashed_cg_key])
+        logger.debug(f"root_ep[{hashed_cg_key}]: {root_ep}")
     root_node_rps = dict()
     if len(root_ep) != 0:
         logger.debug('root_node_rps,hashed_cg_key,region,svc_name,endpoint,rps')
@@ -1705,7 +1696,7 @@ def check_root_node_rps_condition(agg_root_node_rps):
     for cid in agg_root_node_rps:
         for svc in agg_root_node_rps[cid]:
             for ep in agg_root_node_rps[cid][svc]:
-                if agg_root_node_rps[cid][svc][ep] != 0:
+                if agg_root_node_rps[cid][svc][ep] != 0: # {'us-west-1': {'sslateingress': {'sslateingress@POST@/cart/checkout': 102}, 
                     agg_root_node_rps_exists = True
     return agg_root_node_rps_exists
 
@@ -1935,6 +1926,7 @@ def optimizer_entrypoint():
         f.write(f"objective: {objective}\n")
     if check_root_node_rps_condition(agg_root_node_rps) == False:
         logger.error(f'!!! Skip optimizer !!! all root_node_rps all regions are 0')
+        logger.info(f'aggreated_rps: {aggregated_rps}')
         return
     
     # for svc in max_capacity_per_service:
@@ -2361,8 +2353,8 @@ def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
                 logger.error(f"!!! ERROR !!! row: \n{row}")
                 assert False
             ep = temp[0] # user-us-west-1@POST@/user.User/CheckUser
-            rps = int(temp[1]) # 1
-            rps_dict[ep] = rps
+            rps_of_all_pods = int(temp[1]) # 1
+            rps_dict[ep] = rps_of_all_pods
             # svc_name = ep.split("@")[0]
             # method = ep.split("@")[1]
             # path = ep.split("@")[2]
@@ -2374,11 +2366,12 @@ def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
         else:
             call_size = int(row["call_size"])
         try:
-            assert rps > 0
+            assert rps_of_all_pods > 0
+            load_bucket = max(1, (rps_of_all_pods - (load_bucket_size // 2)) // load_bucket_size + 1)
             span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], \
                 row["trace_id"], row["span_id"], row["parent_span_id"], \
                     st=float(row["st"]), et=float(row["et"]), xt=int(row["xt"]), \
-                    callsize=call_size, rps_dict=rps_dict, num_inflight_dict=num_inflight_dict, reported_time=0, rps=rps, load_bucket=(rps-50)//100 + 1)
+                    callsize=call_size, rps_dict=rps_dict, num_inflight_dict=num_inflight_dict, reported_time=0, rps=rps_of_all_pods, load_bucket=load_bucket)
         except Exception as e:
             logger.error(f"!!! ERROR !!!: failed to create span with error: {e}")
             logger.error(f"!!! ERROR !!!: row: \n{row}")
@@ -2535,6 +2528,7 @@ def initialize_global_datastructure(stitched_traces):
     logger.info(f"Clusters in stitched_traces: {stitched_traces.keys()}")
     assert len(stitched_traces.keys()) > 0
     all_endpoints = tst.get_all_endpoints(stitched_traces)
+    logger.info(f"all_endpoints: {all_endpoints}")
     endpoint_to_placement = set_endpoint_to_placement(all_endpoints)
     set_svc_to_placement(all_endpoints)
     logger.info(f'svc_to_placement {svc_to_placement}')
@@ -2768,7 +2762,7 @@ def training_phase():
     stitched_complete_traces = tst.filter_by_num_endpoint(stitched_traces, required_total_num_services)
     for region in stitched_complete_traces:
         logger.info(f"num stitched_complete_traces[{region}]: {get_num_trace(stitched_complete_traces, region)}")
-    ep_str_callgraph_table, _ = tst.traces_to_endpoint_str_callgraph_table(stitched_complete_traces)
+    ep_str_callgraph_table = tst.traces_to_endpoint_str_callgraph_table(stitched_complete_traces)
     initialize_global_datastructure(stitched_complete_traces)
     
     for region in stitched_complete_traces:
@@ -2888,6 +2882,8 @@ def read_config_file():
     global hillclimb_stepsize
     # global all_clusters
     global traffic_segmentation
+    global max_num_trace
+    global load_bucket_size
     env_file = "env.txt"
     with open(env_file, "r") as file:
         lines = file.readlines()
@@ -3004,6 +3000,12 @@ def read_config_file():
                 hillclimb_enabled = int(line[1])
             elif line[0] == "hillclimb_stepsize":
                 hillclimb_stepsize = int(line[1])
+            elif line[0] == "max_num_trace":
+                max_num_trace = int(line[1])
+                assert max_num_trace >= 0
+            elif line[0] == "load_bucket_size":
+                load_bucket_size = int(line[1])
+                assert load_bucket_size >= 0
             else:
                 logger.debug(f"SKIP parsing unknown config: {line}")
                 # logger.error(f"ERROR: unknown config: {line}")
@@ -3028,57 +3030,48 @@ def record_endpoint_rps(aggregated_rps, counter):
                         temp = f"{counter},{region},{svc},{endpoint},{aggregated_rps[region][svc][endpoint]}"
                         f.write(temp + "\n")
                         
-def aggregate_rps_by_region_or_zero():
-    global per_pod_ep_rps
-    global aggregated_rps
-    global temp_counter
-    for region in all_endpoints:
-        if region not in aggregated_rps: aggregated_rps[region] = dict()
-        for svc_name in all_endpoints[region]:
-            if svc_name not in aggregated_rps[region]: aggregated_rps[region][svc_name] = dict()
-            for ep_str in all_endpoints[region][svc_name]:
-                # if endpoint not in aggregated_rps[region][svc_name]: aggregated_rps[region][svc_name][endpoint] = 0
-                aggregated_rps[region][svc_name][ep_str] = 0
-                logger.debug(f"Set zero, aggregated_rps[{region}][{svc_name}][{ep_str}]: {aggregated_rps[region][svc_name][ep_str]}")
-    
-    for region in per_pod_ep_rps:
-        for svc_name in per_pod_ep_rps[region]:
-            for endpoint in per_pod_ep_rps[region][svc_name]:
-                for podname in per_pod_ep_rps[region][svc_name][endpoint]:
-                    aggregated_rps[region][svc_name][endpoint] += per_pod_ep_rps[region][svc_name][endpoint][podname]
-                    
-    # logger.info("-"*80)
-    for region in per_pod_ep_rps:
-        for svc in per_pod_ep_rps[region]:
-            for endpoint in per_pod_ep_rps[region][svc]:
-                for podname in per_pod_ep_rps[region][svc][endpoint]:
-                    logger.debug(f"{temp_counter},per_pod_ep_rps,{region},{svc},{endpoint},{podname},{per_pod_ep_rps[region][svc][endpoint][podname]}")
-    # logger.info("-"*80)
-    # for region in aggregated_rps:
-    #     for svc in aggregated_rps[region]:
-    #         for endpoint in aggregated_rps[region][svc]:
-    #             logger.info(f"aggregated_rps,{region},{svc},{endpoint},{aggregated_rps[region][svc][endpoint]}")
-    # logger.info("-"*80)
 
 def aggregated_rps_routine():
     global per_pod_ep_rps
     global aggregated_rps
     global agg_root_node_rps
     global temp_counter
-    global prev_ts
-    # aggregate_rps_by_region_or_zero(per_pod_ep_rps)
-    aggregate_rps_by_region_or_zero()
+    ## initializing all_endpoint can take time
+    for region in per_pod_ep_rps:
+        if region not in aggregated_rps:
+            aggregated_rps[region] = dict()
+        for svc_name in per_pod_ep_rps[region]:
+            if svc_name not in aggregated_rps[region]:
+                aggregated_rps[region][svc_name] = dict()
+            for endpoint_str in per_pod_ep_rps[region][svc_name]:
+                # if endpoint not in aggregated_rps[region][svc_name]: aggregated_rps[region][svc_name][endpoint] = 0
+                aggregated_rps[region][svc_name][endpoint_str] = 0
+                logger.debug(f"Set zero, aggregated_rps[{region}][{svc_name}][{endpoint_str}]: {aggregated_rps[region][svc_name][endpoint_str]}")
+    
+    # aggregated_rps.setdefault(region, {}).setdefault(svc_name, {})[endpoint] = 0
+    for region in per_pod_ep_rps:
+        for svc_name in per_pod_ep_rps[region]:
+            for endpoint_str in per_pod_ep_rps[region][svc_name]:
+                for podname in per_pod_ep_rps[region][svc_name][endpoint_str]:
+                    aggregated_rps[region][svc_name][endpoint_str] += per_pod_ep_rps[region][svc_name][endpoint_str][podname]
+                    
+    logger.info("-"*80)
+    for region in aggregated_rps:
+        for svc in aggregated_rps[region]:
+            for endpoint_str in aggregated_rps[region][svc]:
+                logger.debug(f"aggregated_rps,{region},{svc},{endpoint_str},{aggregated_rps[region][svc][endpoint_str]}")
+    logger.info("-"*80)
+    
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
-    if check_root_node_rps_condition(agg_root_node_rps) or temp_counter > 0:
-        record_endpoint_rps(aggregated_rps, temp_counter)
-        # logger.info("-"*80)
-        # logger.info(f"aggregated_rps_routine, temp_counter-{temp_counter}, gap: {time.time()-prev_ts}")
-        # prev_ts = time.time()
-        # for region in agg_root_node_rps:
-        #     for svc in agg_root_node_rps[region]:
-        #         for endpoint in agg_root_node_rps[region][svc]:
-        #             logger.warning(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
-        # logger.warning("-"*80)
+    # if check_root_node_rps_condition(agg_root_node_rps) > 0:
+    record_endpoint_rps(aggregated_rps, temp_counter)
+    logger.info("-"*80)
+    logger.info(f"aggregated_rps_routine, temp_counter-{temp_counter}")
+    for region in agg_root_node_rps:
+        for svc in agg_root_node_rps[region]:
+            for endpoint in agg_root_node_rps[region][svc]:
+                logger.warning(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
+    logger.warning("-"*80)
     temp_counter += 1
 
         
@@ -3117,7 +3110,7 @@ def continuous_model_update():
             if region not in frontend_coef_history:
                 frontend_coef_history[region] = list()
             frontend_coef_history[region].append(coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'])
-            logger.info(f"frontend_coef_history[{region}]: {frontend_coef_history[region]}")
+            logger.info(f"frontend_coef_history[{region}]: {[int(x*1000000) for x in frontend_coef_history[region]]}")
         # logger.info(f"poly_coef_dict: {poly_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
         # logger.info(f"mm1_coef_dict: {mm1_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
         logger.info(f"coef_dict: {coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
@@ -3242,10 +3235,11 @@ def update_traces():
             
     ## method 3 (probably the most efficient)  
     import heapq
-    def enforce_trace_limit(max_num_trace=100):
+    def enforce_trace_limit(max_num_trace):
         with stitched_complete_traces_mutex:
             for region in stitched_complete_traces:
                 for load_bucket in stitched_complete_traces[region]:
+                    load_bucket_range = [load_bucket_size*(load_bucket-1), load_bucket_size*load_bucket-1]
                     previous_count = len(stitched_complete_traces[region][load_bucket])
                     if previous_count > max_num_trace:
                         # Collect trace IDs with their most recent time
@@ -3261,9 +3255,12 @@ def update_traces():
                             del stitched_complete_traces[region][load_bucket][trace_id]
                         # Log the results
                         current_count = len(stitched_complete_traces[region][load_bucket])
-                        logger.info(f"counter[{start_counter}], sliding window, region {region}, load_bucket[{load_bucket}]: {previous_count} -> {current_count}")
+                        logger.info(f"counter[{start_counter}], sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {current_count}")
+                    else:
+                        logger.info(f"counter[{start_counter}], sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count}")
+                        
     ts3 = time.time()
-    enforce_trace_limit(max_num_trace=100)
+    enforce_trace_limit(max_num_trace)
     logger.info(f"counter[{start_counter}], sliding window ends, runtime: {int(time.time() - ts3)}s")
     
     print_num_trace_in_all_regions(stitched_complete_traces, "after sliding window, stitched_complete_traces")

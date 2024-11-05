@@ -1207,30 +1207,31 @@ def get_root_status(cg):
     return status
 
 def find_root_node(cg):
-    # logger = logging.getLogger(__name__)
-    # temp = dict()
-    # root_node = list()
-    # for parent_node in cg:
-    #     temp[parent_node] = "True"
-    #     for child_node in cg:
-    #         if parent_node in cg[child_node]:
-    #             temp[parent_node] = "False"
-    #     if temp[parent_node] == "True":
-    #         root_node.append(parent_node)
-    # if len(root_node) == 0:
-    #     logger.debug(f'ERROR: cannot find root node in callgraph')
-    #     return False
-    # if len(root_node) > 1:
-    #     logger.error(f'ERROR: too many root node in callgraph')
-    #     logger.error(f"root_node: {root_node}")
-    #     logger.error(cg)
-    #     return False
-    # return root_node[0]
-    root_nodes = [node for node, is_root in get_root_status(cg).items() if is_root]
-    if len(root_nodes) != 1:
-        logging.error(f'ERROR: Invalid root node count in callgraph: {len(root_nodes)}')
+    logger = logging.getLogger(__name__)
+    temp = dict()
+    root_node = list()
+    for parent_node in cg:
+        temp[parent_node] = "True"
+        for child_node in cg:
+            if parent_node in cg[child_node]:
+                temp[parent_node] = "False"
+        if temp[parent_node] == "True":
+            root_node.append(parent_node)
+    if len(root_node) == 0:
+        logger.debug(f'ERROR: cannot find root node in callgraph')
         return False
-    return root_nodes[0]
+    if len(root_node) > 1:
+        logger.error(f'ERROR: too many root node in callgraph')
+        logger.error(f"root_node: {root_node}")
+        logger.error(cg)
+        return False
+    return root_node[0]
+
+    # root_nodes = [node for node, is_root in get_root_status(cg).items() if is_root]
+    # if len(root_nodes) != 1:
+    #     logging.error(f'ERROR: Invalid root node count in callgraph: {len(root_nodes)}')
+    #     return False
+    # return root_nodes[0]
 
     
 def create_path(svc_order, comb, unpack_list, callgraph, key):
