@@ -588,10 +588,10 @@ def stitch_time(given_traces):
             load_traces = region_traces.setdefault(load_bucket, {})
             for tid, single_trace in tids.items():
                 ret, temp = stitch_trace(single_trace, tid)
-                timestamp["callgraph"] += temp[0]
-                timestamp["findroot"] += temp[1]
-                timestamp["relativetime"] += temp[2]
-                timestamp["exclusivetime"] += temp[3]
+                # timestamp["callgraph"] += temp["callgraph"]
+                timestamp["findroot"] += temp["findroot"]
+                timestamp["relativetime"] += temp["relativetime"]
+                timestamp["exclusivetime"] += temp["exclusivetime"]
                 if ret:
                     load_traces[tid] = single_trace
                 else:
@@ -601,36 +601,31 @@ def stitch_time(given_traces):
 
 
 def stitch_trace(single_trace, tid):
-    # logger.info(f"start stitch_trace, tid: {tid}")
-    # if detect_cycle(single_trace):
-    #     logging.error(f"Circular reference detected in trace {tid}")
-    #     assert False
-    # logger.info(f"start single_trace_to_endpoint_str_callgraph, {tid}")
-    temp = list()
+    temp = dict()
+    # ts = time.time()
+    # ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
+    # temp["callgraph"] = time.time()-ts
+    # ts = time.time()
+    # root_ep_str = opt_func.find_root_node(ep_str_cg)
+    
+    
     ts = time.time()
-    ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
-    temp.append(time.time()-ts)
-    # logger.info(f"end single_trace_to_endpoint_str_callgraph, {tid}")
-    # logger.info(f"start find_root_node, {tid}")
-    ts = time.time()
-    root_ep_str = opt_func.find_root_node(ep_str_cg)
-    if root_ep_str == False:
+    root_ep_str = None
+    for span in single_trace['span']:
+        if span.svc_name == "sslateingress":
+            root_ep_str = span.endpoint_str
+            break
+    if not root_ep_str:
+        logger.error(f"Cannot find root endpoint in callgraph")
         return False # too many root nodes or no root node
-    temp.append(time.time()-ts)
-    # logger.info(f"end find_root_node, {tid}")
-    # logger.info(f"start change_to_relative_time, {tid}")
+    temp["findroot"] = time.time()-ts
     ts = time.time()
     relative_time_ret = change_to_relative_time(single_trace, tid)
-    temp.append(time.time()-ts)
-    # logger.info(f"end change_to_relative_time, {tid}")
-    # logger.info(f"start calc_exclusive_time, {tid}")
+    temp["relativetime"] = time.time()-ts
     ts = time.time()
     xt_ret = calc_exclusive_time(single_trace)
-    temp.append(time.time()-ts)
-    # logger.info(f"end calc_exclusive_time, {tid}")
-    # ct_ret = analyze_critical_path_time(single_trace)
+    temp["exclusivetime"] = time.time()-ts
     ct_ret = True
-    # logger.info(f"ends stitch_trace, tid: {tid}")
     if xt_ret == False or ct_ret == False or relative_time_ret == False:
         return False
     return True, temp
@@ -678,11 +673,15 @@ def single_trace_to_endpoint_str_callgraph(single_trace):
 
 
 def change_to_relative_time(single_trace, tid):
-    sp_cg = single_trace_to_span_callgraph(single_trace)
-    root_span = opt_func.find_root_node(sp_cg)
+    # sp_cg = single_trace_to_span_callgraph(single_trace)
+    # root_span = opt_func.find_root_node(sp_cg)
+    root_span = None
+    for span in single_trace['span']:
+        if span.svc_name == "sslateingress":
+            root_span = span
+            break
     if not root_span:
         return False
-
     base_t = root_span.st
     for span in single_trace['span']:
         span.st -= base_t

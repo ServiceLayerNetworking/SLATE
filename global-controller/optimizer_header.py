@@ -1207,7 +1207,6 @@ def get_root_status(cg):
     return status
 
 def find_root_node(cg):
-    logger = logging.getLogger(__name__)
     temp = dict()
     root_node = list()
     for parent_node in cg:
