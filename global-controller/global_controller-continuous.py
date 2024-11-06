@@ -28,6 +28,7 @@ import copy
 import warnings
 import json
 import replicate_trace_to_diff_region as trace_parser
+import heapq
 
 # Filter specific FutureWarning related to pandas concatenation.
 
@@ -2613,9 +2614,10 @@ def check_negative_coef(coef_dict):
                         else: 
                             if coef_dict[region][svc_name][ep_str]['intercept'] < 0:
                                 # a is positive but intercept is negative
-                                coef_dict[region][svc_name][ep_str]['intercept'] = 1
+                                load_bucket_0_xt = calc_avg_exclusive_time_of_load_bucket(region, svc_name, ep_str, target_load_bucket=1)
+                                coef_dict[region][svc_name][ep_str]['intercept'] = load_bucket_0_xt
                                 print(f"WARNING: coef_dict[{region}][{svc_name}][{ep_str}], coefficient is positive.")
-                                print(f"WARNING: But, coef_dict[{region}][{svc_name}][{ep_str}], intercept is negative. Set it to 0.")
+                                print(f"WARNING: But, coef_dict[{region}][{svc_name}][{ep_str}], intercept is negative. Set it to load_bucket_0_xt, {load_bucket_0_xt}.")
                             
                             
 def set_zero_coef(coef_dict):
@@ -2651,7 +2653,7 @@ def new_read_trace_csv(trace_csv):
     return df
 
 
-def new_fit_mm1_model(df, ep_str):
+def new_fit_mm1_model(local_counter, region, svc_name, df, ep_str):
     from scipy.optimize import curve_fit
     exclusive_time_list = df["xt"].tolist()
     max_rps = df["rps"].max()
@@ -2662,13 +2664,32 @@ def new_fit_mm1_model(df, ep_str):
     return {ep_str: popt[0], 'intercept': popt[1]}
 
 
-def new_fit_polynomial_regression(df, degree, ep_str):
+def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, ep_str):
     rps_list = df["rps"].tolist()
     exclusive_time_list = df["xt"].tolist()
+    response_time_list = df["rt"].tolist()
     temp = np.array([x**degree for x in rps_list]).reshape(-1, 1)  # Reshape to 2D
     X_transformed = np.hstack((temp, np.ones((len(rps_list), 1))))
     model = LinearRegression(fit_intercept=False)
     model.fit(X_transformed, exclusive_time_list)
+    
+    if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
+        plt.figure()
+        plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt")
+        plt.scatter(rps_list, response_time_list, color='green', alpha=0.5, label="rt")
+        xplot = np.linspace(0, max(rps_list), 1000)
+        yplot = model.coef_[0] * xplot**degree + model.coef_[1]
+        plt.plot(xplot, yplot, color='blue')
+        if "poly" not in os.listdir():
+            os.mkdir("poly")
+        fn = f"poly/poly-{region}-{svc_name}-{local_counter}.pdf"
+        plt.title(f"{fn}")
+        plt.xlabel("RPS")
+        plt.ylabel("Exclusive Time")
+        plt.savefig(fn)
+        logger.info(f"Save the plot to {fn}")
+        plt.close()
+    
     return {ep_str: model.coef_[0], 'intercept': model.coef_[1]}
 
 # def new_train_latency_function_with_trace(model, df, degree):
@@ -2698,13 +2719,14 @@ def new_fit_polynomial_regression(df, degree, ep_str):
 
 def new_train_latency_function_with_trace(model, df, degree):
     coef_dict = {}
-    for (cid, svc_name, ep_str), ep_df in df.groupby(["cluster_id", "svc_name", "endpoint_str"]):
-        coef_dict.setdefault(cid, {}).setdefault(svc_name, {})
+    local_counter = temp_counter
+    for (region, svc_name, ep_str), ep_df in df.groupby(["cluster_id", "svc_name", "endpoint_str"]):
+        coef_dict.setdefault(region, {}).setdefault(svc_name, {})
         latency_func.setdefault(svc_name, {})
         if model == "poly":
-            coef_dict[cid][svc_name][ep_str] = new_fit_polynomial_regression(ep_df, degree, ep_str)
+            coef_dict[region][svc_name][ep_str] = new_fit_polynomial_regression(local_counter, region, svc_name, ep_df, degree, ep_str)
         elif model == "mm1":
-            coef_dict[cid][svc_name][ep_str] = new_fit_mm1_model(ep_df, ep_str)
+            coef_dict[region][svc_name][ep_str] = new_fit_mm1_model(local_counter, region, svc_name, ep_df, ep_str)
         else:
             logger.error(f"ERROR: Unsupported model type '{model}' specified")
             raise ValueError(f"Invalid model: {model}")
@@ -2825,7 +2847,7 @@ def training_phase():
             for region in coef_dict:
                 if region not in frontend_coef_history:
                     frontend_coef_history[region] = list()
-                frontend_coef_history[region].append(coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'])
+                frontend_coef_history[region].append([coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'], coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['intercept']])
                 
             
             check_negative_coef(coef_dict)
@@ -3015,6 +3037,7 @@ def read_config_file():
 
 
 def record_endpoint_rps(aggregated_rps, counter):
+    logger.info("record_endpoint_rps, endpoint_rps_history.csv")
     endpoint_rps_fn = "endpoint_rps_history.csv"
     if os.path.isfile(endpoint_rps_fn) == False:
         with open(endpoint_rps_fn, "w") as f:
@@ -3055,13 +3078,6 @@ def aggregated_rps_routine():
                 for podname in per_pod_ep_rps[region][svc_name][endpoint_str]:
                     aggregated_rps[region][svc_name][endpoint_str] += per_pod_ep_rps[region][svc_name][endpoint_str][podname]
                     
-    logger.info("-"*80)
-    for region in aggregated_rps:
-        for svc in aggregated_rps[region]:
-            for endpoint_str in aggregated_rps[region][svc]:
-                logger.debug(f"aggregated_rps,{region},{svc},{endpoint_str},{aggregated_rps[region][svc][endpoint_str]}")
-    logger.info("-"*80)
-    
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
     # if check_root_node_rps_condition(agg_root_node_rps) > 0:
     record_endpoint_rps(aggregated_rps, temp_counter)
@@ -3071,7 +3087,7 @@ def aggregated_rps_routine():
         for svc in agg_root_node_rps[region]:
             for endpoint in agg_root_node_rps[region][svc]:
                 logger.warning(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
-    logger.warning("-"*80)
+    logger.info("-"*80)
     temp_counter += 1
 
         
@@ -3080,6 +3096,22 @@ def state_check():
     if state != "SUCCESS" and state != "empty":
         logger.info(f"state: {state}")
 
+def calc_avg_exclusive_time_of_load_bucket(region, svc_name, ep_str, target_load_bucket):
+    latency_sum = 0
+    num_trace = 0
+    if region in stitched_complete_traces:
+        if target_load_bucket in stitched_complete_traces[region]:
+            for trace_id in stitched_complete_traces[region][target_load_bucket]:
+                single_trace = stitched_complete_traces[region][target_load_bucket][trace_id]
+                for span in single_trace['span']:
+                    if span.svc_name == svc_name and span.endpoint_str == ep_str:
+                        latency_sum += span.xt
+                        num_trace += 1
+    if num_trace == 0:
+        logger.warning(f"counter[{temp_counter}], load_bucket[{target_load_bucket}] does not exist in {region}, {svc_name}")
+        return 0
+    logger.info(f"counter[{temp_counter}], load_bucket[{target_load_bucket}], avg exclusive time: {latency_sum / num_trace}")
+    return latency_sum / num_trace
 
 def continuous_model_update():
     global stitched_complete_traces
@@ -3109,8 +3141,8 @@ def continuous_model_update():
         for region in coef_dict:
             if region not in frontend_coef_history:
                 frontend_coef_history[region] = list()
-            frontend_coef_history[region].append(coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'])
-            logger.info(f"frontend_coef_history[{region}]: {[int(x*1000000) for x in frontend_coef_history[region]]}")
+            frontend_coef_history[region].append([coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'], coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['intercept']])
+            logger.info(f"frontend_coef_history[{region}]: {frontend_coef_history[region]}")
         # logger.info(f"poly_coef_dict: {poly_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
         # logger.info(f"mm1_coef_dict: {mm1_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
         logger.info(f"coef_dict: {coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
@@ -3189,52 +3221,25 @@ def update_traces():
     logger.info(f"counter[{start_counter}], add_new_traces_to_stitched_complete_traces")
     print_num_trace_in_all_regions(stitched_complete_traces, "curr stitched_complete_traces")
 
-    
-    # ## method 1
-    # def enforce_trace_limit(max_num_trace):
-    #     global stitched_complete_traces
-    #     new_stitched_complete_traces = {}
-    #     with stitched_complete_traces_mutex:
-    #         for region in stitched_complete_traces:
-    #             new_stitched_complete_traces[region] = {}
-    #             for load_bucket in stitched_complete_traces[region]:
-    #                 trace_times = []
-    #                 for trace_id, trace_data in stitched_complete_traces[region][load_bucket].items():
-    #                     most_recent_time = max(trace_data["time"])
-    #                     trace_times.append((trace_id, most_recent_time))
-    #                 trace_times.sort(key=lambda x: x[1])
-    #                 traces_to_keep = trace_times[-max_num_trace:]
-    #                 new_stitched_complete_traces[region][load_bucket] = {
-    #                     trace_id: stitched_complete_traces[region][load_bucket][trace_id]
-    #                     for trace_id, _ in traces_to_keep
-    #                 }
-    #                 logger.info(f"Retained {len(traces_to_keep)} traces in region '{region}', load_bucket '{load_bucket}'")
-    #     return new_stitched_complete_traces
-    # stitched_complete_traces = enforce_trace_limit(max_num_trace=100)
-    
-    
-    # ## method 2
-    # def enforce_trace_limit(max_num_trace):
-    #     with stitched_complete_traces_mutex:
-    #         for region in stitched_complete_traces:
-    #             for load_bucket in stitched_complete_traces[region]:
-    #                 previous_count = len(stitched_complete_traces[region][load_bucket])
-    #                 if len(stitched_complete_traces[region][load_bucket]) > max_num_trace:
-    #                     trace_times = []
-    #                     for trace_id, trace_data in stitched_complete_traces[region][load_bucket].items():
-    #                         most_recent_time = max(trace_data["time"])
-    #                         trace_times.append((trace_id, most_recent_time))
-    #                     trace_times.sort(key=lambda x: x[1])
-    #                     traces_to_remove = trace_times[:len(trace_times) - max_num_trace]
-    #                     trace_ids_to_delete = [trace_id for trace_id, _ in traces_to_remove]
-    #                     for trace_id in trace_ids_to_delete:
-    #                         del stitched_complete_traces[region][load_bucket][trace_id]
-    #                     current_count = len(stitched_complete_traces[region][load_bucket])
-    #                     logger.info(f"counter[{start_counter}], sliding window, region,{region}, load_bucket[{load_bucket}]: {previous_count} -> {current_count}")
-    # enforce_trace_limit(max_num_trace=100)
-            
+
+    def random_sampling_per_load_bucket(sampling_ratio, max_num_trace):
+        global stitched_complete_traces
+        with stitched_complete_traces_mutex:
+            local_counter = temp_counter
+            for region in stitched_complete_traces:
+                for load_bucket in stitched_complete_traces[region]:
+                    prev_num_trace = len(stitched_complete_traces[region][load_bucket])
+                    if prev_num_trace > max_num_trace:
+                        trace_ids_to_delete = [
+                            trace_id for trace_id in stitched_complete_traces[region][load_bucket]
+                            if random.random() > sampling_ratio
+                        ]
+                        for trace_id in trace_ids_to_delete:
+                            del stitched_complete_traces[region][load_bucket][trace_id]
+                        curr_num_trace = len(stitched_complete_traces[region][load_bucket])
+                        logger.info(f"counter[{local_counter}], sampling, sampling_ratio: {sampling_ratio}, load_bucket[{load_bucket}]: {prev_num_trace} -> {curr_num_trace}")
+
     ## method 3 (probably the most efficient)  
-    import heapq
     def enforce_trace_limit(max_num_trace):
         with stitched_complete_traces_mutex:
             for region in stitched_complete_traces:
@@ -3258,8 +3263,8 @@ def update_traces():
                         logger.info(f"counter[{start_counter}], sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {current_count}")
                     else:
                         logger.info(f"counter[{start_counter}], sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count}")
-                        
     ts3 = time.time()
+    random_sampling_per_load_bucket(0.9, max_num_trace)
     enforce_trace_limit(max_num_trace)
     logger.info(f"counter[{start_counter}], sliding window ends, runtime: {int(time.time() - ts3)}s")
     
