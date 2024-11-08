@@ -9,12 +9,13 @@ import (
 )
 
 const (
-	KEY_HILLCLIMBING_ENABLED       = "hillclimbing_enabled"
-	KEY_REQUEST_COUNT              = "slate_rps"
-	KEY_HILLCLIMB_INITIAL_STEPSIZE = "initial_hillclimbing_stepsize"
-	KEY_HILLCLIMB_INTERVAL         = "hillclimbing_interval"
-	KEY_HILLCLIMB_INBOUNDRPS       = "hillclimbing_inboundrps"
-	KEY_NO_TRACEID                 = "no_traceid"
+	KEY_REQUEST_COUNT          = "slate_rps"
+	KEY_HILLCLIMB_INBOUNDRPS   = "hillclimbing_inboundrps"
+	KEY_NO_TRACEID             = "no_traceid"
+	KEY_ENDPOINT_RPS_LIST      = "slate_endpoint_rps_list"
+	KEY_OUTBOUND_ENDPOINT_LIST = "slate_outbound_endpoint_list"
+	KEY_INBOUND_ENDPOINT_LIST  = "slate_inbound_endpoint_list"
+	KEY_TRACED_REQUESTS        = "slate_traced_requests"
 )
 
 // TracedRequestStats is a struct that holds information about a traced request.
@@ -34,6 +35,67 @@ type TracedRequestStats struct {
 type EndpointStats struct {
 	Inflight uint64
 	Total    uint64
+}
+
+/*
+TimestampListGetRPS will get the number of requests in the last second for the given method and path.
+It can do this cheaply it just needs to get the read and write positions of the list, and then calculate
+the number of requests in the last second.
+
+The data is a comma-separated string of timestamps. we add new timestamps to the end (.append),
+and evict from the front (to simulate efficiency of a queue).
+
+The "queue size" is then updated to reflect the new size of the queue. This is returned.
+*/
+func TimestampListGetRPS(method string, path string) uint64 {
+	// get list of timestamps
+	readPosBytes, _, err := proxywasm.GetSharedData(TimestampListReadPosKey(method, path))
+	if err != nil {
+		return 0
+	}
+	readPos := binary.LittleEndian.Uint64(readPosBytes)
+	writePosBytes, _, err := proxywasm.GetSharedData(TimestampListWritePosKey(method, path))
+	if err != nil {
+		return 0
+	}
+	writePos := binary.LittleEndian.Uint64(writePosBytes)
+	queueSize := writePos - readPos
+	return queueSize / 4
+}
+
+// Get the current load conditions of all traced requests.
+func GetEndpointLoadConditions() (map[string]EndpointStats, error) {
+	requestStats := make(map[string]EndpointStats)
+	rpsEndpoints, _, err := proxywasm.GetSharedData(KEY_ENDPOINT_RPS_LIST)
+	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
+		proxywasm.LogCriticalf("Couldn't get shared data for rps request stats: %v", err)
+		return nil, err
+	}
+	if len(rpsEndpoints) == 0 || errors.Is(err, types.ErrorStatusNotFound) || EmptyBytes(rpsEndpoints) {
+		// no requests traced
+		return requestStats, nil
+	}
+	rpsEndpointsList := strings.Split(string(rpsEndpoints), ",")
+	for _, endpoint := range rpsEndpointsList {
+		if EmptyBytes([]byte(endpoint)) {
+			continue
+		}
+		mp := strings.Split(endpoint, "@")
+		if len(mp) != 2 {
+			continue
+		}
+		method := mp[0]
+		path := mp[1]
+		requestStats[endpoint] = EndpointStats{
+			Inflight: 0,
+			Total:    TimestampListGetRPS(method, path),
+		}
+		if err != nil {
+			proxywasm.LogCriticalf("Couldn't get shared data for endpoint %v inflight request stats: %v", endpoint, err)
+		}
+	}
+
+	return requestStats, nil
 }
 
 // IncrementSharedData increments the value of the shared data at the given key. The data is
@@ -156,6 +218,14 @@ func EndpointListKey(method string, path string) string {
 	return method + "@" + path
 }
 
+func OutboundRequestListElementKey(dstsvc string, method string, path string) string {
+	return dstsvc + "@" + method + "@" + path
+}
+
+func InboundRequestListElementKey(method string, path string) string {
+	return method + "@" + path
+}
+
 func InflightCountKey(method string, path string) string {
 	return "inflight/" + method + "-" + path
 }
@@ -207,10 +277,10 @@ func RegionOutboundLatencyTotalRequestsKey(svc, method, path, region string) str
 	return svc + "@" + method + "@" + path + "@" + region + "-outbound-latency-totalrequests"
 }
 
-func PerSecondLatencyKey(svc, method, path string) string {
-	return svc + "@" + method + "@" + path + "-per-second-latency-total"
+func InboundLatencyRunningAvgKey(method, path string) string {
+	return method + "@" + path + "-inbound-latency"
 }
 
-func PerSecondLatencyTotalRequestsKey(svc, method, path string) string {
-	return svc + "@" + method + "@" + path + "-per-second-latency-totalrequests"
+func InboundLatencyTotalRequestsKey(method, path string) string {
+	return method + "@" + path + "-inbound-latency-totalrequests"
 }

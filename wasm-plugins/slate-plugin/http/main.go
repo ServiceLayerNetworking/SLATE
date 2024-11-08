@@ -21,7 +21,6 @@ import (
 // a lot of these keys are not used.
 const (
 	KEY_INFLIGHT_ENDPOINT_LIST = "slate_inflight_endpoint_list"
-	KEY_ENDPOINT_RPS_LIST      = "slate_endpoint_rps_list"
 	KEY_INFLIGHT_REQ_COUNT     = "slate_inflight_request_count"
 	KEY_LAST_RESET             = "slate_last_reset"
 	KEY_RPS_THRESHOLDS         = "slate_rps_threshold"
@@ -33,14 +32,14 @@ const (
 	KEY_RPS_SHARED_QUEUE_SIZE = "slate_rps_shared_queue_size"
 
 	// Hash mod for frequency of request tracing.
-	DEFAULT_HASH_MOD = 1000000
+	DEFAULT_HASH_MOD = 10000000
 
 	KEY_MATCH_DISTRIBUTION = "slate_match_distribution"
 )
 
 var (
 	ALL_KEYS = []string{KEY_INFLIGHT_REQ_COUNT, KEY_LAST_RESET, KEY_RPS_THRESHOLDS, KEY_HASH_MOD, AGGREGATE_REQUEST_LATENCY,
-		KEY_TRACED_REQUESTS, KEY_MATCH_DISTRIBUTION, KEY_INFLIGHT_ENDPOINT_LIST, KEY_ENDPOINT_RPS_LIST, KEY_RPS_SHARED_QUEUE, KEY_RPS_SHARED_QUEUE_SIZE}
+		KEY_TRACED_REQUESTS, KEY_MATCH_DISTRIBUTION, KEY_INFLIGHT_ENDPOINT_LIST, shared.KEY_ENDPOINT_RPS_LIST, KEY_RPS_SHARED_QUEUE, KEY_RPS_SHARED_QUEUE_SIZE}
 )
 
 func main() {
@@ -90,7 +89,8 @@ type pluginContext struct {
 	serviceName      string
 	svcWithoutRegion string
 
-	region string
+	tracingHashMod int
+	region         string
 
 	startTime int64
 }
@@ -108,31 +108,12 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	if regionName == "" {
 		regionName = "SLATE_UNKNOWN_REGION"
 	}
-	hillclimbing := os.Getenv("HILLCLIMBING")
-	if hillclimbing == "" {
-		hillclimbing = "false"
-	}
-	proxywasm.LogCriticalf("Hillclimbing: %v", hillclimbing)
-	if err := proxywasm.SetSharedData(shared.KEY_HILLCLIMBING_ENABLED, []byte(hillclimbing), 0); err != nil {
-		proxywasm.LogCriticalf("unable to set shared data for hillclimbing to %v: %v", hillclimbing, err)
-	}
-	hillclimb_interval := os.Getenv("HILLCLIMB_INTERVAL")
-	proxywasm.LogCriticalf("Hillclimb interval: %v", hillclimb_interval)
-	if hillclimb_interval == "" {
-		proxywasm.LogCriticalf("HILLCLIMB_INTERVAL not set, defaulting to 15")
-		hillclimb_interval = "15"
-	}
-	if err := proxywasm.SetSharedData(shared.KEY_HILLCLIMB_INTERVAL, []byte(hillclimb_interval), 0); err != nil {
-		proxywasm.LogCriticalf("unable to set shared data for hillclimb interval to %v: %v", hillclimb_interval, err)
-	}
-	hillclimb_stepsize := os.Getenv("HILLCLIMB_INITIAL_STEPSIZE")
-	if hillclimb_stepsize == "" {
-		proxywasm.LogCriticalf("HILLCLIMB_INITIAL_STEPSIZE not set, defaulting to 2")
-		hillclimb_stepsize = "2"
-	}
-	proxywasm.LogCriticalf("Hillclimb stepsize: %v", hillclimb_stepsize)
-	if err := proxywasm.SetSharedData(shared.KEY_HILLCLIMB_INITIAL_STEPSIZE, []byte(hillclimb_stepsize), 0); err != nil {
-		proxywasm.LogCriticalf("unable to set shared data for hillclimb stepsize to %v: %v", hillclimb_stepsize, err)
+	tracingHashMod := os.Getenv("TRACING_HASH_MOD")
+	if tracingHashMod != "" {
+		tmp, _ := strconv.Atoi(tracingHashMod)
+		p.tracingHashMod = tmp
+	} else {
+		p.tracingHashMod = DEFAULT_HASH_MOD
 	}
 	p.podName = pod
 	p.serviceName = svc
@@ -183,8 +164,8 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	// policy enforcement for outbound requests
 	if !strings.HasPrefix(ctx.pluginContext.serviceName, dst) && !strings.HasPrefix(dst, "node") {
 		// add request start time
-		if err := proxywasm.AddHttpRequestHeader("x-slate-start", fmt.Sprintf("%d", time.Now().UnixMilli())); err != nil {
-			proxywasm.LogCriticalf("Couldn't add request header x-slate-start: %v", err)
+		if err := proxywasm.AddHttpRequestHeader("x-slate-start-outbound", fmt.Sprintf("%d", time.Now().UnixMilli())); err != nil {
+			proxywasm.LogCriticalf("Couldn't add request header x-slate-start-outbound: %v", err)
 		}
 		// the request is originating from this sidecar to another service, perform routing magic
 		// get endpoint distribution
@@ -222,13 +203,17 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 		return types.ActionContinue
 	}
 
+	if err := proxywasm.AddHttpRequestHeader("x-slate-start-inbound", fmt.Sprintf("%d", time.Now().UnixMilli())); err != nil {
+		proxywasm.LogCriticalf("Couldn't add request header x-slate-start-inbound: %v", err)
+	}
 	shared.IncrementSharedData(shared.KEY_REQUEST_COUNT, 1)
 	shared.IncrementSharedData(shared.KEY_HILLCLIMB_INBOUNDRPS, 1)
+	shared.AddToSharedDataList(shared.KEY_ENDPOINT_RPS_LIST, shared.EndpointListKey(reqMethod, reqPath))
 	// add the new request to our queue
 	ctx.TimestampListAdd(reqMethod, reqPath)
 
 	// if this is a traced request, we need to record load conditions and request details
-	if tracedRequest(traceId) {
+	if ctx.tracedRequest(traceId) {
 		spanId, _ := proxywasm.GetHttpRequestHeader("x-b3-spanid")
 		parentSpanId, _ := proxywasm.GetHttpRequestHeader("x-b3-parentspanid")
 		bSizeStr, err := proxywasm.GetHttpRequestHeader("Content-Length")
@@ -236,23 +221,18 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 			bSizeStr = "0"
 		}
 		bodySize, _ := strconv.Atoi(bSizeStr)
-		if err := AddTracedRequest(reqMethod, reqPath, traceId, spanId, parentSpanId, time.Now().UnixMilli(), bodySize); err != nil {
+		// save various request attributes that we will end up reporting in OnTick()
+		if err := AddTracedRequest(reqMethod, reqPath, traceId, spanId, parentSpanId, time.Now().UnixMilli(), bodySize, 4); err != nil {
 			proxywasm.LogCriticalf("unable to add traced request: %v", err)
 			return types.ActionContinue
 		}
-		IncrementInflightCount(reqMethod, reqPath, 1)
-
-		// WASM SERVICE CALLS ONTICK
-		// OR IN OTHER THREAD
-
-		// save current load to shareddata
-		inflightStats, err := GetInflightRequestStats()
+		// save current load conditions for this request
+		endpointStats, err := shared.GetEndpointLoadConditions()
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't get inflight request stats: %v", err)
 			return types.ActionContinue
 		}
-		// Suspect 4 - WINNER!
-		saveEndpointStatsForTrace(traceId, inflightStats)
+		saveEndpointStatsForTrace(traceId, endpointStats)
 	}
 	return types.ActionContinue
 }
@@ -297,6 +277,10 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	dst := strings.Split(reqAuthority, ":")[0]
 
 	// endTime is populated in OnHttpResponseHeaders
+	// x-slate-end is set in OnHttpResponseHeaders, and shortly after OnHttpResponseHeaders this function is called,
+	// where we get that value. It is first set in the upstream envoy OnResponseHeaders, then the upstream envoy OnStreamDone
+	// uses the value, and then the downstream envoy OnResponseHeaders overwrites it, and then the downstream envoy OnStreamDone
+	// uses it.
 	endTimeStr, err := proxywasm.GetHttpResponseHeader("x-slate-end")
 	if err != nil {
 		//reqHdrs, _ := proxywasm.GetHttpRequestHeaders()
@@ -311,19 +295,27 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		if err != nil {
 			processedRegion = ctx.pluginContext.region
 		}
-
-		startStr, err := proxywasm.GetHttpRequestHeader("x-slate-start")
+		shared.AddToSharedDataList(shared.KEY_OUTBOUND_ENDPOINT_LIST, shared.OutboundRequestListElementKey(dst, reqMethod, reqPath))
+		startStr, err := proxywasm.GetHttpRequestHeader("x-slate-start-outbound")
 		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get request header :start (when outbound request should have it) : %v", err)
 			return
 		}
 		start, err := strconv.ParseInt(startStr, 10, 64)
 		latencyMs := endTime - start
-		addLatencyToRunningAverage(dst, reqMethod, reqPath, processedRegion, latencyMs, 5)
+		addOutboundLatency(dst, reqMethod, reqPath, processedRegion, latencyMs)
 		return
+	} else {
+		// this was an inbound request/response.
+		// measure inbound latency.
+		shared.AddToSharedDataList(shared.KEY_INBOUND_ENDPOINT_LIST, shared.InboundRequestListElementKey(reqMethod, reqPath))
+		startStr, err := proxywasm.GetHttpRequestHeader("x-slate-start-inbound")
+		if err != nil {
+			return
+		}
+		start, err := strconv.ParseInt(startStr, 10, 64)
+		latencyMs := endTime - start
+		addInboundLatency(reqMethod, reqPath, latencyMs)
 	}
-
-	IncrementInflightCount(reqMethod, reqPath, -1)
 
 	// record end time
 	endTimeBytes := make([]byte, 8)
@@ -333,7 +325,7 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	}
 }
 
-func addLatencyToRunningAverage(svc, method, path, region string, latencyMs int64, retriesLeft int) {
+func addOutboundLatency(svc, method, path, region string, latencyMs int64) {
 	outboundLatencyAvgKey := shared.OutboundLatencyRunningAvgKey(svc, method, path)
 	outboundLatencyTotal := shared.OutboundLatencyTotalRequestsKey(svc, method, path)
 	shared.IncrementSharedData(outboundLatencyAvgKey, latencyMs)
@@ -344,18 +336,18 @@ func addLatencyToRunningAverage(svc, method, path, region string, latencyMs int6
 	regionLatencyTotal := shared.RegionOutboundLatencyTotalRequestsKey(svc, method, path, region)
 	shared.IncrementSharedData(regionLatencyAvgKey, latencyMs)
 	shared.IncrementSharedData(regionLatencyTotal, 1)
+}
 
-	// increment per second latency (for reporting to global controller every second)
-	perSecondLatencyKey := shared.PerSecondLatencyKey(svc, method, path)
-	perSecondLatencyTotalKey := shared.PerSecondLatencyTotalRequestsKey(svc, method, path)
-	shared.IncrementSharedData(perSecondLatencyKey, latencyMs)
-	shared.IncrementSharedData(perSecondLatencyTotalKey, 1)
-	// todo potentially include per second latency for region as well
+func addInboundLatency(method, path string, latencyMs int64) {
+	inboundLatencyAvgKey := shared.InboundLatencyRunningAvgKey(method, path)
+	inboundLatencyTotal := shared.InboundLatencyTotalRequestsKey(method, path)
+	shared.IncrementSharedData(inboundLatencyAvgKey, latencyMs)
+	shared.IncrementSharedData(inboundLatencyTotal, 1)
 }
 
 // AddTracedRequest adds a traceId to the set of traceIds we are tracking (this is collected every Tick and sent
 // to the controller), and set attributes in shared data about the traceId.
-func AddTracedRequest(method, path, traceId, spanId, parentSpanId string, startTime int64, bodySize int) error {
+func AddTracedRequest(method, path, traceId, spanId, parentSpanId string, startTime int64, bodySize int, retries int) error {
 	// add traceId to the set of requests we are tracing.
 	tracedRequestsRaw, cas, err := proxywasm.GetSharedData(KEY_TRACED_REQUESTS)
 	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
@@ -369,8 +361,11 @@ func AddTracedRequest(method, path, traceId, spanId, parentSpanId string, startT
 		tracedRequests = string(tracedRequestsRaw) + " " + traceId
 	}
 	if err := proxywasm.SetSharedData(KEY_TRACED_REQUESTS, []byte(tracedRequests), cas); err != nil {
-		proxywasm.LogCriticalf("unable to set shared data for traced requests: %v", err)
-		return err
+		if retries == 0 {
+			proxywasm.LogCriticalf("unable to set shared data for traced requests (and out of retries): %v", err)
+			return err
+		}
+		return AddTracedRequest(method, path, traceId, spanId, parentSpanId, startTime, bodySize, retries-1)
 	}
 	// set method, path, spanId, parentSpanId, and startTime for this traceId
 	if err := proxywasm.SetSharedData(shared.MethodKey(traceId), []byte(method), 0); err != nil {
@@ -411,7 +406,6 @@ func AddTracedRequest(method, path, traceId, spanId, parentSpanId string, startT
 	return nil
 }
 
-// big fucking issue here
 func saveEndpointStatsForTrace(traceId string, stats map[string]shared.EndpointStats) {
 	if traceId == "" || len(stats) == 0 {
 		return
@@ -422,83 +416,6 @@ func saveEndpointStatsForTrace(traceId string, stats map[string]shared.EndpointS
 	}
 	if err := proxywasm.SetSharedData(shared.EndpointInflightStatsKey(traceId), []byte(str), 0); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data for traceId %v endpointInflightStats: %v %v", traceId, str, err)
-	}
-}
-
-// Get the current load conditions of all traced requests.
-func GetInflightRequestStats() (map[string]shared.EndpointStats, error) {
-	inflightEndpoints, _, err := proxywasm.GetSharedData(KEY_ENDPOINT_RPS_LIST)
-	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
-		proxywasm.LogCriticalf("Couldn't get shared data for inflight request stats: %v", err)
-		return nil, err
-	}
-	if len(inflightEndpoints) == 0 || errors.Is(err, types.ErrorStatusNotFound) || shared.EmptyBytes(inflightEndpoints) {
-		// no requests traced
-		return make(map[string]shared.EndpointStats), nil
-	}
-	inflightRequestStats := make(map[string]shared.EndpointStats)
-	inflightEndpointsList := strings.Split(string(inflightEndpoints), ",")
-	for _, endpoint := range inflightEndpointsList {
-		if shared.EmptyBytes([]byte(endpoint)) {
-			continue
-		}
-		method := strings.Split(endpoint, "@")[0]
-		path := strings.Split(endpoint, "@")[1]
-		inflightRequestStats[endpoint] = shared.EndpointStats{
-			Inflight: shared.GetUint64SharedDataOrZero(shared.InflightCountKey(method, path)),
-		}
-		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get shared data for endpoint %v inflight request stats: %v", endpoint, err)
-		}
-	}
-
-	rpsEndpoints, _, err := proxywasm.GetSharedData(KEY_ENDPOINT_RPS_LIST)
-	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
-		proxywasm.LogCriticalf("Couldn't get shared data for rps request stats: %v", err)
-		return nil, err
-	}
-	if len(rpsEndpoints) == 0 || errors.Is(err, types.ErrorStatusNotFound) || shared.EmptyBytes(rpsEndpoints) {
-		// no requests traced
-		return inflightRequestStats, nil
-	}
-	rpsEndpointsList := strings.Split(string(rpsEndpoints), ",")
-	for _, endpoint := range rpsEndpointsList {
-		if shared.EmptyBytes([]byte(endpoint)) {
-			continue
-		}
-		mp := strings.Split(endpoint, "@")
-		if len(mp) != 2 {
-			continue
-		}
-		method := mp[0]
-		path := mp[1]
-		proxywasm.LogDebugf("method: %s, path: %s", method, path)
-		if val, ok := inflightRequestStats[endpoint]; ok {
-			val.Total = TimestampListGetRPS(method, path)
-			inflightRequestStats[endpoint] = val
-		} else {
-			inflightRequestStats[endpoint] = shared.EndpointStats{
-				Total: TimestampListGetRPS(method, path),
-			}
-		}
-		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get shared data for endpoint %v inflight request stats: %v", endpoint, err)
-		}
-	}
-
-	return inflightRequestStats, nil
-}
-
-func IncrementInflightCount(method string, path string, amount int) {
-	// the lists themselves contain endpoints in the form METHOD PATH, so when we read from the list,
-	// we have to split on space to get method and path, and then we can get the inflight/rps by using the
-	// inflightCountKey and endpointCountKey functions. This is to correlate the inflight count with the
-	// endpoint count.
-	shared.AddToSharedDataList(KEY_INFLIGHT_ENDPOINT_LIST, shared.EndpointListKey(method, path))
-	shared.AddToSharedDataList(KEY_ENDPOINT_RPS_LIST, shared.EndpointListKey(method, path))
-	shared.IncrementSharedData(shared.InflightCountKey(method, path), int64(amount))
-	if amount > 0 {
-		shared.IncrementSharedData(shared.EndpointCountKey(method, path), int64(amount))
 	}
 }
 
@@ -535,7 +452,7 @@ func (h *httpContext) TimestampListAdd(method string, path string) {
 		// nothing there, just set to the current time
 		// 4 bytes per request, so we can store 1750 requests in 7000 bytes
 		newListBytes := make([]byte, 7000)
-		binary.LittleEndian.PutUint64(newListBytes, uint64(t))
+		binary.LittleEndian.PutUint32(newListBytes, t)
 		if err := proxywasm.SetSharedData(shared.SharedQueueKey(method, path), newListBytes, cas); err != nil {
 			h.TimestampListAdd(method, path)
 			return
@@ -566,9 +483,17 @@ func (h *httpContext) TimestampListAdd(method string, path string) {
 			return
 		}
 		readPos := binary.LittleEndian.Uint64(readPosBytes)
+		if readPos == 0 {
+			// either (1) requests are coming in so fast that none have been evicted yet, or (2) another thread
+			// already rotated the list
+			return
+		}
+
 		// copy readPos to writePos to the beginning of the list
 		bytesRemaining := len(timestampListBytes) - int(readPos)
 		copy(timestampListBytes, timestampListBytes[readPos:])
+		// potential problem with setting readPos and writePos separately is that if anothe thread is writing to the list,
+		// it could overwrite the new writePos before we set it.
 		// set readPos to 0
 		readPosBytes = make([]byte, 8)
 		binary.LittleEndian.PutUint64(readPosBytes, 0)
@@ -628,45 +553,10 @@ func (h *httpContext) TimestampListAdd(method string, path string) {
 	}
 }
 
-/*
-TimestampListGetRPS will get the number of requests in the last second for the given method and path.
-It can do this cheaply it just needs to get the read and write positions of the list, and then calculate
-the number of requests in the last second.
-
-The data is a comma-separated string of timestamps. we add new timestamps to the end (.append),
-and evict from the front (to simulate efficiency of a queue).
-
-The "queue size" is then updated to reflect the new size of the queue. This is returned.
-*/
-func TimestampListGetRPS(method string, path string) uint64 {
-	// get list of timestamps
-	readPosBytes, _, err := proxywasm.GetSharedData(shared.TimestampListReadPosKey(method, path))
-	if err != nil {
-		return 0
-	}
-	readPos := binary.LittleEndian.Uint64(readPosBytes)
-	writePosBytes, _, err := proxywasm.GetSharedData(shared.TimestampListWritePosKey(method, path))
-	if err != nil {
-		return 0
-	}
-	writePos := binary.LittleEndian.Uint64(writePosBytes)
-	queueSize := writePos - readPos
-	return queueSize / 4
-}
-
-func tracedRequest(traceId string) bool {
+func (h *httpContext) tracedRequest(traceId string) bool {
 	// use md5 for speed
 	hash := md5Hash(traceId)
-	_, _, err := proxywasm.GetSharedData(KEY_HASH_MOD)
-	var mod uint32
-	if err != nil {
-		mod = DEFAULT_HASH_MOD
-	} else {
-		//mod = binary.LittleEndian.Uint32(modBytes)
-		mod = DEFAULT_HASH_MOD
-
-	}
-	return hash%int(mod) == 0
+	return hash%h.pluginContext.tracingHashMod == 0
 }
 
 func md5Hash(s string) int {
