@@ -1,0 +1,17 @@
+svc_name, endpoint, coef
+frontend,frontend@POST@/user,{'frontend@POST@/user': 1.653344495491152e-06, 'intercept': 1.8082754783961288}
+frontend,frontend@GET@/recommendations,{'frontend@GET@/recommendations': 7.417245687683898e-06, 'intercept': 4.047917950288855}
+frontend,frontend@POST@/reservation,{'frontend@POST@/reservation': 1.2538097913812863e-05, 'intercept': 2.84509675458399}
+frontend,frontend@GET@/hotels,{'frontend@GET@/hotels': 0.0001930820524086, 'intercept': 1}
+user,user@POST@/user.User/CheckUser,{'user@POST@/user.User/CheckUser': 8.417057852342246e-07, 'intercept': 0.993534455025805}
+slateingress,slateingress@POST@/user,{'slateingress@POST@/user': 8.909284500890667e-07, 'intercept': 2.025030623276551}
+slateingress,slateingress@GET@/recommendations,{'slateingress@GET@/recommendations': 2.219403927897609e-06, 'intercept': 2.3197897028623298}
+slateingress,slateingress@POST@/reservation,{'slateingress@POST@/reservation': 1.9536250630575514e-06, 'intercept': 2.4541986958310247}
+slateingress,slateingress@GET@/hotels,{'slateingress@GET@/hotels': 2.4544645980010163e-05, 'intercept': 1.0241504286169645}
+profile,profile@POST@/profile.Profile/GetProfiles,{'profile@POST@/profile.Profile/GetProfiles': 1.1482228692740722e-05, 'intercept': 0.1905345504505349}
+recommendation,recommendation@POST@/recommendation.Recommendation/GetRecommendations,{'recommendation@POST@/recommendation.Recommendation/GetRecommendations': 5.572973106867757e-07, 'intercept': 1.0084598172667738}
+reservation,reservation@POST@/reservation.Reservation/MakeReservation,{'reservation@POST@/reservation.Reservation/MakeReservation': 4.892555800337599e-06, 'intercept': 6.336680613703558}
+reservation,reservation@POST@/reservation.Reservation/CheckAvailability,{'reservation@POST@/reservation.Reservation/CheckAvailability': 4.804887525041407e-05, 'intercept': 3.265952311580302}
+rate,rate@POST@/rate.Rate/GetRates,{'rate@POST@/rate.Rate/GetRates': 2.7938776817172056e-05, 'intercept': 0.6732968057523613}
+search,search@POST@/search.Search/Nearby,{'search@POST@/search.Search/Nearby': 8.213223098892066e-05, 'intercept': 1}
+geo,geo@POST@/geo.Geo/Nearby,{'geo@POST@/geo.Geo/Nearby': 7.045510469625027e-06, 'intercept': 0.4546440550179615}

@@ -1,0 +1,480 @@
+<gurobi.Var compute_latency[('s1e00@m1@e1#cluster0#start',_'s1e00@m1@e1#cluster0#end')]>
+==
+0.0 + [ load_for_compute_edge[('s1e00@m1@e1#cluster0#start',_'s1e00@m1@e1#cluster0#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s1e00@m0@e0#cluster0#start',_'s1e00@m0@e0#cluster0#end')]>
+==
+0.0 + [ load_for_compute_edge[('s1e00@m0@e0#cluster0#start',_'s1e00@m0@e0#cluster0#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8b15@m1@e1#cluster0#start',_'s8b15@m1@e1#cluster0#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8b15@m1@e1#cluster0#start',_'s8b15@m1@e1#cluster0#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8b15@m0@e0#cluster0#start',_'s8b15@m0@e0#cluster0#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8b15@m0@e0#cluster0#start',_'s8b15@m0@e0#cluster0#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8f5e@m1@e1#cluster0#start',_'s8f5e@m1@e1#cluster0#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8f5e@m1@e1#cluster0#start',_'s8f5e@m1@e1#cluster0#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8f5e@m0@e0#cluster0#start',_'s8f5e@m0@e0#cluster0#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8f5e@m0@e0#cluster0#start',_'s8f5e@m0@e0#cluster0#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s927f@m0@e0#cluster0#start',_'s927f@m0@e0#cluster0#end')]>
+==
+0.0 + [ load_for_compute_edge[('s927f@m0@e0#cluster0#start',_'s927f@m0@e0#cluster0#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s927f@m1@e1#cluster0#start',_'s927f@m1@e1#cluster0#end')]>
+==
+0.0 + [ load_for_compute_edge[('s927f@m1@e1#cluster0#start',_'s927f@m1@e1#cluster0#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s10ef@m0@e0#cluster0#start',_'s10ef@m0@e0#cluster0#end')]>
+==
+0.0 + [ load_for_compute_edge[('s10ef@m0@e0#cluster0#start',_'s10ef@m0@e0#cluster0#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s10ef@m1@e1#cluster0#start',_'s10ef@m1@e1#cluster0#end')]>
+==
+0.0 + [ load_for_compute_edge[('s10ef@m1@e1#cluster0#start',_'s10ef@m1@e1#cluster0#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s1e00@m1@e1#cluster1#start',_'s1e00@m1@e1#cluster1#end')]>
+==
+0.0 + [ load_for_compute_edge[('s1e00@m1@e1#cluster1#start',_'s1e00@m1@e1#cluster1#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s1e00@m0@e0#cluster1#start',_'s1e00@m0@e0#cluster1#end')]>
+==
+0.0 + [ load_for_compute_edge[('s1e00@m0@e0#cluster1#start',_'s1e00@m0@e0#cluster1#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8b15@m1@e1#cluster1#start',_'s8b15@m1@e1#cluster1#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8b15@m1@e1#cluster1#start',_'s8b15@m1@e1#cluster1#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8b15@m0@e0#cluster1#start',_'s8b15@m0@e0#cluster1#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8b15@m0@e0#cluster1#start',_'s8b15@m0@e0#cluster1#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8f5e@m1@e1#cluster1#start',_'s8f5e@m1@e1#cluster1#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8f5e@m1@e1#cluster1#start',_'s8f5e@m1@e1#cluster1#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8f5e@m0@e0#cluster1#start',_'s8f5e@m0@e0#cluster1#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8f5e@m0@e0#cluster1#start',_'s8f5e@m0@e0#cluster1#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s927f@m0@e0#cluster1#start',_'s927f@m0@e0#cluster1#end')]>
+==
+0.0 + [ load_for_compute_edge[('s927f@m0@e0#cluster1#start',_'s927f@m0@e0#cluster1#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s927f@m1@e1#cluster1#start',_'s927f@m1@e1#cluster1#end')]>
+==
+0.0 + [ load_for_compute_edge[('s927f@m1@e1#cluster1#start',_'s927f@m1@e1#cluster1#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s10ef@m0@e0#cluster1#start',_'s10ef@m0@e0#cluster1#end')]>
+==
+0.0 + [ load_for_compute_edge[('s10ef@m0@e0#cluster1#start',_'s10ef@m0@e0#cluster1#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s10ef@m1@e1#cluster1#start',_'s10ef@m1@e1#cluster1#end')]>
+==
+0.0 + [ load_for_compute_edge[('s10ef@m1@e1#cluster1#start',_'s10ef@m1@e1#cluster1#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s1e00@m1@e1#cluster2#start',_'s1e00@m1@e1#cluster2#end')]>
+==
+0.0 + [ load_for_compute_edge[('s1e00@m1@e1#cluster2#start',_'s1e00@m1@e1#cluster2#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s1e00@m0@e0#cluster2#start',_'s1e00@m0@e0#cluster2#end')]>
+==
+0.0 + [ load_for_compute_edge[('s1e00@m0@e0#cluster2#start',_'s1e00@m0@e0#cluster2#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8b15@m1@e1#cluster2#start',_'s8b15@m1@e1#cluster2#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8b15@m1@e1#cluster2#start',_'s8b15@m1@e1#cluster2#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8b15@m0@e0#cluster2#start',_'s8b15@m0@e0#cluster2#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8b15@m0@e0#cluster2#start',_'s8b15@m0@e0#cluster2#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8f5e@m1@e1#cluster2#start',_'s8f5e@m1@e1#cluster2#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8f5e@m1@e1#cluster2#start',_'s8f5e@m1@e1#cluster2#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8f5e@m0@e0#cluster2#start',_'s8f5e@m0@e0#cluster2#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8f5e@m0@e0#cluster2#start',_'s8f5e@m0@e0#cluster2#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s927f@m0@e0#cluster2#start',_'s927f@m0@e0#cluster2#end')]>
+==
+0.0 + [ load_for_compute_edge[('s927f@m0@e0#cluster2#start',_'s927f@m0@e0#cluster2#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s927f@m1@e1#cluster2#start',_'s927f@m1@e1#cluster2#end')]>
+==
+0.0 + [ load_for_compute_edge[('s927f@m1@e1#cluster2#start',_'s927f@m1@e1#cluster2#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s10ef@m0@e0#cluster2#start',_'s10ef@m0@e0#cluster2#end')]>
+==
+0.0 + [ load_for_compute_edge[('s10ef@m0@e0#cluster2#start',_'s10ef@m0@e0#cluster2#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s10ef@m1@e1#cluster2#start',_'s10ef@m1@e1#cluster2#end')]>
+==
+0.0 + [ load_for_compute_edge[('s10ef@m1@e1#cluster2#start',_'s10ef@m1@e1#cluster2#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s1e00@m1@e1#cluster3#start',_'s1e00@m1@e1#cluster3#end')]>
+==
+0.0 + [ load_for_compute_edge[('s1e00@m1@e1#cluster3#start',_'s1e00@m1@e1#cluster3#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s1e00@m0@e0#cluster3#start',_'s1e00@m0@e0#cluster3#end')]>
+==
+0.0 + [ load_for_compute_edge[('s1e00@m0@e0#cluster3#start',_'s1e00@m0@e0#cluster3#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8b15@m1@e1#cluster3#start',_'s8b15@m1@e1#cluster3#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8b15@m1@e1#cluster3#start',_'s8b15@m1@e1#cluster3#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8b15@m0@e0#cluster3#start',_'s8b15@m0@e0#cluster3#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8b15@m0@e0#cluster3#start',_'s8b15@m0@e0#cluster3#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8f5e@m1@e1#cluster3#start',_'s8f5e@m1@e1#cluster3#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8f5e@m1@e1#cluster3#start',_'s8f5e@m1@e1#cluster3#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s8f5e@m0@e0#cluster3#start',_'s8f5e@m0@e0#cluster3#end')]>
+==
+0.0 + [ load_for_compute_edge[('s8f5e@m0@e0#cluster3#start',_'s8f5e@m0@e0#cluster3#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s927f@m0@e0#cluster3#start',_'s927f@m0@e0#cluster3#end')]>
+==
+0.0 + [ load_for_compute_edge[('s927f@m0@e0#cluster3#start',_'s927f@m0@e0#cluster3#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s927f@m1@e1#cluster3#start',_'s927f@m1@e1#cluster3#end')]>
+==
+0.0 + [ load_for_compute_edge[('s927f@m1@e1#cluster3#start',_'s927f@m1@e1#cluster3#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s10ef@m0@e0#cluster3#start',_'s10ef@m0@e0#cluster3#end')]>
+==
+0.0 + [ load_for_compute_edge[('s10ef@m0@e0#cluster3#start',_'s10ef@m0@e0#cluster3#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+<gurobi.Var compute_latency[('s10ef@m1@e1#cluster3#start',_'s10ef@m1@e1#cluster3#end')]>
+==
+0.0 + [ load_for_compute_edge[('s10ef@m1@e1#cluster3#start',_'s10ef@m1@e1#cluster3#end')] ^ 2 ]
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m0@e0#cluster0#start')]
+==
+1617
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m0@e0#cluster1#start')]
+==
+962
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m0@e0#cluster2#start')]
+==
+896
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m0@e0#cluster3#start')]
+==
+551
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m1@e1#cluster0#start')]
+==
+1369
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m1@e1#cluster1#start')]
+==
+698
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m1@e1#cluster2#start')]
+==
+268
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m1@e1#cluster3#start')]
+==
+497
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m1@e1#cluster0#start')]
+==
+load_for_compute_edge[('s1e00@m1@e1#cluster0#start',_'s1e00@m1@e1#cluster0#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m0@e0#cluster0#start')]
+==
+load_for_compute_edge[('s1e00@m0@e0#cluster0#start',_'s1e00@m0@e0#cluster0#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8b15@m1@e1#cluster0#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8b15@m1@e1#cluster0#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8b15@m1@e1#cluster0#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8b15@m1@e1#cluster0#start')]
+==
+load_for_compute_edge[('s8b15@m1@e1#cluster0#start',_'s8b15@m1@e1#cluster0#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8b15@m0@e0#cluster0#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8b15@m0@e0#cluster0#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8b15@m0@e0#cluster0#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8b15@m0@e0#cluster0#start')]
+==
+load_for_compute_edge[('s8b15@m0@e0#cluster0#start',_'s8b15@m0@e0#cluster0#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8f5e@m1@e1#cluster0#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8f5e@m1@e1#cluster0#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8f5e@m1@e1#cluster0#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8f5e@m1@e1#cluster0#start')]
+==
+load_for_compute_edge[('s8f5e@m1@e1#cluster0#start',_'s8f5e@m1@e1#cluster0#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8f5e@m0@e0#cluster0#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8f5e@m0@e0#cluster0#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8f5e@m0@e0#cluster0#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8f5e@m0@e0#cluster0#start')]
+==
+load_for_compute_edge[('s8f5e@m0@e0#cluster0#start',_'s8f5e@m0@e0#cluster0#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s927f@m0@e0#cluster0#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s927f@m0@e0#cluster0#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s927f@m0@e0#cluster0#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s927f@m0@e0#cluster0#start')]
+==
+load_for_compute_edge[('s927f@m0@e0#cluster0#start',_'s927f@m0@e0#cluster0#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s927f@m1@e1#cluster0#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s927f@m1@e1#cluster0#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s927f@m1@e1#cluster0#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s927f@m1@e1#cluster0#start')]
+==
+load_for_compute_edge[('s927f@m1@e1#cluster0#start',_'s927f@m1@e1#cluster0#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s10ef@m0@e0#cluster0#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s10ef@m0@e0#cluster0#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s10ef@m0@e0#cluster0#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s10ef@m0@e0#cluster0#start')]
+==
+load_for_compute_edge[('s10ef@m0@e0#cluster0#start',_'s10ef@m0@e0#cluster0#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s10ef@m1@e1#cluster0#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s10ef@m1@e1#cluster0#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s10ef@m1@e1#cluster0#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s10ef@m1@e1#cluster0#start')]
+==
+load_for_compute_edge[('s10ef@m1@e1#cluster0#start',_'s10ef@m1@e1#cluster0#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m1@e1#cluster1#start')]
+==
+load_for_compute_edge[('s1e00@m1@e1#cluster1#start',_'s1e00@m1@e1#cluster1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m0@e0#cluster1#start')]
+==
+load_for_compute_edge[('s1e00@m0@e0#cluster1#start',_'s1e00@m0@e0#cluster1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8b15@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8b15@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8b15@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8b15@m1@e1#cluster1#start')]
+==
+load_for_compute_edge[('s8b15@m1@e1#cluster1#start',_'s8b15@m1@e1#cluster1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8b15@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8b15@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8b15@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8b15@m0@e0#cluster1#start')]
+==
+load_for_compute_edge[('s8b15@m0@e0#cluster1#start',_'s8b15@m0@e0#cluster1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8f5e@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8f5e@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8f5e@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8f5e@m1@e1#cluster1#start')]
+==
+load_for_compute_edge[('s8f5e@m1@e1#cluster1#start',_'s8f5e@m1@e1#cluster1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8f5e@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8f5e@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8f5e@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8f5e@m0@e0#cluster1#start')]
+==
+load_for_compute_edge[('s8f5e@m0@e0#cluster1#start',_'s8f5e@m0@e0#cluster1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s927f@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s927f@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s927f@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s927f@m0@e0#cluster1#start')]
+==
+load_for_compute_edge[('s927f@m0@e0#cluster1#start',_'s927f@m0@e0#cluster1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s927f@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s927f@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s927f@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s927f@m1@e1#cluster1#start')]
+==
+load_for_compute_edge[('s927f@m1@e1#cluster1#start',_'s927f@m1@e1#cluster1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s10ef@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s10ef@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s10ef@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s10ef@m0@e0#cluster1#start')]
+==
+load_for_compute_edge[('s10ef@m0@e0#cluster1#start',_'s10ef@m0@e0#cluster1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s10ef@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s10ef@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s10ef@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s10ef@m1@e1#cluster1#start')]
+==
+load_for_compute_edge[('s10ef@m1@e1#cluster1#start',_'s10ef@m1@e1#cluster1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m1@e1#cluster2#start')]
+==
+load_for_compute_edge[('s1e00@m1@e1#cluster2#start',_'s1e00@m1@e1#cluster2#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m0@e0#cluster2#start')]
+==
+load_for_compute_edge[('s1e00@m0@e0#cluster2#start',_'s1e00@m0@e0#cluster2#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8b15@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8b15@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8b15@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8b15@m1@e1#cluster2#start')]
+==
+load_for_compute_edge[('s8b15@m1@e1#cluster2#start',_'s8b15@m1@e1#cluster2#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8b15@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8b15@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8b15@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8b15@m0@e0#cluster2#start')]
+==
+load_for_compute_edge[('s8b15@m0@e0#cluster2#start',_'s8b15@m0@e0#cluster2#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8f5e@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8f5e@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8f5e@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8f5e@m1@e1#cluster2#start')]
+==
+load_for_compute_edge[('s8f5e@m1@e1#cluster2#start',_'s8f5e@m1@e1#cluster2#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8f5e@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8f5e@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8f5e@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8f5e@m0@e0#cluster2#start')]
+==
+load_for_compute_edge[('s8f5e@m0@e0#cluster2#start',_'s8f5e@m0@e0#cluster2#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s927f@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s927f@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s927f@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s927f@m0@e0#cluster2#start')]
+==
+load_for_compute_edge[('s927f@m0@e0#cluster2#start',_'s927f@m0@e0#cluster2#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s927f@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s927f@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s927f@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s927f@m1@e1#cluster2#start')]
+==
+load_for_compute_edge[('s927f@m1@e1#cluster2#start',_'s927f@m1@e1#cluster2#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s10ef@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s10ef@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s10ef@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s10ef@m0@e0#cluster2#start')]
+==
+load_for_compute_edge[('s10ef@m0@e0#cluster2#start',_'s10ef@m0@e0#cluster2#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s10ef@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s10ef@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s10ef@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s10ef@m1@e1#cluster2#start')]
+==
+load_for_compute_edge[('s10ef@m1@e1#cluster2#start',_'s10ef@m1@e1#cluster2#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m1@e1#cluster3#start')]
+==
+load_for_compute_edge[('s1e00@m1@e1#cluster3#start',_'s1e00@m1@e1#cluster3#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('SOURCE#XXXX#end',_'s1e00@m0@e0#cluster3#start')]
+==
+load_for_compute_edge[('s1e00@m0@e0#cluster3#start',_'s1e00@m0@e0#cluster3#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8b15@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8b15@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8b15@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8b15@m1@e1#cluster3#start')]
+==
+load_for_compute_edge[('s8b15@m1@e1#cluster3#start',_'s8b15@m1@e1#cluster3#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8b15@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8b15@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8b15@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8b15@m0@e0#cluster3#start')]
+==
+load_for_compute_edge[('s8b15@m0@e0#cluster3#start',_'s8b15@m0@e0#cluster3#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8f5e@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8f5e@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8f5e@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8f5e@m1@e1#cluster3#start')]
+==
+load_for_compute_edge[('s8f5e@m1@e1#cluster3#start',_'s8f5e@m1@e1#cluster3#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8f5e@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8f5e@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8f5e@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8f5e@m0@e0#cluster3#start')]
+==
+load_for_compute_edge[('s8f5e@m0@e0#cluster3#start',_'s8f5e@m0@e0#cluster3#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s927f@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s927f@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s927f@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s927f@m0@e0#cluster3#start')]
+==
+load_for_compute_edge[('s927f@m0@e0#cluster3#start',_'s927f@m0@e0#cluster3#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s927f@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s927f@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s927f@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s927f@m1@e1#cluster3#start')]
+==
+load_for_compute_edge[('s927f@m1@e1#cluster3#start',_'s927f@m1@e1#cluster3#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s10ef@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s10ef@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s10ef@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s10ef@m0@e0#cluster3#start')]
+==
+load_for_compute_edge[('s10ef@m0@e0#cluster3#start',_'s10ef@m0@e0#cluster3#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s10ef@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s10ef@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s10ef@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s10ef@m1@e1#cluster3#start')]
+==
+load_for_compute_edge[('s10ef@m1@e1#cluster3#start',_'s10ef@m1@e1#cluster3#end')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m0@e0#cluster1#start',_'s1e00@m0@e0#cluster1#end')]
+==
+load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8b15@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8b15@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8b15@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8b15@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m0@e0#cluster1#start',_'s1e00@m0@e0#cluster1#end')]
+==
+load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8f5e@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8f5e@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8f5e@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster1#end',_'s8f5e@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m0@e0#cluster2#start',_'s1e00@m0@e0#cluster2#end')]
+==
+load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8b15@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8b15@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8b15@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8b15@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m0@e0#cluster2#start',_'s1e00@m0@e0#cluster2#end')]
+==
+load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8f5e@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8f5e@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8f5e@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster2#end',_'s8f5e@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m0@e0#cluster3#start',_'s1e00@m0@e0#cluster3#end')]
+==
+load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8b15@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8b15@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8b15@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8b15@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m0@e0#cluster3#start',_'s1e00@m0@e0#cluster3#end')]
+==
+load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8f5e@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8f5e@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8f5e@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster3#end',_'s8f5e@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m0@e0#cluster0#start',_'s1e00@m0@e0#cluster0#end')]
+==
+load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8b15@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8b15@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8b15@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8b15@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m0@e0#cluster0#start',_'s1e00@m0@e0#cluster0#end')]
+==
+load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8f5e@m0@e0#cluster1#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8f5e@m0@e0#cluster2#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8f5e@m0@e0#cluster3#start')] + load_for_network_edge[('s1e00@m0@e0#cluster0#end',_'s8f5e@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m0@e0#cluster1#start',_'s8b15@m0@e0#cluster1#end')]
+==
+load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s927f@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s927f@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s927f@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s927f@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m0@e0#cluster1#start',_'s8b15@m0@e0#cluster1#end')]
+==
+load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s10ef@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s10ef@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s10ef@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster1#end',_'s10ef@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m0@e0#cluster2#start',_'s8b15@m0@e0#cluster2#end')]
+==
+load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s927f@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s927f@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s927f@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s927f@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m0@e0#cluster2#start',_'s8b15@m0@e0#cluster2#end')]
+==
+load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s10ef@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s10ef@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s10ef@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster2#end',_'s10ef@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m0@e0#cluster3#start',_'s8b15@m0@e0#cluster3#end')]
+==
+load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s927f@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s927f@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s927f@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s927f@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m0@e0#cluster3#start',_'s8b15@m0@e0#cluster3#end')]
+==
+load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s10ef@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s10ef@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s10ef@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster3#end',_'s10ef@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m0@e0#cluster0#start',_'s8b15@m0@e0#cluster0#end')]
+==
+load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s927f@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s927f@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s927f@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s927f@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m0@e0#cluster0#start',_'s8b15@m0@e0#cluster0#end')]
+==
+load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s10ef@m0@e0#cluster1#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s10ef@m0@e0#cluster2#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s10ef@m0@e0#cluster3#start')] + load_for_network_edge[('s8b15@m0@e0#cluster0#end',_'s10ef@m0@e0#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m1@e1#cluster1#start',_'s1e00@m1@e1#cluster1#end')]
+==
+load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8b15@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8b15@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8b15@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8b15@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m1@e1#cluster1#start',_'s1e00@m1@e1#cluster1#end')]
+==
+load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8f5e@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8f5e@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8f5e@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster1#end',_'s8f5e@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m1@e1#cluster2#start',_'s1e00@m1@e1#cluster2#end')]
+==
+load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8b15@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8b15@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8b15@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8b15@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m1@e1#cluster2#start',_'s1e00@m1@e1#cluster2#end')]
+==
+load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8f5e@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8f5e@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8f5e@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster2#end',_'s8f5e@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m1@e1#cluster3#start',_'s1e00@m1@e1#cluster3#end')]
+==
+load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8b15@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8b15@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8b15@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8b15@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m1@e1#cluster3#start',_'s1e00@m1@e1#cluster3#end')]
+==
+load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8f5e@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8f5e@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8f5e@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster3#end',_'s8f5e@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m1@e1#cluster0#start',_'s1e00@m1@e1#cluster0#end')]
+==
+load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8b15@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8b15@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8b15@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8b15@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s1e00@m1@e1#cluster0#start',_'s1e00@m1@e1#cluster0#end')]
+==
+load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8f5e@m1@e1#cluster1#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8f5e@m1@e1#cluster2#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8f5e@m1@e1#cluster3#start')] + load_for_network_edge[('s1e00@m1@e1#cluster0#end',_'s8f5e@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m1@e1#cluster1#start',_'s8b15@m1@e1#cluster1#end')]
+==
+load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s927f@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s927f@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s927f@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s927f@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m1@e1#cluster1#start',_'s8b15@m1@e1#cluster1#end')]
+==
+load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s10ef@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s10ef@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s10ef@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster1#end',_'s10ef@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m1@e1#cluster2#start',_'s8b15@m1@e1#cluster2#end')]
+==
+load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s927f@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s927f@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s927f@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s927f@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m1@e1#cluster2#start',_'s8b15@m1@e1#cluster2#end')]
+==
+load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s10ef@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s10ef@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s10ef@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster2#end',_'s10ef@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m1@e1#cluster3#start',_'s8b15@m1@e1#cluster3#end')]
+==
+load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s927f@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s927f@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s927f@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s927f@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m1@e1#cluster3#start',_'s8b15@m1@e1#cluster3#end')]
+==
+load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s10ef@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s10ef@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s10ef@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster3#end',_'s10ef@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m1@e1#cluster0#start',_'s8b15@m1@e1#cluster0#end')]
+==
+load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s927f@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s927f@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s927f@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s927f@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('s8b15@m1@e1#cluster0#start',_'s8b15@m1@e1#cluster0#end')]
+==
+load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s10ef@m1@e1#cluster1#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s10ef@m1@e1#cluster2#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s10ef@m1@e1#cluster3#start')] + load_for_network_edge[('s8b15@m1@e1#cluster0#end',_'s10ef@m1@e1#cluster0#start')]
+--------------------------------------------------------------------------------

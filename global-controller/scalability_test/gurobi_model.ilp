@@ -1,0 +1,16 @@
+\ Model RequestRouting_copy
+\ LP format - for model browsing. Use MPS format to capture full model detail.
+Minimize
+ 
+Subject To
+ cluster_cluster0_load_in_s4185@m2@e2:
+   load_for_network_edge[('SOURCE#XXXX#end',_'s4185@m2@e2#cluster0#start')]
+   = 10000
+ flow_conservation-start_node-s4185@m2@e2:
+   - load_for_compute_edge[('s4185@m2@e2#cluster0#start',_'s4185@m2@e2#cluster0#end')]
+   + load_for_network_edge[('SOURCE#XXXX#end',_'s4185@m2@e2#cluster0#start')]
+   = 0
+Bounds
+ -infinity <= load_for_compute_edge[('s4185@m2@e2#cluster0#start',_'s4185@m2@e2#cluster0#end')] <= 8000
+ load_for_network_edge[('SOURCE#XXXX#end',_'s4185@m2@e2#cluster0#start')] free
+End

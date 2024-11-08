@@ -1,0 +1,11 @@
+************************************************************
+hashed_cg_key-0: ed91725c
+shippingservice@POST@/hipstershop.ShippingService/ShipOrder -> []
+sslateingress@POST@/cart/checkout -> ['frontend@POST@/cart/checkout']
+cartservice@POST@/hipstershop.CartService/GetCart -> []
+paymentservice@POST@/hipstershop.PaymentService/Charge -> []
+emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation -> []
+checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder -> ['cartservice@POST@/hipstershop.CartService/GetCart', 'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation', 'paymentservice@POST@/hipstershop.PaymentService/Charge', 'shippingservice@POST@/hipstershop.ShippingService/ShipOrder']
+recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations -> []
+frontend@POST@/cart/checkout -> ['checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder', 'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations']
+

@@ -1,75 +1,187 @@
-import config as cfg
-import span as sp
+import pandas as pd
+import numpy as np
+temp_counter=69
 
-def parse_stats_into_spans(body, cluster_id, service):
-    '''
-    reqCount,2
-    inflightStats:GET@/recommendations,4,0|POST@/reservation,2,0|GET@/hotels,2,0|
 
-    requestStats,
-    us-west-1 frontend-us-west-1 GET /recommendations 9c3974644c103e1604faad5a17aff4f5 04faad5a17aff4f5  1704869734566 1704869734572 0 GET@/hotels,0,1|POST@/reservation,2,0|GET@/recommendations,2,1|
-    '''
-    spans = []
-    lines = body.split("\n")
-    service_level_rps = int(lines[0])
-    inflightStats = lines[1]
-    requestStats = lines[4:]
-    print('='*30)
-    print(f'service_level_rps: {service_level_rps}')
-    print()
-    print('='*30)
-    print(f'inflightStats: {inflightStats}')
-    print()
-    print('='*30)
-    print(f'requestStats: {requestStats}')
+def overperformances_are_different(op1: dict, op2: dict, maxPctDiff=0.5) -> bool:
+    """
+    overperformances_are_different compares two dictionaries of overperformances (source region -> destination region -> overperformance)
+    and checks if any given overperformance is different by more than maxPctDiff percent. If so, it returns True.
+    """
+    for src_region in op1:
+        if src_region not in op2:
+            return True
+        for dst_region in op1[src_region]:
+            if dst_region not in op2[src_region]:
+                return True
+            op1_value = op1[src_region][dst_region]
+            op2_value = op2[src_region][dst_region]
+            print(f"{src_region} -> {dst_region}: {abs(abs(op1_value - op2_value) / max(abs(op1_value), abs(op2_value)))}")
+            if abs(abs(op1_value - op2_value) / min(abs(op1_value), abs(op2_value))) > maxPctDiff:
+                return True
     
-    # for i in range(len(requestStats)):
-    for span_stat in requestStats:
-        '''
-        ['us-west-1', 'frontend-us-west-1', 'GET', '/recommendations', '9c3974644c103e1604faad5a17aff4f5', '04faad5a17aff4f5', '1704869734566', '1704869734572', '0', 'GET@/hotels,0,1|POST@/reservation,2,0|GET@/recommendations,2,1|']
-        '''
-        ss = span_stat.split(" ")
-        print(f"ss: {ss}")
-        print(f"len(ss): {len(ss)}")
-        ## NOTE: THIS SHOUD BE UPDATED WHEN member fields in span class is updated.
-        # if len(ss) != 12:
-        #     print(f"{cfg.log_prefix} parse_stats_into_spans, len(ss) != 12, {len(ss)}")
-        #     assert False
-        region = ss[0]
-        serviceName = ss[1]
-        method = ss[2]
-        path = ss[3]
-        traceId = ss[4]
-        spanId = ss[5]
-        parentSpanId = ss[6]
-        startTime = int(ss[7])
-        endTime = int(ss[8])
-        bodySize = int(ss[9])
-        # 'GET@/hotels,0,1|POST@/reservation,2,0|GET@/recommendations,2,1|'
-        endpointInflightStats = ss[10].split("|")
-        if endpointInflightStats[-1] == "":
-            endpointInflightStats = endpointInflightStats[:-1]
-        rps_dict = dict()
-        inflight_dict = dict()
-        for ep_load in endpointInflightStats:
-            method_and_path = ep_load.split(",")[0]
-            method = method_and_path.split("@")[0]
-            path = method_and_path.split("@")[1]
-            endpoint = sp.Endpoint(svc_name=serviceName, method=method, url=path)
-            rps = ep_load.split(",")[1]
-            inflight = ep_load.split(",")[2]
-            rps_dict[str(endpoint)] = rps
-            inflight_dict[str(endpoint)] = inflight
-        spans.append(sp.Span(method, path, serviceName, region, traceId, spanId, parentSpanId, startTime, endTime, bodySize, rps_dict=rps_dict, num_inflight_dict=inflight_dict))
-    if len(spans) > 0:
-        print(f"{cfg.log_prefix} ==================================")
-        for span in spans:
-            print(f"{span}")
-        print(f"{cfg.log_prefix} ==================================")
-    return spans
+    for src_region in op2:
+        if src_region not in op1:
+            return True
+        for dst_region in op2[src_region]:
+            if dst_region not in op1[src_region]:
+                return True
+    return False
+    
+    return False
+def jump_towards_optimizer_desired(starting_df: pd.DataFrame, desired_df: pd.DataFrame, cur_convex_comb_value: float) -> pd.DataFrame:
+    global temp_counter
+    """
+    jump_towards_optimizer_desired computes the convex combination of two traffic matrices
+    represented by starting_df and desired_df based on cur_convex_comb_value.
+    
+    Args:
+        starting_df (pd.DataFrame): The starting traffic matrix DataFrame.
+        desired_df (pd.DataFrame): The desired traffic matrix DataFrame.
+        cur_convex_comb_value (float): The convex combination factor (between 0 and 1).
+        
+    Returns:
+        pd.DataFrame: The new traffic matrix as a DataFrame in the same format as the inputs.
+    """
+    # Validate cur_convex_comb_value
+    if not (0 <= cur_convex_comb_value <= 1):
+        raise ValueError("cur_convex_comb_value must be between 0 and 1.")
+    
 
-region="us-west-1"
-svc="frontend"
-body = '2\nGET@/recommendations,4,0|POST@/reservation,2,0|GET@/hotels,2,0\n\nrequestStats,\nus-west-1 frontend-us-west-1 GET /recommendations 9c3974644c103e16 04faad5a17aff4f5 04faad5a17aff4f5 1704869734566 1704869734572 0 GET@/hotels,0,1|POST@/reservation,2,0|GET@/recommendations,2,1|\nus-west-1 frontend-us-west-1 POST /reservation 9c3974644c103e16 04faad5a17aff4f5 04faad5a17aff4f5 1704869734566 1704869734572 0 GET@/hotels,0,1|POST@/reservation,2,0|GET@/recommendations,2,1|'
-print(body)
-parse_stats_into_spans(body, region, svc)
+    required_columns = {'src_svc', 'dst_svc'}
+    for df_name, df in zip(['starting_df', 'desired_df'], [starting_df, desired_df]):
+        if not required_columns.issubset(df.columns):
+            raise ValueError(f"{df_name} must contain columns: {required_columns}")
+        
+    # Function to compute traffic matrix from DataFrame
+    def compute_traffic_matrix(df):
+        filtered = df[(df['src_svc'] == 'sslateingress') & (df['dst_svc'] == 'frontend')]
+        traffic_matrix = filtered.pivot_table(
+            index='src_cid',
+            columns='dst_cid',
+            values='weight',
+            aggfunc='sum',
+            fill_value=0
+        )
+        return traffic_matrix
+
+    # Compute traffic matrices for starting and desired DataFrames
+    starting_matrix = compute_traffic_matrix(starting_df)
+    desired_matrix = compute_traffic_matrix(desired_df)
+    
+    # Identify all unique regions across both matrices
+    all_regions = sorted(set(starting_matrix.index).union(set(starting_matrix.columns))
+                        .union(set(desired_matrix.index)).union(set(desired_matrix.columns)))
+    
+    starting_matrix = starting_matrix.reindex(index=all_regions, columns=all_regions, fill_value=0)
+    desired_matrix = desired_matrix.reindex(index=all_regions, columns=all_regions, fill_value=0)
+    
+    # Compute the convex combination
+    combined_matrix = (1 - cur_convex_comb_value) * starting_matrix + cur_convex_comb_value * desired_matrix
+    combined_matrix = combined_matrix.round(6)
+    # logger.info(f"loghill (defensive jumping) new traffic matrix:\n{combined_matrix}")
+    
+    # Transform the combined matrix back into a DataFrame
+    combined_df = combined_matrix.reset_index().melt(id_vars='src_cid', var_name='dst_cid', value_name='weight')
+    combined_df = combined_df[combined_df['weight'] > 0].reset_index(drop=True)
+    
+    # Merge with starting_df to get 'total' and 'counter' information
+    # First, prepare a mapping from (src_cid, dst_cid) to 'total' and other columns
+    # We'll prioritize starting_df's 'total'; if not present, use desired_df's 'total'
+    
+    # Create a helper DataFrame with 'total' from starting_df
+    starting_totals = starting_df[(starting_df['src_svc'] == 'sslateingress') & (starting_df['dst_svc'] == 'frontend')][
+        ['src_cid', 'dst_cid', 'total']
+    ].drop_duplicates()
+    
+    # Similarly, from desired_df
+    desired_totals = desired_df[(desired_df['src_svc'] == 'sslateingress') & (desired_df['dst_svc'] == 'frontend')][
+        ['src_cid', 'dst_cid', 'total']
+    ].drop_duplicates()
+    
+    # Merge combined_df with starting_totals
+    combined_df = combined_df.merge(
+        starting_totals,
+        on=['src_cid', 'dst_cid'],
+        how='left',
+        suffixes=('', '_start')
+    )
+    
+    # For rows where 'total' is NaN, fill from desired_totals
+    combined_df = combined_df.merge(
+        desired_totals,
+        on=['src_cid', 'dst_cid'],
+        how='left',
+        suffixes=('', '_desired')
+    )
+    
+    # Fill 'total' from starting_df; if missing, use desired_df's 'total'; else set to 1 to avoid division by zero
+    combined_df['total'] = combined_df['total'].fillna(combined_df['total_desired']).fillna(1)
+    
+    # Compute 'flow' as weight * total
+    combined_df['flow'] = combined_df['weight'] * combined_df['total']
+    
+    # Add 'src_svc' and 'dst_svc' columns
+    combined_df['src_svc'] = 'sslateingress'
+    combined_df['dst_svc'] = 'frontend'
+    
+    # Assuming endpoints are in the format: {svc}@POST@/cart/checkout
+    combined_df['src_endpoint'] = combined_df['src_svc'] + '@POST@/cart/checkout'
+    combined_df['dst_endpoint'] = combined_df['dst_svc'] + '@POST@/cart/checkout'
+    
+    # Reorder and select columns to match the original format
+    final_df = combined_df[
+        ['src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint',
+         'src_cid', 'dst_cid', 'flow', 'total', 'weight']
+    ]
+    final_df = final_df.sort_values(by=['src_cid', 'dst_cid']).reset_index(drop=True)
+    
+    return final_df
+
+# Example Usage:
+
+# Sample starting DataFrame
+starting_data = {
+    'src_svc': ['sslateingress'] * 4,
+    'dst_svc': ['frontend'] * 4,
+    'src_endpoint': ['sslateingress@POST@/cart/checkout'] * 4,
+    'dst_endpoint': ['frontend@POST@/cart/checkout'] * 4,
+    'src_cid': ['us-central-1', 'us-central-1', 'us-east-1', 'us-west-1'],
+    'dst_cid': ['us-central-1', 'us-west-1', 'us-east-1', 'us-west-1'],
+    'flow': [293, 120, 313, 106],
+    'total': [510, 510, 372, 106],
+    'weight': [0.0, 0.530296, 0.841398, 1.0]
+}
+
+# Sample desired DataFrame
+desired_data = {
+    'src_svc': ['sslateingress'] * 4,
+    'dst_svc': ['frontend'] * 4,
+    'src_endpoint': ['sslateingress@POST@/cart/checkout'] * 4,
+    'dst_endpoint': ['frontend@POST@/cart/checkout'] * 4,
+    'src_cid': ['us-central-1', 'us-south-1', 'us-east-1', 'us-south-1'],
+    'dst_cid': ['us-central-1', 'us-south-1', 'us-south-1', 'us-south-1'],
+    'flow': [150, 95, 60, 80],
+    'total': [500, 100, 350, 80],
+    'weight': [0.3, 1.0, 0.171428, 1.0]
+}
+
+# starting_df = pd.DataFrame(starting_data)
+# desired_df = pd.DataFrame(desired_data)
+# print("Starting DataFrame:")
+# print(starting_df)
+# print("\nDesired DataFrame:")
+# print(desired_df)
+
+# # Compute convex combination with cur_convex_comb_value = 0.5
+# jumping_df = jump_towards_optimizer_desired(starting_df, desired_df, 0.5)
+
+# print("Jumping DataFrame (Convex Combination):")
+# print(jumping_df)
+
+
+
+op2 = {'us-central-1': {'us-central-1': -1096.6242774566474, 'us-south-1': -5077.978896103896, 'us-west-1': -1597.1198099049523}, 'us-east-1': {'us-east-1': -12254.233459033252, 'us-south-1': -45937.99512987013}}
+op1 = {'us-central-1': {'us-central-1': -1493.5474254742546, 'us-south-1': -2410.538707467458, 'us-west-1': -2065.0}, 'us-east-1': {'us-east-1': -11610.0, 'us-south-1': -15811.49965745604}}
+
+print(overperformances_are_different(op1, op2, 2.5))
