@@ -1188,7 +1188,7 @@ def optimizer_entrypoint(agg_root_node_rps):
                         endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['frontend']
                     elif benchmark_name == "hotelreservation":
                         endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['slateingress']
-                    elif benchmark_name == "alibaba" or benchmark_name == "onlineboutique":
+                    elif benchmark_name == "alibaba" or benchmark_name == "onlineboutique" or benchmark_name == "corecontrast":
                         endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['sslateingress']
                     else:
                         logger.error(f"!!! ERROR !!!: benchmark_name is not supported. benchmark_name: {benchmark_name}")
@@ -1491,6 +1491,8 @@ def trace_string_file_to_trace_data_structure(trainig_input_trace_file, load_coe
         
         global endpoint_sizes
         endpoint_sizes = {
+            "/singlecore": 10,
+            "/multicore": 10,
             "/cart": 520,
             "/cart/checkout": 520,
             "/cart/empty": 259,
@@ -1627,6 +1629,11 @@ def init_max_capacity_per_service(capacity):
                 # else:
                 #     max_capacity_per_service[svc][region] = capacity
             elif benchmark_name == "bottleneckc":
+                if svc == bottleneck_service:
+                    max_capacity_per_service[svc][region] = capacity
+                else:
+                    max_capacity_per_service[svc][region] = 1000
+            elif benchmark_name == "corecontrast":
                 if svc == bottleneck_service:
                     max_capacity_per_service[svc][region] = capacity
                 else:
@@ -1973,6 +1980,9 @@ def read_config_file():
                     elif benchmark_name == "onlineboutique":
                         parent_of_bottleneck_service = "sslateingress"
                         bottleneck_service = "frontend"
+                    elif benchmark_name == "corecontrast":
+                        parent_of_bottleneck_service = "sslateingress"
+                        bottleneck_service = "corecontrast"
                     elif benchmark_name == "not_init":
                         parent_of_bottleneck_service = "not_init"
                         bottleneck_service = "not_init"
