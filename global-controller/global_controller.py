@@ -147,6 +147,7 @@ prev_hillclimb_latency = dict() # svc -> region -> pod -> {latency_total, num_re
 cur_hillclimb_latency = dict()
 next_hillclimb_latency = dict()
 global_prev_ruleset_overperformance = dict()
+global_prev_aggregated_rps = dict()
 currently_globally_oscillating = False
 jumping_feature_enabled = False
 hillclimb_interval = -1
@@ -245,14 +246,19 @@ def perform_jumping():
     global completed_rulesets
     global global_prev_ruleset_overperformance
     global currently_globally_oscillating
-    
+
+    global global_prev_aggregated_rps
     global jumping_towards_optimizer
     global jumping_ruleset_num_iterations
     global jumping_ruleset_convergence_iterations
     global global_prev_processing_latencies
     global global_processing_latencies
     global processing_latencies_mutex
+    global mode
     global temp_counter
+
+    if mode == "profile":
+        return
     """
     if use_optimizer_output is true, /proxyLoad will use percentage_df to route traffic.
     otherwise, it will use jumping_df.
@@ -281,6 +287,9 @@ def perform_jumping():
     processing_latencies_mutex.release()
     prev_processing_latency = calculate_avg_processing_latency(prev_processing_latencies, "sslateingress", "POST@/cart/checkout")
     cur_processing_latency = calculate_avg_processing_latency(cur_processing_latencies, "sslateingress", "POST@/cart/checkout")
+    prev_aggregated_rps = global_prev_aggregated_rps.copy()
+    cur_aggregated_rps = aggregated_rps.copy()
+    global_prev_aggregated_rps = aggregated_rps.copy()
     write_latency("sslateingress", cur_processing_latency, cur_processing_latencies)
     if not jumping_feature_enabled:
         return
@@ -320,7 +329,8 @@ def perform_jumping():
         global_prev_processing_latencies.clear()
         return
     
-    if overperformances_are_different(prev_ruleset_overperformance, ruleset_overperformance, maxPctDiff=.4) and not jumping_towards_optimizer:
+    # if overperformances_are_different(prev_ruleset_overperformance, ruleset_overperformance, maxPctDiff=3) and not jumping_towards_optimizer:
+    if processing_latencies_delta_are_different(cur_processing_latencies, prev_processing_latencies, cur_aggregated_rps, prev_aggregated_rps, maxPctDiff=1.5) and not jumping_towards_optimizer:
         # we are oscillating, but the overperformances are different, so we should restart jumping in the disjoint rulesets.
         currently_globally_oscillating = False
         jumping_towards_optimizer = False
@@ -328,7 +338,7 @@ def perform_jumping():
         cur_jumping_ruleset = pick_best_ruleset(ruleset_overperformance, completed_rulesets)
         logger.info(f"loghill detected overperformance change, picked new ruleset: {cur_jumping_ruleset}")
         jumping_ruleset_num_iterations = 0
-        global_prev_processing_latencies.clear()
+        # global_prev_processing_latencies.clear()
 
     if currently_globally_oscillating:
         # we are oscillating and the overperformances are the same, so we should stop jumping.
@@ -441,12 +451,13 @@ def perform_jumping():
             prev_jumping_df = jumping_df.copy()
             # this is the new calculated direction / weights for that direction.
             # apply this overperformance to jumping_df, and then apply the jumping_df to the actual routing rules.
-            adjusted_df, did_adjust = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset, ruleset_overperformance.get(cur_jumping_ruleset, {}), step_size=0.1)
-            jumping_df = adjusted_df.copy()
+            adjusted_df, did_adjust = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset, ruleset_overperformance.get(cur_jumping_ruleset, {}), step_size=0.05)
             if not did_adjust:
                 # add this to completed rulesets
                 logger.info(f"loghill ruleset did not adjust, adding ruleset {cur_jumping_ruleset} to completed rulesets")
                 completed_rulesets.add(cur_jumping_ruleset)
+            else:
+                jumping_df = adjusted_df.copy()
         else:
             jumping_df = percentage_df.copy()
     return
@@ -482,8 +493,113 @@ def rules_are_different(df1: pd.DataFrame, df2: pd.DataFrame, maxThreshold=0.1):
 
     return False
 
-def processing_latencies_are_different(pl1: dict, pl2: dict, maxPctDiff=0.5) -> bool:
-    pass
+def processing_latencies_delta_are_different(
+    cur_processing_latencies: dict,
+    prev_processing_latencies: dict,
+    cur_aggregated_rps: dict,
+    prev_aggregated_rps: dict,
+    maxPctDiff: float = 0.5  # Represents 50%
+) -> bool:
+    """
+    Compare the percentage difference between the previous and current latency deltas for the "frontend" service.
+    
+    Args:
+        cur_processing_latencies (dict): Current processing latencies.
+        prev_processing_latencies (dict): Previous processing latencies.
+        prev_aggregated_rps (dict): Previous aggregated requests per second (region -> service -> endpoint).
+        cur_aggregated_rps (dict): Current aggregated requests per second (region -> service -> endpoint).
+        maxPctDiff (float, optional): Maximum allowed percentage difference (0 to 1). Defaults to 0.005 (0.5%).
+    
+    Returns:
+        bool: True if any latency delta percentage difference exceeds maxPctDiff, False otherwise.
+    """
+
+    if prev_processing_latencies is None or len(prev_processing_latencies) == 0:
+        return False
+    for region, services in cur_aggregated_rps.items():
+        if "frontend" not in services:
+            continue
+        for endpoint, cur_load in services["frontend"].items():
+            if region not in prev_aggregated_rps or "frontend" not in prev_aggregated_rps[region] or endpoint not in prev_aggregated_rps[region]["frontend"]:
+                continue
+            prev_load = prev_aggregated_rps[region]["frontend"][endpoint]
+            methodpath = endpoint.split("@")[1] + "@" + endpoint.split("@")[2]
+            # Calculate expected latencies based on previous and current load levels
+            expected_latency_prev = get_expected_latency_for_rule(prev_load, "frontend", methodpath)
+            expected_latency_cur = get_expected_latency_for_rule(cur_load, "frontend", methodpath)
+            
+            # Skip comparison if expected latencies are zero to avoid division by zero
+            if expected_latency_prev == 0 or expected_latency_cur == 0:
+                logger.debug(
+                    f"Skipping comparison for Region: {region}, Service: frontend, Endpoint: {endpoint} "
+                    f"due to zero expected latency."
+                )
+                continue
+
+            # Retrieve actual latencies; default to 0 if not present
+            # methodpath is just method@path, e.g., GET@/cart/checkout, get it from endpoint which is of form svc@method@path
+            actual_prev = calculate_avg_processing_latency(
+                prev_processing_latencies, "frontend", methodpath, region
+            )
+            actual_cur = calculate_avg_processing_latency(
+                cur_processing_latencies, "frontend", methodpath, region
+            )
+
+            # Calculate the deltas
+            delta_prev = abs(expected_latency_prev - actual_prev)
+            delta_cur = abs(expected_latency_cur - actual_cur)
+
+            if True:
+                # check if within 30ms
+                if abs(delta_prev - delta_cur) > 30:
+                    logger.info(
+                        f"Latency delta difference exceeded: {delta_cur}ms > 30ms (abs({delta_prev} - {delta_cur})) "
+                        f"for Region: {region}, Service: frontend, Endpoint: {endpoint}"
+                    )
+                    return True
+            else:
+                # Calculate the percentage difference between the two deltas
+                if delta_prev == 0:
+                    if delta_cur != 0:
+                        # Previous delta was zero, current delta is non-zero: infinite percentage change
+                        pct_diff = float('inf')
+                    else:
+                        # Both deltas are zero: no change
+                        pct_diff = 0
+                else:
+                    pct_diff = abs(delta_cur - delta_prev) / delta_prev  # Fraction between 0 and inf
+
+                # Debug logs (optional)
+                logger.info(
+                    f"Region: {region}, Service: frontend, Endpoint: {endpoint}, "
+                    f"Expected Latency Prev: {expected_latency_prev}ms ({prev_load} rps), Expected Latency Cur: {expected_latency_cur}ms ({cur_load} rps), "
+                    f"Prev Actual Latency: {actual_prev}ms, Cur Actual Latency: {actual_cur}ms, "
+                    f"Delta Prev: {delta_prev}ms, Delta Cur: {delta_cur}ms, Pct Diff: {pct_diff:.4f}"
+                )
+
+                if pct_diff > maxPctDiff:
+                    if pct_diff == float('inf'):
+                        logger.debug(
+                            f"Latency delta difference exceeded: Infinite > {maxPctDiff*100}% "
+                            f"for Region: {region}, Service: frontend, Endpoint: {endpoint}"
+                        )
+                    else:
+                        logger.info(
+                            f"Latency delta difference exceeded: {pct_diff*100:.2f}% > {maxPctDiff*100}% "
+                            f"for Region: {region}, Service: frontend, Endpoint: {endpoint}"
+                        )
+                    return True
+                else:
+                    logger.debug(
+                        f"Latency delta difference within threshold: {pct_diff*100:.2f}% <= {maxPctDiff*100}% "
+                        f"for Region: {region}, Service: frontend, Endpoint: {endpoint}"
+                    )
+    return False
+
+
+
+
+
 
 def overperformances_are_different(op1: dict, op2: dict, maxPctDiff=0.5) -> bool:
     """
@@ -508,6 +624,7 @@ def overperformances_are_different(op1: dict, op2: dict, maxPctDiff=0.5) -> bool
             if dst_region not in op1[src_region]:
                 return True
     return False
+
 
 # Function to compute traffic matrix from DataFrame
 def compute_traffic_matrix(df):
@@ -743,7 +860,7 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict) 
             actual_latency_in_dst_region = calculate_avg_processing_latency(cur_latencies, "frontend", "POST@/cart/checkout", region=dst_region)
             total_load_in_dst_region = aggregated_rps.get(dst_region, {}).get("frontend", {}).get("frontend@POST@/cart/checkout", 0)
             expected_latency_in_dst_region = get_expected_latency_for_rule(total_load_in_dst_region, "frontend", "POST@/cart/checkout")
-            total_load_in_src_region = aggregated_rps.get(src_region, {}).get("frontend", {}).get("frontend@POST@/cart/checkout", 0)
+            total_load_in_src_region = aggregated_rps.get(src_region, {}).get("sslateingress", {}).get("sslateingress@POST@/cart/checkout", 0)
             ruleset_rps_in_dst_region = total_load_in_src_region * src_rules[src_rules["dst_cid"] == dst_region]["weight"].values[0]
             overperformance[src_region][dst_region] = (expected_latency_in_dst_region - actual_latency_in_dst_region) * ruleset_rps_in_dst_region
 
@@ -751,7 +868,7 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict) 
             # load = aggregated_rps.get(src_region, {}).get("frontend", {}).get("frontend@POST@/cart/checkout", 0)
             # load_in_dst_region = aggregated_rps.get(dst_region, {}).get("frontend", {}).get("frontend@POST@/cart/checkout", 0)
             # expected_latency = get_expected_latency_for_rule(load_in_dst_region, "frontend", "POST@/cart/checkout")
-            logger.info(f"loghill calculate_ruleset_overperformance: src_region: {src_region}, dst_region: {dst_region}, expected_latency: {expected_latency_in_dst_region}, actual_latency: {actual_latency_in_dst_region}, load in {dst_region} for this ruleset: {ruleset_rps_in_dst_region}")
+            logger.info(f"loghill calculate_ruleset_overperformance: src_region: {src_region}, dst_region: {dst_region}, expected_latency ({total_load_in_dst_region} rps): {expected_latency_in_dst_region}, actual_latency: {actual_latency_in_dst_region}, load in {dst_region} for this ruleset: {ruleset_rps_in_dst_region}")
             # overperformance[src_region][dst_region] = (expected_latency - actual_latency) * load
     return overperformance
 
@@ -1547,7 +1664,7 @@ def handleProxyLoad():
                     return csv_string
                 temp_df = verify_return_df(temp_df, region)
                 temp_df = temp_df.reset_index(drop=True)
-                adjusted_df: pd.DataFrame = adjustForHillclimbing(svc, region, temp_df)
+                # adjusted_df: pd.DataFrame = adjustForHillclimbing(svc, region, temp_df)
                 csv_string = temp_df.to_csv(header=False, index=False)
                 assert csv_string != ""
                 logger.debug(f"Enforcement, {ROUTING_RULE}, temp_counter-{temp_counter}, {full_podname} in {region}\n{csv_string.strip()}")
@@ -2228,7 +2345,7 @@ def optimizer_entrypoint():
     if percentage_df.empty:
         logger.error(f"ERROR: run_optimizer FAIL (**{desc}**) return without updating percentage_df")
     write_optimizer_output(temp_counter, percentage_df, desc, "routing_history.csv")
-    logger.info(f"loghill writing jumping_routing_history.csv {percentage_df if use_optimizer_output or not jumping_feature_enabled else jumping_df} and {jumping_df}")
+    # logger.info(f"loghill writing jumping_routing_history.csv {percentage_df if use_optimizer_output or not jumping_feature_enabled else jumping_df} and {jumping_df}")
     write_optimizer_output(temp_counter, percentage_df if use_optimizer_output or not jumping_feature_enabled else jumping_df, desc, "jumping_routing_history.csv")
     ''' end of optimizer_entrypoint '''
 
@@ -2984,6 +3101,9 @@ def read_config_file():
                     elif benchmark_name == "onlineboutique":
                         parent_of_bottleneck_service = "sslateingress"
                         bottleneck_service = "frontend"
+                    elif benchmark_name == "corecontrast":
+                        parent_of_bottleneck_service = "sslateingress"
+                        bottleneck_service = "corecontrast"
                     elif benchmark_name == "not_init":
                         parent_of_bottleneck_service = "not_init"
                         bottleneck_service = "not_init"
@@ -3151,6 +3271,29 @@ def aggregated_rps_routine():
                 for endpoint in agg_root_node_rps[region][svc]:
                     logger.warning(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
         logger.warning("-"*80)
+    
+    # also print per_pod_ep_rps AND aggregated_rps for all services in us-west-1.
+    # after that, print per_pod_ep_rps AND aggregated_rps for regions for the frontend service.
+    # logger.info("logadi-aggregate rps")
+    # logger.info("-"*80)
+    # region = "us-west-1"
+    # svc = "sslateingress"
+    
+    
+    # for endpoint in per_pod_ep_rps[region][svc]:
+    #     for podname in per_pod_ep_rps["us-west-1"][svc][endpoint]:
+    #         logger.info(f"{temp_counter},per_pod_ep_rps,us-west-1,{svc},{endpoint},{podname},{per_pod_ep_rps['us-west-1'][svc][endpoint][podname]}")
+    # for svc in aggregated_rps["us-west-1"]:
+    #     for endpoint in aggregated_rps["us-west-1"][svc]:
+    #         logger.info(f"{temp_counter},aggregated_rps,us-west-1,{svc},{endpoint},{aggregated_rps['us-west-1'][svc][endpoint]}")
+    # for region in per_pod_ep_rps:
+    #     for endpoint in per_pod_ep_rps[region]["frontend"]:
+    #         for podname in per_pod_ep_rps[region]["frontend"][endpoint]:
+    #             logger.info(f"{temp_counter},per_pod_ep_rps,{region},frontend,{endpoint},{podname},{per_pod_ep_rps[region]['frontend'][endpoint][podname]}")
+    # for region in aggregated_rps:
+    #     for endpoint in aggregated_rps[region]["frontend"]:
+    #         logger.info(f"{temp_counter},aggregated_rps,{region},frontend,{endpoint},{aggregated_rps[region]['frontend'][endpoint]}")
+    # logger.info("-"*80)
     temp_counter += 1
         
 def state_check():

@@ -1,0 +1,5 @@
+svc_name, endpoint, coef
+sslateingress,sslateingress@POST@/multicore,{'sslateingress@POST@/multicore': 1.8545858800198172e-06, 'intercept': 3.115396051809149}
+sslateingress,sslateingress@POST@/singlecore,{'sslateingress@POST@/singlecore': 0.0001776010064601, 'intercept': 1.82261443113976}
+corecontrast,corecontrast@POST@/multicore,{'corecontrast@POST@/multicore': 0.0015913631904008, 'intercept': 1}
+corecontrast,corecontrast@POST@/singlecore,{'corecontrast@POST@/singlecore': 0.078340559948566, 'intercept': 1}
