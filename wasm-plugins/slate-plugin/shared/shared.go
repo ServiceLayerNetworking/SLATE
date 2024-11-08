@@ -90,9 +90,6 @@ func GetEndpointLoadConditions() (map[string]EndpointStats, error) {
 			Inflight: 0,
 			Total:    TimestampListGetRPS(method, path),
 		}
-		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get shared data for endpoint %v inflight request stats: %v", endpoint, err)
-		}
 	}
 
 	return requestStats, nil

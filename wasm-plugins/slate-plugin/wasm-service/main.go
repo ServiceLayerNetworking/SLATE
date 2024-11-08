@@ -166,7 +166,7 @@ func (p *pluginContext) OnTick() {
 	}
 
 	// get the per-request load conditions and latencies
-	requestStats, err := GetTracedRequestStats()
+	requestStats, skipped, err := GetTracedRequestStats()
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get traced request stats: %v", err)
 		return
@@ -208,7 +208,7 @@ func (p *pluginContext) OnTick() {
 	}
 
 	reqBody := fmt.Sprintf("reqCount\n%d\n\ninflightStats\n%s\nrequestStats\n%s", 0, inflightStats, requestStatsStr)
-	proxywasm.LogCriticalf("<OnTick (noid %v)> reqBody:\n%s", noId, reqBody)
+	proxywasm.LogCriticalf("<OnTick (noid %v, skipped %v)> reqBody:\n%s", noId, skipped, reqBody)
 
 	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
 		[]byte(fmt.Sprintf("%d\n%s\n%s", totalRps, inflightStats, requestStatsStr)), make([][2]string, 0), 5000, p.OnTickHttpCallResponse)
@@ -437,18 +437,19 @@ func parseHttpResponse(callContext string, numHdrs, bodySize, numTrailers int) (
 
 // GetTracedRequestStats returns a slice of TracedRequestStats for all traced requests.
 // It skips requests that have not completed.
-func GetTracedRequestStats() ([]shared.TracedRequestStats, error) {
+func GetTracedRequestStats() ([]shared.TracedRequestStats, int, error) {
 	tracedRequestsRaw, _, err := proxywasm.GetSharedData(shared.KEY_TRACED_REQUESTS)
 	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
 		proxywasm.LogCriticalf("Couldn't get shared data for traced requests: %v", err)
-		return nil, err
+		return nil, 0, err
 	}
 	if len(tracedRequestsRaw) == 0 || errors.Is(err, types.ErrorStatusNotFound) || shared.EmptyBytes(tracedRequestsRaw) {
 		// no requests traced
-		return make([]shared.TracedRequestStats, 0), nil
+		return make([]shared.TracedRequestStats, 0), 0, nil
 	}
 	var tracedRequestStats []shared.TracedRequestStats
 	tracedRequests := strings.Split(string(tracedRequestsRaw), " ")
+	skipped := 0
 	for _, traceId := range tracedRequests {
 		if shared.EmptyBytes([]byte(traceId)) {
 			continue
@@ -456,7 +457,8 @@ func GetTracedRequestStats() ([]shared.TracedRequestStats, error) {
 		spanIdBytes, _, err := proxywasm.GetSharedData(shared.SpanIdKey(traceId))
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v spanId: %v", traceId, err)
-			return nil, err
+			skipped++
+			continue
 		}
 		spanId := string(spanIdBytes)
 		parentSpanIdBytes, _, err := proxywasm.GetSharedData(shared.ParentSpanIdKey(traceId))
@@ -468,25 +470,29 @@ func GetTracedRequestStats() ([]shared.TracedRequestStats, error) {
 		methodBytes, _, err := proxywasm.GetSharedData(shared.MethodKey(traceId))
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v method: %v", traceId, err)
-			return nil, err
+			skipped++
+			continue
 		}
 		method := string(methodBytes)
 		pathBytes, _, err := proxywasm.GetSharedData(shared.PathKey(traceId))
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v path: %v", traceId, err)
-			return nil, err
+			skipped++
+			continue
 		}
 		path := string(pathBytes)
 
 		startTimeBytes, _, err := proxywasm.GetSharedData(shared.StartTimeKey(traceId))
 		if err != nil {
 			proxywasm.LogCriticalf("Couldn't get shared data for traceId %v startTime: %v", traceId, err)
-			return nil, err
+			skipped++
+			continue
 		}
 		startTime := int64(binary.LittleEndian.Uint64(startTimeBytes))
 		endTimeBytes, _, err := proxywasm.GetSharedData(shared.EndTimeKey(traceId))
 		if err != nil {
 			// request hasn't completed yet, so just disregard.
+			skipped++
 			continue
 		}
 		var bodySize int64
@@ -510,7 +516,7 @@ func GetTracedRequestStats() ([]shared.TracedRequestStats, error) {
 			BodySize:     bodySize,
 		})
 	}
-	return tracedRequestStats, nil
+	return tracedRequestStats, skipped, nil
 }
 
 // ResetEndpointCounts : reset everything.
