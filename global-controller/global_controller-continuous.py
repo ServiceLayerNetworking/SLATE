@@ -29,6 +29,8 @@ import warnings
 import json
 import replicate_trace_to_diff_region as trace_parser
 import heapq
+from multiprocessing import Value
+import re
 
 # Filter specific FutureWarning related to pandas concatenation.
 
@@ -50,10 +52,17 @@ warnings.filterwarnings("ignore", message="The behavior of DataFrame concatenati
 
 '''runtime (optimizer)'''
 # endpoint_level_rps = {}
+
+df_incomplete_traces = pd.DataFrame(columns=['region', 'service', 'method', 'url', 'trace_id', 'span_id', 'parent_span_id', 'st', 'et', 'callsize', 'ep', 'rps', 'inflight', "dummy"])
+
+trace_locks = {}
+body_trace_cas = 0
 aggregated_rps = {} # dict of region -> svcname -> endpoint -> rps
+norm_aggregated_rps = {}
 agg_root_node_rps = {}
 endpoint_level_rps_mutex = Lock()
 per_pod_ep_rps_mutex = Lock()
+add_trace_mutex = Lock()
 per_pod_ep_rps = {}
 service_level_rps = {}
 endpoint_to_cg_key = {}
@@ -109,14 +118,24 @@ runtime_model_updating=False
 region_pct_df = dict() # waterfall
 parent_of_bottleneck_service = "" # waterfall2
 bottleneck_service = "" # "a"
-list_of_span = list() # unorganized list of spanss
+list_of_span = list() # unorganized list of spans
+list_of_body = list() # unorganized list of bodies
+list_of_body_mutex = Lock()
+from asyncio import Queue
+asyncio_queue = Queue()
 handleproxy_trace_pointer = 0 # Rotate them to avoid locking
 update_traces_pointer = 1
 trace_df = pd.DataFrame()
 incomplete_traces = [dict(), dict()]
 incomplete_traces_mutex_dict = dict() # :Key: region, service_name, Value: Lock()
+new_complete_traces = dict()
 stitched_complete_traces = dict() # filtered traces
 stitched_complete_traces_mutex = Lock()
+new_complete_traces_cas = 0
+new_complete_traces_cas = Value('i', 0) # Atomic variable
+
+recent = 5 # in secondss
+recent_respnose_time = dict() # region -> load_bucket -> svc -> method_path -> response_time
 num_stitched_trace_history = dict()
 train_done = False
 train_start = False
@@ -161,6 +180,8 @@ global_prev_processing_latencies = dict()
 processing_latencies_mutex = Lock()
 max_num_trace = 0
 load_bucket_size = 0
+
+should_we_rollback = True
 
 endpoint_sizes = {
     "/cart": 520,
@@ -271,6 +292,24 @@ def handleHillclimbLatency():
     return ""
 
 
+def decide_rollback_or_not(svc, method_path):
+    global stitched_complete_traces
+    global stitched_complete_traces_mutex
+    global should_we_rollback
+    """
+    * Problem: We need to apply statistical model not only for each traffic class but also for each unique routing path. For example, a request going through west-frontend and east-backend should not be statiscally modeled together with another request going through west-frontend and west-backend.
+    
+    input: raw latency(response time) of each endpoint in each region 
+    output: True/False for endpoint in each region
+    
+    A subtle problem is that we are going to use /proxyload endpoint for telemetry pipeline since we need raw latency of individual requests. However, we are going to use it in /hillclimbing endpoint. The currenet function will be executed in perform_jumping routine.
+    """
+    pass
+    
+    
+    
+
+
 def perform_jumping():
     global percentage_df
     global jumping_df
@@ -295,6 +334,7 @@ def perform_jumping():
     global global_processing_latencies
     global processing_latencies_mutex
     global temp_counter
+    global should_we_rollback
     """
     if use_optimizer_output is true, /proxyLoad will use percentage_df to route traffic.
     otherwise, it will use jumping_df.
@@ -420,7 +460,13 @@ def perform_jumping():
             prev_processing_latencies.clear()
             prev_jumping_df = jumping_df.copy()
             return
-        if len(prev_processing_latencies) > 0 and prev_processing_latency < cur_processing_latency: # gangmuk: statistical model
+        
+        ## Old
+        # should_we_rollback = len(prev_processing_latencies) > 0 and prev_processing_latency < cur_processing_latency
+        ## New
+        should_we_rollback = decide_rollback_or_not("sslateingress", "POST@/cart/checkout")
+        
+        if should_we_rollback: # gangmuk: statistical model
             # reverse direction
             logger.info(f"loghill reversing direction from {convex_comb_direction} to {-convex_comb_direction}")
             convex_comb_direction = -convex_comb_direction
@@ -464,7 +510,9 @@ def perform_jumping():
         # first adjust jumping_df based on the current and previous latencies (accept the rule from prev_jumping_df to jumping_df)
         # if the latency has improved. if not, roll back to prev_jumping_df. this is where we detect oscillation.
         # todo aditya
-        if len(prev_processing_latencies) > 0 and prev_processing_latency < cur_processing_latency: # gangmuk: statistical model
+        
+        should_we_rollback = len(prev_processing_latencies) > 0 and prev_processing_latency < cur_processing_latency
+        if should_we_rollback: # gangmuk: statistical model
             # cases where prev_processing_latency < cur_processing_latency:
             # 1) we are oscillating between two rules -- this is fine. in this case, we just roll back and keep oscillating.
             # 2) we are somehow getting worse with each rule. in this case, rollback becomes a no-op (what are we rolling back to?).
@@ -727,7 +775,7 @@ def calculate_avg_processing_latency(latencies: dict, svc: str, methodpath: str,
                 continue
             total_latency += latencies[svc][region][pod][methodpath]["latency_total"]
             total_reqs += latencies[svc][region][pod][methodpath]["num_reqs"]
-    else:
+    else: # region == ""
         for region in latencies[svc]:
             for pod in latencies[svc][region]:
                 if methodpath not in latencies[svc][region][pod]:
@@ -909,74 +957,76 @@ def write_latency(svc: str, avg_processing_latency: int, latency_dict: dict):
         historical_svc_latencies[svc] = list()
     historical_svc_latencies[svc].append(avg_processing_latency)
 
-@app.post('/hillclimbingPolicy') # from wasm
-def handleHillclimbPolicy():
-    global cur_hillclimb_latency
-    global prev_hillclimb_latency
-    global next_hillclimb_latency
-    global last_policy_request
-    global hillclimb_latency_lock
-    global hillclimb_interval
-    global last_policy_request_mutex
-    svc = request.headers.get('x-slate-servicename').split("-us-")[0]
-    # svc_trunc: remove -us-west-1 or -us-east-1 from the end
-    podname = request.headers.get('x-slate-podname')[-5:]
-    if hillclimb_interval == -1:
-        logger.debug(f"hillclimbingPolicy for (pod {podname}): hillclimb_interval is -1, doing nothing")
-        return ""
-    last_policy_request_mutex.acquire(blocking=True)
-    if svc not in last_policy_request:
-        last_policy_request[svc] = 0
-    # logger.debug(f"hillclimbingPolicy for (pod {podname}): svc: {svc}")
-    hillclimb_latency_lock.acquire(blocking=True)
-    if time.time() - last_policy_request[svc] > (hillclimb_interval - 2):
-        # this is the first request after the interval
-        # next to cur, and cur to prev, and clear next for the next interval
-        # this basically "freezes" the current state, so subsequent requests in the same interval will be compared to this state
-        # the reason we're doing this is because we don't know how many replicas are there for each service, 
-        #  so we can't just copy states on the last request
-        logger.debug(f"hillclimbingPolicy for (pod {podname}, svc {svc}): INTERVAL EXPIRED (diff {time.time() - last_policy_request[svc]}), copying states, len(next_hillclimb_latency): {len(next_hillclimb_latency.get(svc, {})) or 0}, len(cur_hillclimb_latency): {len(cur_hillclimb_latency.get(svc, {})) or 0}")
-        if svc in next_hillclimb_latency and svc in cur_hillclimb_latency and len(next_hillclimb_latency[svc]) >= 2 and len(cur_hillclimb_latency[svc]) >= 2:
-            add_to_global_history(cur_hillclimb_latency, next_hillclimb_latency, svc)
-        if svc in cur_hillclimb_latency:
-            prev_hillclimb_latency[svc] = dict()
-            prev_hillclimb_latency[svc] = copy.deepcopy(cur_hillclimb_latency[svc])
-        if svc in next_hillclimb_latency:
-            cur_hillclimb_latency[svc] = dict()
-            cur_hillclimb_latency[svc] = copy.deepcopy(next_hillclimb_latency[svc])
-        next_hillclimb_latency[svc] = dict()
-        logger.debug(f"new len(prev_hillclimb_latency): {len(prev_hillclimb_latency)}, new len(cur_hillclimb_latency): {len(cur_hillclimb_latency)}")
-    last_policy_request[svc] = time.time()
-    last_policy_request_mutex.release()
-    if svc not in cur_hillclimb_latency or svc not in prev_hillclimb_latency:
-        hillclimb_latency_lock.release()
-        logger.debug(f"hillclimbingPolicy for (pod {podname}): svc: {svc} not in one of cur or prev, SKIPPING (this could be the first iteration)")
-        if svc in cur_hillclimb_latency:
-            # svc is in cur, but not in prev
-            logger.debug(f"svc {svc} is in cur, but not in prev (first iteration) -- returning false") 
-            # this is aritrary
-            return "false"
-        return ""
-    cur_r2p = cur_hillclimb_latency[svc]
-    prev_r2p = prev_hillclimb_latency[svc]
-    # sum up the latency and num_reqs for both current and previous, across all pods and regions
-    cur_latency_total = sum([cur_r2p[region][pod]["latency_total"] for region in cur_r2p for pod in cur_r2p[region]])
-    cur_num_reqs = sum([cur_r2p[region][pod]["num_reqs"] for region in cur_r2p for pod in cur_r2p[region]])
-    prev_latency_total = sum([prev_r2p[region][pod]["latency_total"] for region in prev_r2p for pod in prev_r2p[region]])
-    prev_num_reqs = sum([prev_r2p[region][pod]["num_reqs"] for region in prev_r2p for pod in prev_r2p[region]])
-    hillclimb_latency_lock.release()
-    # calculate the average latency for both current and previous
-    if cur_num_reqs == 0 or prev_num_reqs == 0:
-        logger.debug(f"hillclimbingPolicy for (pod {podname}, svc {svc}): cur_num_reqs: {cur_num_reqs}, prev_num_reqs: {prev_num_reqs}, dodging division by zero")
-        return ""
-    cur_avg_latency = cur_latency_total / cur_num_reqs
-    prev_avg_latency = prev_latency_total / prev_num_reqs
-    logger.debug(f"hillclimbingPolicy for (pod {podname}, svc {svc}): cur_avg_latency: {cur_avg_latency} (latency total {cur_latency_total}, reqs {cur_num_reqs}), prev_avg_latency: {prev_avg_latency} (latency total {prev_latency_total}, reqs {prev_num_reqs})")
 
-    if cur_avg_latency < prev_avg_latency:
-        return "true"
-    else:
-        return "false"
+## This is distributed jumping. 
+# @app.post('/hillclimbingPolicy') # from wasm
+# def handleHillclimbPolicy():
+#     global cur_hillclimb_latency
+#     global prev_hillclimb_latency
+#     global next_hillclimb_latency
+#     global last_policy_request
+#     global hillclimb_latency_lock
+#     global hillclimb_interval
+#     global last_policy_request_mutex
+#     svc = request.headers.get('x-slate-servicename').split("-us-")[0]
+#     # svc_trunc: remove -us-west-1 or -us-east-1 from the end
+#     podname = request.headers.get('x-slate-podname')[-5:]
+#     if hillclimb_interval == -1:
+#         logger.debug(f"hillclimbingPolicy for (pod {podname}): hillclimb_interval is -1, doing nothing")
+#         return ""
+#     last_policy_request_mutex.acquire(blocking=True)
+#     if svc not in last_policy_request:
+#         last_policy_request[svc] = 0
+#     # logger.debug(f"hillclimbingPolicy for (pod {podname}): svc: {svc}")
+#     hillclimb_latency_lock.acquire(blocking=True)
+#     if time.time() - last_policy_request[svc] > (hillclimb_interval - 2):
+#         # this is the first request after the interval
+#         # next to cur, and cur to prev, and clear next for the next interval
+#         # this basically "freezes" the current state, so subsequent requests in the same interval will be compared to this state
+#         # the reason we're doing this is because we don't know how many replicas are there for each service, 
+#         #  so we can't just copy states on the last request
+#         logger.debug(f"hillclimbingPolicy for (pod {podname}, svc {svc}): INTERVAL EXPIRED (diff {time.time() - last_policy_request[svc]}), copying states, len(next_hillclimb_latency): {len(next_hillclimb_latency.get(svc, {})) or 0}, len(cur_hillclimb_latency): {len(cur_hillclimb_latency.get(svc, {})) or 0}")
+#         if svc in next_hillclimb_latency and svc in cur_hillclimb_latency and len(next_hillclimb_latency[svc]) >= 2 and len(cur_hillclimb_latency[svc]) >= 2:
+#             add_to_global_history(cur_hillclimb_latency, next_hillclimb_latency, svc)
+#         if svc in cur_hillclimb_latency:
+#             prev_hillclimb_latency[svc] = dict()
+#             prev_hillclimb_latency[svc] = copy.deepcopy(cur_hillclimb_latency[svc])
+#         if svc in next_hillclimb_latency:
+#             cur_hillclimb_latency[svc] = dict()
+#             cur_hillclimb_latency[svc] = copy.deepcopy(next_hillclimb_latency[svc])
+#         next_hillclimb_latency[svc] = dict()
+#         logger.debug(f"new len(prev_hillclimb_latency): {len(prev_hillclimb_latency)}, new len(cur_hillclimb_latency): {len(cur_hillclimb_latency)}")
+#     last_policy_request[svc] = time.time()
+#     last_policy_request_mutex.release()
+#     if svc not in cur_hillclimb_latency or svc not in prev_hillclimb_latency:
+#         hillclimb_latency_lock.release()
+#         logger.debug(f"hillclimbingPolicy for (pod {podname}): svc: {svc} not in one of cur or prev, SKIPPING (this could be the first iteration)")
+#         if svc in cur_hillclimb_latency:
+#             # svc is in cur, but not in prev
+#             logger.debug(f"svc {svc} is in cur, but not in prev (first iteration) -- returning false") 
+#             # this is aritrary
+#             return "false"
+#         return ""
+#     cur_r2p = cur_hillclimb_latency[svc]
+#     prev_r2p = prev_hillclimb_latency[svc]
+#     # sum up the latency and num_reqs for both current and previous, across all pods and regions
+#     cur_latency_total = sum([cur_r2p[region][pod]["latency_total"] for region in cur_r2p for pod in cur_r2p[region]])
+#     cur_num_reqs = sum([cur_r2p[region][pod]["num_reqs"] for region in cur_r2p for pod in cur_r2p[region]])
+#     prev_latency_total = sum([prev_r2p[region][pod]["latency_total"] for region in prev_r2p for pod in prev_r2p[region]])
+#     prev_num_reqs = sum([prev_r2p[region][pod]["num_reqs"] for region in prev_r2p for pod in prev_r2p[region]])
+#     hillclimb_latency_lock.release()
+#     # calculate the average latency for both current and previous
+#     if cur_num_reqs == 0 or prev_num_reqs == 0:
+#         logger.debug(f"hillclimbingPolicy for (pod {podname}, svc {svc}): cur_num_reqs: {cur_num_reqs}, prev_num_reqs: {prev_num_reqs}, dodging division by zero")
+#         return ""
+#     cur_avg_latency = cur_latency_total / cur_num_reqs
+#     prev_avg_latency = prev_latency_total / prev_num_reqs
+#     logger.debug(f"hillclimbingPolicy for (pod {podname}, svc {svc}): cur_avg_latency: {cur_avg_latency} (latency total {cur_latency_total}, reqs {cur_num_reqs}), prev_avg_latency: {prev_avg_latency} (latency total {prev_latency_total}, reqs {prev_num_reqs})")
+
+#     if cur_avg_latency < prev_avg_latency:
+#         return "true"
+#     else:
+#         return "false"
 
 
 @app.post('/hillclimbingReport') # from wasm
@@ -1249,7 +1299,6 @@ def MCLB_routing_rule(src_svc, src_cid):
 
 
 def parse_inflight_stats(body):
-    # logger.info(f"body: {body}")
     lines = body.split("\n")
     inflightStats = lines[1]
     return inflightStats
@@ -1264,27 +1313,162 @@ def parse_service_level_rps(body):
     rps = int(lines[0])
     return rps
 
-def parse_stats_into_spans(body, given_svc_name):
+
+def parse_body_to_span2(body):
     lines = body.split("\n")
-    requestStats = lines[3:]
+    spans = []
+    for line in lines:
+        ss = line.split(" ")
+        if line[:3] != "us-":
+            logger.debug(f"Skip this span. line[:3] != 'us-', line: {line}")
+            continue
+        region = ss[0]
+        serviceName = ss[1]
+        if serviceName.find("-us-") != -1:
+            serviceName = serviceName.split("-us-")[0]
+        if serviceName == "productcatalogservice" or serviceName == "currencyservice":
+            return []
+        method = ss[2]
+        path = ss[3]
+        endpoint_str = f"{serviceName}@{method}@{path}"
+        traceId = ss[4]
+        spanId = ss[5]
+        parentSpanId = ss[6]
+        startTime = int(ss[7])
+        endTime = int(ss[8])
+        bodySize = int(ss[9])
+        responseTime = endTime - startTime
+        if responseTime < 0: # filtering condition 3 (negative response time)
+            logger.error(f"Skip this span. non-positive response time({responseTime}), span: {ss}")
+            continue
+        endpointInflightStats = ss[10].split("|")
+        if endpointInflightStats[-1] == "":
+            endpointInflightStats = endpointInflightStats[:-1]
+        rps_dict = dict()
+        inflight_dict = dict()
+        for ep_load in endpointInflightStats:
+            skip_flag = False
+            try:
+                ep_load_method_and_path = ep_load.split(",")[0]
+                ep_load_method = ep_load_method_and_path.split("@")[0]
+                ep_load_path = ep_load_method_and_path.split("@")[1]
+                ep_load_endpoint_str = f"{serviceName}@{ep_load_method}@{ep_load_path}"
+                rps_of_this_pod = int(ep_load.split(",")[1])
+                num_pod_of_this_region = len(per_pod_ep_rps[region][serviceName][endpoint_str])
+                rps_of_all_pods = rps_of_this_pod*num_pod_of_this_region
+                inflight = int(ep_load.split(",")[2])
+            except Exception as e:
+                logger.error(f"{e}")
+                logger.error(f"skip this ep_load: {ep_load}")
+                skip_flag = True
+                break
+            rps_dict[ep_load_endpoint_str] = rps_of_all_pods
+            inflight_dict[ep_load_endpoint_str] = inflight
+        if skip_flag:
+            continue
+        load_bucket = max(1, (rps_of_all_pods - (load_bucket_size // 2)) // load_bucket_size + 1)
+        temp_span = sp.Span(method, path, serviceName, region, \
+            traceId, spanId, parentSpanId, \
+            startTime, endTime, bodySize, \
+            rps_dict=rps_dict, \
+            num_inflight_dict=inflight_dict, \
+            reported_time=time.time(), \
+            rps=rps_of_all_pods, \
+            load_bucket=load_bucket) # 0-49: 0 50-149: 1, 150-249: 2, 250-349: 3, ...
+        spans.append(temp_span)
+    return spans
+
+# def parse_body_to_span(body):
+#     lines = body.split("\n")
+#     spans = []
+#     for line in lines:
+#         ss = line.split(" ")
+#         # if len(ss) != 11 or line[:3] != "us-":
+#         # if len(ss) != 11 and len(ss) != 10:
+#         #     logger.debug(f"Skip this span. len(ss) != 11, (len(ss):{len(ss)}, ss:{ss})")
+#         #     continue
+#         if line[:3] != "us-":
+#             logger.debug(f"Skip this span. line[:3] != 'us-', line: {line}")
+#             continue
+#         region = ss[0]
+#         serviceName = ss[1]
+#         if serviceName.find("-us-") != -1:
+#             serviceName = serviceName.split("-us-")[0]
+#         if serviceName == "productcatalogservice" or serviceName == "currencyservice":
+#             return []
+#         method = ss[2]
+#         path = ss[3]
+#         endpoint_str = f"{serviceName}@{method}@{path}"
+#         traceId = ss[4]
+#         spanId = ss[5]
+#         parentSpanId = ss[6]
+#         startTime = int(ss[7])
+#         endTime = int(ss[8])
+#         bodySize = int(ss[9])
+#         responseTime = endTime - startTime
+#         if responseTime < 0: # filtering condition 3 (negative response time)
+#             logger.error(f"Skip this span. non-positive response time({responseTime}), span: {ss}")
+#             continue
+#         endpointInflightStats = ss[10].split("|")
+#         if endpointInflightStats[-1] == "":
+#             endpointInflightStats = endpointInflightStats[:-1]
+#         rps_dict = dict()
+#         inflight_dict = dict()
+#         for ep_load in endpointInflightStats:
+#             skip_flag = False
+#             try:
+#                 ep_load_method_and_path = ep_load.split(",")[0]
+#                 ep_load_method = ep_load_method_and_path.split("@")[0]
+#                 ep_load_path = ep_load_method_and_path.split("@")[1]
+#                 ep_load_endpoint_str = f"{serviceName}@{ep_load_method}@{ep_load_path}"
+#                 rps_of_this_pod = int(ep_load.split(",")[1])
+#                 num_pod_of_this_region = len(per_pod_ep_rps[region][serviceName][endpoint_str])
+#                 rps_of_all_pods = rps_of_this_pod*num_pod_of_this_region
+#                 inflight = int(ep_load.split(",")[2])
+#             except Exception as e:
+#                 logger.error(f"{e}")
+#                 logger.error(f"skip this ep_load: {ep_load}")
+#                 skip_flag = True
+#                 break
+#             rps_dict[ep_load_endpoint_str] = rps_of_all_pods
+#             inflight_dict[ep_load_endpoint_str] = inflight
+#         if skip_flag:
+#             continue
+#         load_bucket = max(1, (rps_of_all_pods - (load_bucket_size // 2)) // load_bucket_size + 1)
+#         temp_span = sp.Span(method, path, serviceName, region, \
+#             traceId, spanId, parentSpanId, \
+#             startTime, endTime, bodySize, \
+#             rps_dict=rps_dict, \
+#             num_inflight_dict=inflight_dict, \
+#             reported_time=time.time(), \
+#             rps=rps_of_all_pods, \
+#             load_bucket=load_bucket) # 0-49: 0 50-149: 1, 150-249: 2, 250-349: 3, ...
+#         spans.append(temp_span)
+#     return spans
+
+
+def parse_stats_into_spans(body, given_svc_name, given_region, podname):
+    lines = body.split("\n")
+    # requestStats = lines[3:]
+    # requestStats = lines[2:]
+    
     spans = []
     response_time_filtering = 0
     path_filtering = 0
     rps_filtering = 0
     if given_svc_name == "productcatalogservice":
         return []
-    for span_stat in requestStats:
-        ''' span_stat: "us-west-1 metrics-fake-ingress-us-west-1 GET /start 70904b1c08f35622387a6bb5c9141596 387a6bb5c9141596  1709763447436 1709763447540 0 GET@/start,0,18446744073709530962|" '''
-        
-        ss = span_stat.split(" ")
-        ''' region[0], serviceName[1], method[2], path[3], traceId[4], spanId[5], parentSpandId[6] startTime[7], endTime[8], bodySize[9], endpointInflightStats[10]
-            endpointInflightStats[10]: "method@path,rps,inflight|"
-            ss = ["us-west-1", "metrics-fake-ingress-us-west-1", "GET", "/start", "70904b1c08f35622387a6bb5c9141596", "387a6bb5c9141596", "1709763447436", "1709763447540", "0", "GET@/start,0,18446744073709530962|"] '''
-        
-        if len(ss) != 11:
-            logger.debug(f"ERROR, len(ss) != 11, (len(ss):{len(ss)}, ss:{ss})")
+    for line in lines:
+        if line[:3] != "us-":
+            logger.debug(f"Skip this span. line[:3] != 'us-', line: {line}")
             continue
-        
+    # for span_stat in requestStats:
+        # span_stat: "us-west-1 metrics-fake-ingress-us-west-1 GET /start 70904b1c08f35622387a6bb5c9141596 387a6bb5c9141596  1709763447436 1709763447540 0 GET@/start,0,18446744073709530962|"
+        # ss = ["us-west-1", "metrics-fake-ingress-us-west-1", "GET", "/start", "70904b1c08f35622387a6bb5c9141596", "387a6bb5c9141596", "1709763447436", "1709763447540", "0", "GET@/start,0,18446744073709530962|"]
+        ss = line.split(" ")
+        # if len(ss) != 11:
+        #     logger.debug(f"ERROR, len(ss) != 11, (len(ss):{len(ss)}, ss:{ss})")
+        #     continue
         region = ss[0]
         serviceName = ss[1]
         if serviceName.find("-us-") != -1:
@@ -1300,12 +1484,12 @@ def parse_stats_into_spans(body, given_svc_name):
         endTime = int(ss[8])
         bodySize = int(ss[9])
         responseTime = endTime - startTime
-        if responseTime <= 0: # filtering condition 3 (negative response time)
-            logger.debug(f"Skip this span: non-positive response time {responseTime}")
+        if responseTime < 0: # filtering condition 3 (negative response time)
+            logger.error(f"Skip this span: non-positive response time {responseTime}")
             response_time_filtering += 1
             continue
         if "/hipstershop.CurrencyService/Convert" in path or "/hipstershop.ProductCatalogService/GetProduct" in path: # filtering condition 4 (specific path in onlineboutique app)
-            logger.debug(f"Skip this span: excluding some path(url): {path}")
+            logger.error(f"Skip this span: excluding some path(url): {path}")
             path_filtering += 1
             continue
         endpointInflightStats = ss[10].split("|")
@@ -1314,15 +1498,22 @@ def parse_stats_into_spans(body, given_svc_name):
         rps_dict = dict()
         inflight_dict = dict()
         negative_rps_flag = False
+        wrong_endpointInflightStats = False
         for ep_load in endpointInflightStats:
             ep_load_method_and_path = ep_load.split(",")[0]
             ep_load_method = ep_load_method_and_path.split("@")[0]
+            if len(ep_load_method_and_path.split("@")) != 2:
+                # logger.error(f"ep_load_method_and_path.split('@')) != 2, {ep_load_method_and_path}")
+                # logger.error(f"body: {body}")
+                # assert False
+                wrong_endpointInflightStats = True
+                continue
             ep_load_path = ep_load_method_and_path.split("@")[1]
             ep_load_endpoint_str = f"{serviceName}@{ep_load_method}@{ep_load_path}"
             
             if "hipstershop.CurrencyService/Convert" in ep_load_method_and_path or "/hipstershop.ProductCatalogService/GetProduct" in ep_load_method_and_path:
                 """ This is critical. ProductCatalogService receives two different endpoints. One is GetProduct, the other is ListProducts. And GetProduct endpoint receives more than 1:1 ratio of incoming requests. We will ignore GetProduct for now. Same for CurrencyService/Convert endpoint. """
-                logger.debug(f"Excluding {ep_load} in rps_dict")
+                logger.error(f"Excluding {ep_load} in rps_dict")
                 continue
             # endpoint = sp.Endpoint(svc_name=serviceName, method=method, url=path)
             rps_of_this_pod = int(ep_load.split(",")[1])
@@ -1343,7 +1534,10 @@ def parse_stats_into_spans(body, given_svc_name):
             rps_dict[ep_load_endpoint_str] = rps_of_all_pods
             inflight_dict[ep_load_endpoint_str] = inflight
         if len(rps_dict) != 1:
-            logger.debug(f"Skip this span: len(rps_dict) != 1, {rps_dict}")
+            logger.info(f"Skip this span: len(rps_dict) != 1, {rps_dict}")
+            continue
+        if wrong_endpointInflightStats:
+            logger.debug(f"Skip this span: wrong_endpointInflightStats")
             continue
         if negative_rps_flag:
             continue
@@ -1359,7 +1553,6 @@ def parse_stats_into_spans(body, given_svc_name):
             rps=rps_of_all_pods, \
             load_bucket=load_bucket) # 0-49: 0 50-149: 1, 150-249: 2, 250-349: 3, ...
         spans.append(temp_span)
-    # logger.info(f"given number spans: {len(requestStats)}, response_time_filtering: {response_time_filtering}, path_filtering: {path_filtering}, rps_filtering: {rps_filtering}, passed spans: {len(spans)}")
     return spans
 
 
@@ -1409,35 +1602,76 @@ defaultresponse = """sslateingress@POST@/cart,frontend@POST@/cart,us-west-1,us-w
 sslateingress@POST@/cart,frontend@POST@/cart,us-west-1,us-east-1,0.0
 """
 
+
 def add_span_to_traces(given_traces, span):
-    # given_traces[region][load_bucket][trace_id]['span'] = [span1, span2, ...]
-    # given_traces[region][load_bucket][trace_id]['time'] = [time1, time2, ...]
-    region = span.cluster_id
-    load_bucket = span.load_bucket
-    trace_id = span.trace_id
-    if region not in given_traces:
-        given_traces[region] = dict()
-    if load_bucket not in given_traces[region]:
-        try:
-            given_traces[region][load_bucket] = dict() ## 
-        except Exception as e:
-            logger.error(e)
-            logger.error(f"given_traces[region]: {given_traces[region]}")
-            logger.error(f"type(given_traces[region]): {type(given_traces[region])}")
-            logger.error(f"given_traces[region][load_bucket]: {given_traces[region][load_bucket]}")
-            logger.error(f"type(given_traces[region][load_bucket]: {type(given_traces[region][load_bucket])}")
-            assert False
-    if trace_id not in given_traces[region][load_bucket]:
-        given_traces[region][load_bucket][trace_id] = dict()
-    if 'span' not in given_traces[region][load_bucket][trace_id]:
-        given_traces[region][load_bucket][trace_id]['span'] = []
-    if 'time' not in given_traces[region][load_bucket][trace_id]:
-        given_traces[region][load_bucket][trace_id]['time'] = []
+    region, load_bucket, trace_id = span.cluster_id, span.load_bucket, span.trace_id
+    region_traces = given_traces.setdefault(region, {})
+    bucket_traces = region_traces.setdefault(load_bucket, {})
+    trace_data = bucket_traces.setdefault(trace_id, {"span": [], "time": []})
     if len(span.rps_dict) == 1:
-        given_traces[region][load_bucket][trace_id]['span'].append(span)
-        given_traces[region][load_bucket][trace_id]['time'].append(time.time())
+        trace_data["span"].append(span)
+        trace_data["time"].append(0)  # Consider replacing 0 with a relevant timestamp, if needed.
+        # trace_data["time"].append(time.time())  # Uncomment if real timestamps are required
     else:
-        logger.error(f"Skip this span: not having two endpoints {span}")
+        logger.error(
+            f"Skipping span: requires exactly one endpoint but has {len(span.rps_dict)}"
+        )
+# def add_span_to_traces(given_traces, span):
+#     region, load_bucket, trace_id = span.cluster_id, span.load_bucket, span.trace_id
+#     if region not in given_traces:
+#         given_traces[region] = dict()
+#     if load_bucket not in given_traces[region]:
+#         given_traces[region][load_bucket] = dict()
+#     if trace_id not in given_traces[region][load_bucket]:
+#         given_traces[region][load_bucket][trace_id] = dict()
+#     if 'span' not in given_traces[region][load_bucket][trace_id]:
+#         given_traces[region][load_bucket][trace_id]['span'] = []
+#     if 'time' not in given_traces[region][load_bucket][trace_id]:
+#         given_traces[region][load_bucket][trace_id]['time'] = []
+#     if len(span.rps_dict) == 1:
+#         given_traces[region][load_bucket][trace_id]['span'].append(span)
+#         given_traces[region][load_bucket][trace_id]['time'].append(0)
+#         # given_traces[region][load_bucket][trace_id]['time'].append(time.time())
+#     else:
+#         logger.error(f"Skipping span: requires exactly one endpoint but has {len(span.rps_dict)}")
+
+
+def get_trace_lock(region, load_bucket, trace_id):
+    global trace_locks
+    """Get or create a lock for a specific trace."""
+    key = (region, load_bucket, trace_id)
+    if key not in trace_locks:
+        trace_locks[key] = Lock()
+    return trace_locks[key]
+
+
+def add_span_to_traces_to_new_complete(given_traces, span):
+    # global new_complete_traces_cas
+    # while True:
+    #     with new_complete_traces_cas.get_lock():
+    #         if new_complete_traces_cas.value == 0:
+    #             break
+    #     time.sleep(0.01)
+        
+    global new_complete_traces
+    region, load_bucket, trace_id = span.cluster_id, span.load_bucket, span.trace_id
+    # trace_lock = get_trace_lock(region, load_bucket, trace_id)
+    # with trace_lock:
+    trace_entry = given_traces.setdefault(region, {}) .setdefault(load_bucket, {}) .setdefault(trace_id, {'span': [], 'time': []})
+    if len(span.rps_dict) == 1:
+        trace_entry['span'].append(span)
+        trace_entry['time'].append(0)  # Or replace 0 with time.time() if needed
+        if len(trace_entry['span']) == 8:
+            logger.debug(f"Trace {trace_id} is now complete with 8 spans.")
+            complete_entry = new_complete_traces \
+                .setdefault(region, {}) \
+                .setdefault(load_bucket, {})
+            complete_entry[trace_id] = trace_entry
+            del given_traces[region][load_bucket][trace_id]
+            # del trace_locks[(region, load_bucket, trace_id)]
+    else:
+        logger.error(f"Skipping span: requires exactly one endpoint but has {len(span.rps_dict)}")
+
 
 def get_num_trace(given_traces, region):
     num_trace = 0
@@ -1456,7 +1690,7 @@ def handleProxyLoad():
     global jumping_df
     global ROUTING_RULE
     global mode
-    global list_of_span
+    global list_of_body
     global stats_mutex
     # global endpoint_level_rps_mutex
     global per_pod_ep_rps_mutex
@@ -1483,49 +1717,91 @@ def handleProxyLoad():
     if region not in inter_cluster_latency: # filtering condition 2 (region name)
         logger.debug(f"Ignore the request from {region} since there is no inter_cluster_latency info for {region}")
         return ""
+    if svc == "productcatalogservice" or svc == "currencyservice": # filtering condition 6 (service name)
+        logger.debug(f"skip {svc}, region: {region}")
+        return ""
     body = request.get_data().decode('utf-8')
     inflightStats = parse_inflight_stats(body) # "POST@/cart/checkout,28,0|"
-    active_endpoint_stats = inflightStats.split("|")[:-1] # ["POST@/cart/checkout,28,0"]
     svc_level_rps = parse_service_level_rps(body)
     # with endpoint_level_rps_mutex:
     if region not in service_level_rps:
         service_level_rps[region] = dict()
     service_level_rps[region][svc] = svc_level_rps
     
+    active_endpoint_stats = inflightStats.split("|")[:-1] # ["POST@/cart/checkout,28,0"]
+    if inflightStats == "":
+        if region in per_pod_ep_rps:
+            if svc in per_pod_ep_rps[region]:
+                for e_ in per_pod_ep_rps[region][svc]:
+                    if podname in per_pod_ep_rps[region][svc][e_]:
+                        per_pod_ep_rps[region][svc][e_][podname] = 0
+                        
     for endpoint_stat in active_endpoint_stats: # ["POST@/cart/checkout,28,0"]
         method = endpoint_stat.split(",")[0].split("@")[0]
         path = endpoint_stat.split(",")[0].split("@")[1]
         active_ep_ontick_rps = int(endpoint_stat.split(",")[1]) # 28
-        endpoint_str = svc + cfg.ep_del + method + cfg.ep_del + path # frontend@POST@/cart/checkout"
-        
-        if "/hipstershop.CurrencyService/Convert" not in path and "/hipstershop.ProductCatalogService/GetProduct" not in path and "/hipstershop.ProductCatalogService/ListProducts" not in path: # filtering condition 4 (specific path in onlineboutique app)
-            if region not in aggregated_rps:
-                aggregated_rps[region] = dict()
-            if svc not in aggregated_rps[region]:
-                aggregated_rps[region][svc] = dict()
-            if region not in per_pod_ep_rps:
-                per_pod_ep_rps[region] = dict()
-            if svc not in per_pod_ep_rps[region]:
-                per_pod_ep_rps[region][svc] = dict()
-            if endpoint_str not in per_pod_ep_rps[region][svc]:
-                per_pod_ep_rps[region][svc][endpoint_str] = dict()
-            if inflightStats == "":
-                per_pod_ep_rps[region][svc][endpoint_str][podname] = 0
-            else:
-                per_pod_ep_rps[region][svc][endpoint_str][podname] = active_ep_ontick_rps
+        endpoint_str = svc + cfg.ep_del + method + cfg.ep_del + path # frontend@POST@/cart/checkout"        
+        if region not in aggregated_rps:
+            aggregated_rps[region] = dict()
+        if svc not in aggregated_rps[region]:
+            aggregated_rps[region][svc] = dict()
+        if region not in per_pod_ep_rps:
+            per_pod_ep_rps[region] = dict()
+        if svc not in per_pod_ep_rps[region]:
+            per_pod_ep_rps[region][svc] = dict()
+        if endpoint_str not in per_pod_ep_rps[region][svc]:
+            per_pod_ep_rps[region][svc][endpoint_str] = dict()
+        per_pod_ep_rps[region][svc][endpoint_str][podname] = active_ep_ontick_rps
+        logger.debug(f"per_pod_ep_rps, {region}, {svc}, {endpoint_str}, {podname}, {active_ep_ontick_rps}")
                     
             # with per_pod_ep_rps_mutex:
             # if endpoint in endpoint_to_placement: # BUG: endpoint_to_placement will be updated only after the initialize_global_datastructure. So, endpoint_str will not be initialized if we use this if condition before the initialize_global_datastructure. Hence, I commented it. But how did it work before!?
             # else:
             #     logger.info(f"ERROR: Skip per_pod_ep_rps, {endpoint_str}. this endpoint is not in stitched trace.")
-            
-    spans = parse_stats_into_spans(body, svc) # filtering condition 3, 4, 5 are here
+    
+    if svc_level_rps > 0:
+        with list_of_body_mutex: # option 4
+            # with open("body.csv", "a") as f:
+            with open("body.csv", "a") as f: # to avoid duplicated traces
+                f.write(body)
+            ## option 2
+            list_of_body.append(body) 
+        
+    spans = parse_stats_into_spans(body, svc, region, podname)
+    
     # At this point, spans should at least pass all the basic filtering condition (region, svc, path, response time, rps)
     # The next set of filtering will happen during stitching (relative time, exclusive time, valid call graph, num endpoints)
+        
     for span in spans:
+        # if mode == "profile":
         list_of_span.append(span) # part of continuous profiling
-        """ I suspect the incomplete_traces_mutex was causing the problem of missing some traces. Not confirmed yet, though. """
-        add_span_to_traces(incomplete_traces[handleproxy_trace_pointer], span)
+        logger.debug(f"sp1: {span}")
+        
+        ## option 1
+        # add_span_to_traces(incomplete_traces[handleproxy_trace_pointer], span)
+        
+        ## option 3
+        add_span_to_traces_to_new_complete(incomplete_traces[handleproxy_trace_pointer], span)
+        """
+        Adds a span to the specified trace in given_traces.
+        
+        Parameters:
+        - given_traces: dict storing traces organized by region, load bucket, and trace ID.
+        - span: the span to add, containing region, load bucket, and trace ID attributes.
+
+        given_traces structure:
+        given_traces[region][load_bucket][trace_id]['span'] = [span1, span2, ...]
+        given_traces[region][load_bucket][trace_id]['time'] = [time1, time2, ...]
+        """
+        # region, load_bucket, trace_id = span.cluster_id, span.load_bucket, span.trace_id
+        # trace_entry = incomplete_traces[handleproxy_trace_pointer].setdefault(region, {}).setdefault(load_bucket, {}).setdefault(trace_id, {})
+        # trace_entry.setdefault('span', [])
+        # trace_entry.setdefault('time', [])
+        # if len(span.rps_dict) == 1:
+        #     trace_entry['span'].append(span)
+        #     trace_entry['time'].append(time.time())
+        # else:
+        #     logger.error(f"Skipping span: requires exactly one endpoint but has {len(span.rps_dict)}")
         
     if mode == "profile":
         _, csv_string = local_and_failover_routing_rule(svc, region) # response to wasm
@@ -1670,25 +1946,26 @@ def check_total_demand_less_than_total_capacity(svc, aggregated_rps):
         return False, total_demand, total_cap
     return True, total_demand, total_cap
 
-def get_root_node_rps(ep_str_callgraph_table, aggregated_rps):
+def get_root_node_rps(ep_str_callgraph_table):
+    global aggregated_rps
     root_ep = dict()
+    root_node_rps = dict()
     for hashed_cg_key in ep_str_callgraph_table:
         root_ep[hashed_cg_key] = opt_func.find_root_node(ep_str_callgraph_table[hashed_cg_key])
         logger.debug(f"root_ep[{hashed_cg_key}]: {root_ep}")
-    root_node_rps = dict()
     if len(root_ep) != 0:
         logger.debug('root_node_rps,hashed_cg_key,region,svc_name,endpoint,rps')
         for hashed_cg_key in root_ep:
-            for cid in aggregated_rps:
-                for svc_name in aggregated_rps[cid]:
-                    for ep in aggregated_rps[cid][svc_name]:
-                        if ep == root_ep[hashed_cg_key]:
-                            if cid not in root_node_rps:
-                                root_node_rps[cid] = dict()
-                            if svc_name not in root_node_rps[cid]:
-                                root_node_rps[cid][svc_name] = dict()
-                            root_node_rps[cid][svc_name][ep] = aggregated_rps[cid][svc_name][ep]
-                            logger.debug(f'root_node_rps,{hashed_cg_key},{cid},{svc_name},{ep},{root_node_rps[cid][svc_name][ep]}')
+            for region in aggregated_rps:
+                for svc_name in aggregated_rps[region]:
+                    for endpoint_str in aggregated_rps[region][svc_name]:
+                        if endpoint_str == root_ep[hashed_cg_key]:
+                            if region not in root_node_rps:
+                                root_node_rps[region] = dict()
+                            if svc_name not in root_node_rps[region]:
+                                root_node_rps[region][svc_name] = dict()
+                            root_node_rps[region][svc_name][endpoint_str] = aggregated_rps[region][svc_name][endpoint_str]
+                            logger.debug(f'root_node_rps,{hashed_cg_key},{region},{svc_name},{endpoint_str},{root_node_rps[region][svc_name][endpoint_str]}')
     return root_node_rps
 
 
@@ -1886,9 +2163,6 @@ def optimizer_entrypoint():
     global jumping_df
     global jumping_feature_enabled
     global state
-    # aggregated_rps = aggregate_rps_by_region()
-    # record_endpoint_rps(aggregated_rps)
-    # agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
     
     if mode != "runtime":
         logger.warning(f"run optimizer only in runtime mode. current mode: {mode}.")
@@ -1927,7 +2201,7 @@ def optimizer_entrypoint():
         f.write(f"objective: {objective}\n")
     if check_root_node_rps_condition(agg_root_node_rps) == False:
         logger.error(f'!!! Skip optimizer !!! all root_node_rps all regions are 0')
-        logger.info(f'aggreated_rps: {aggregated_rps}')
+        logger.debug(f'aggreated_rps: {aggregated_rps}')
         return
     
     # for svc in max_capacity_per_service:
@@ -1965,6 +2239,41 @@ def optimizer_entrypoint():
         global DOLLAR_PER_MS
         state = f"{temp_counter}-Optimizer running"
         optimizer_start_ts = time.time()
+        
+        ############################################################################
+        ############################################################################
+        # def normalize(heavy_svc, heavy_endpoint, light_svc, light_endpoint, ratio):
+        #     global aggregated_rps
+        #     global norm_aggregated_rps
+        #     norm_aggregated_rps = copy.deepcopy(aggregated_rps)
+            
+        #     def total_load_per_region():
+        #         total_load = dict()
+        #         for region in norm_aggregated_rps:
+        #             total_load[region] = 0
+        #             for svc in norm_aggregated_rps[region]:
+        #                 for ep in norm_aggregated_rps[region][svc]:
+        #                     total_load += norm_aggregated_rps[region][svc][ep]
+        #         return total_load
+            
+        #     for region in norm_aggregated_rps:
+        #         norm_aggregated_rps[region][heavy_svc][heavy_endpoint] += norm_aggregated_rps[region][light_svc][light_endpoint]/ratio
+        #         norm_aggregated_rps[region][light_svc][light_endpoint] += norm_aggregated_rps[region][heavy_svc][light_endpoint]*ratio
+                
+        #     norm_total_load = total_load_per_region()
+        #     return norm_total_load
+
+        # norm_total_load = normalize()
+        # for region in aggregated_rps:
+        #     for svc in aggregated_rps[region]:
+        #         for ep in aggregated_rps[region][svc]:
+        #             logger.debug(f"aggregated_rps, {region}, {svc}, {ep}, {aggregated_rps[region][svc][ep]}")
+        #             logger.debug(f"norm_aggregated_rps, {region}, {svc}, {ep}, {norm_aggregated_rps[region][svc][ep]}")
+        # for region in norm_total_load:
+        #     logger.debug(f"norm_total_load, {region}, {norm_total_load[region]}")
+        ############################################################################
+        ############################################################################
+        
         cur_percentage_df, desc = opt.run_optimizer(\
             coef_dict, \
             aggregated_rps, \
@@ -2215,9 +2524,15 @@ def optimizer_entrypoint():
     logger.debug(f"run_optimizer temp_counter-{temp_counter}, result: {desc}")
     if percentage_df.empty:
         logger.error(f"ERROR: run_optimizer FAIL (**{desc}**) return without updating percentage_df")
-    write_optimizer_output(temp_counter, percentage_df, desc, "routing_history.csv")
+    
+    
+    # write_optimizer_output(temp_counter, percentage_df, desc, "routing_history.csv")
     # logger.info(f"loghill writing jumping_routing_history.csv {percentage_df if use_optimizer_output or not jumping_feature_enabled else jumping_df} and {jumping_df}")
+    
+    
     write_optimizer_output(temp_counter, percentage_df if use_optimizer_output or not jumping_feature_enabled else jumping_df, desc, "jumping_routing_history.csv")
+    
+    
     ''' end of optimizer_entrypoint '''
 
 
@@ -2225,6 +2540,8 @@ def load_coef(coef_file="coef.csv"):
     loaded_coef = dict()
     
     ## Online boutique endpoint 
+    ## service: 'frontend', 'checkoutservice', 'sslateingress', 'cartservice', 'shippingservice', 'emailservice', 'paymentservice', 'recommendationservice'
+    ## endpoint: 
     checkoutcart_endpoints = ["frontend@POST@/cart/checkout", "recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations", "sslateingress@POST@/cart/checkout", "checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder", "cartservice@POST@/hipstershop.CartService/GetCart", "paymentservice@POST@/hipstershop.PaymentService/Charge", "currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies", "emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation", "shippingservice@POST@/hipstershop.ShippingService/ShipOrder"]
     
     addtocart_endpoints = ['frontend@POST@/cart', 'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct', 'sslateingress@POST@/cart', 'cartservice@POST@/hipstershop.CartService/AddItem']
@@ -2386,8 +2703,8 @@ def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
     return traces
 
 
-def file_write_traces(given_traces):
-    with open("continuously_profiled_traces.csv", "a") as f:
+def file_write_traces(given_traces, fn):
+    with open(fn, "a") as f:
         for region in given_traces:
             for load_bucket in given_traces[region]:
                 for tid in given_traces[region][load_bucket]:
@@ -2396,13 +2713,13 @@ def file_write_traces(given_traces):
                         span_str = str(single_trace['span'][i])
                         span_reported_time = single_trace['time'][i]
                         f.write(f"{span_reported_time},{span_str}\n")
-                    f.write(f"-----------------------------\n")
+                        logger.debug(f"{span_reported_time},{span_str}\n")
+                    logger.debug(f"----,----,----,----,----,----,----,----,\n")
+                    f.write(f"----,----,----,----,----,----,----,----,\n")
     
     
-def filter_incomplete_traces(given_traces, log=False):
+def filter_incomplete_traces(given_traces):
     global required_total_num_services
-    global continuous_profiling_traces
-    if log: file_write_traces(given_traces)
     ret_traces = dict()
     for region in given_traces:
         num_failed_traces = 0
@@ -2428,8 +2745,9 @@ def filter_incomplete_traces(given_traces, log=False):
                 else:
                     num_failed_traces += 1
         total_num_traces = get_num_trace(given_traces, region)
-        success_ratio = int((num_success_traces/total_num_traces) * 100)
-        logger.info(f"region: {region}, num_total_traces: {total_num_traces}, num_success_traces: {num_success_traces}, num_failed_traces: {num_failed_traces}, avg_num_svc: {total_num_span/total_num_traces}, success_ratio, {success_ratio}%")
+        if total_num_traces > 0:
+            success_ratio = int((num_success_traces/total_num_traces) * 100)
+            logger.info(f"region: {region}, #total: {total_num_traces}, #success: {num_success_traces}, #fail: {num_failed_traces}, avg_num_svc: {total_num_span/total_num_traces}, success_ratio, {success_ratio}%")
     return ret_traces
 
 
@@ -2492,7 +2810,7 @@ def init_max_capacity_per_service(capacity):
                         if svc not in max_capacity_per_service:
                             max_capacity_per_service[svc] = dict()
                         max_capacity_per_service[svc][region] = capacity
-                        logger.debug(f"set max_capacity_per_service[{svc}][{region}] = {max_capacity_per_service[svc][region]}")
+                        logger.info(f"set max_capacity_per_service[{svc}][{region}] = {max_capacity_per_service[svc][region]}")
 
 def check_file_exist(file_path):
     if file_path not in os.listdir() or os.path.getsize(file_path) == 0:
@@ -2606,18 +2924,16 @@ def check_negative_coef(coef_dict):
         for svc_name in coef_dict[region]: # svc_name: metrics-db
             for ep_str in coef_dict[region][svc_name]: # ep_str: metrics-db@GET@/dbcall
                 for feature_ep in coef_dict[region][svc_name][ep_str]: # feature_ep: 'metrics-db@GET@/dbcall' or 'intercept'
-                    if feature_ep != "b": # a in a*(x^degree) + b
-                        if coef_dict[region][svc_name][ep_str][feature_ep] < 0:
+                    if coef_dict[region][svc_name][ep_str][feature_ep] < 0:
+                        if feature_ep == "intercept":
+                            prev_intercept = coef_dict[region][svc_name][ep_str]['intercept']
+                            load_bucket_0_xt = calc_avg_exclusive_time_of_load_bucket(region, svc_name, ep_str, target_load_bucket=1)
+                            print(f"WARNING: But, coef_dict,{region},{svc_name}, intercept is negative{prev_intercept}. Set it to load_bucket_0_xt, {load_bucket_0_xt}.")
+                            coef_dict[region][svc_name][ep_str]['intercept'] = load_bucket_0_xt
+                        else:
                             coef_dict[region][svc_name][ep_str][feature_ep] = 0
                             # coef_dict[region][svc_name][ep_str]['intercept'] = 1
                             print(f"WARNING!!!: coef_dict[{region}][{svc_name}][{ep_str}] coefficient is negative. Set it to 0.")
-                        else: 
-                            if coef_dict[region][svc_name][ep_str]['intercept'] < 0:
-                                # a is positive but intercept is negative
-                                load_bucket_0_xt = calc_avg_exclusive_time_of_load_bucket(region, svc_name, ep_str, target_load_bucket=1)
-                                coef_dict[region][svc_name][ep_str]['intercept'] = load_bucket_0_xt
-                                print(f"WARNING: coef_dict[{region}][{svc_name}][{ep_str}], coefficient is positive.")
-                                print(f"WARNING: But, coef_dict[{region}][{svc_name}][{ep_str}], intercept is negative. Set it to load_bucket_0_xt, {load_bucket_0_xt}.")
                             
                             
 def set_zero_coef(coef_dict):
@@ -2673,19 +2989,20 @@ def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, e
     model = LinearRegression(fit_intercept=False)
     model.fit(X_transformed, exclusive_time_list)
     
-    if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
+    if svc_name in ["frontend", "checkoutservice"]: # and region in ["us-west-1"]:
         plt.figure()
-        plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt")
+        plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt", marker='x')
         plt.scatter(rps_list, response_time_list, color='green', alpha=0.5, label="rt")
         xplot = np.linspace(0, max(rps_list), 1000)
         yplot = model.coef_[0] * xplot**degree + model.coef_[1]
-        plt.plot(xplot, yplot, color='blue')
+        plt.plot(xplot, yplot, color='blue') # label=f"a: {model.coef_[0]}, b: {model.coef_[1]}"
         if "poly" not in os.listdir():
             os.mkdir("poly")
         fn = f"poly/poly-{region}-{svc_name}-{local_counter}.pdf"
         plt.title(f"{fn}")
         plt.xlabel("RPS")
         plt.ylabel("Exclusive Time")
+        plt.legend(loc='upper left')
         plt.savefig(fn)
         logger.info(f"Save the plot to {fn}")
         plt.close()
@@ -2758,6 +3075,7 @@ def training_phase():
     global stitched_complete_traces_mutex
     global still_training
     global num_stitched_trace_history
+    global new_complete_traces
     if os.path.isfile(trainig_input_trace_file) == False: # trace.csv
         logger.warning(f"{trainig_input_trace_file} does not exist.\n"*10)
         return
@@ -2774,11 +3092,13 @@ def training_phase():
     traces = trace_string_file_to_trace_data_structure(trainig_input_trace_file)
     for region in traces:
         logger.info(f"num traces[{region}]: {get_num_trace(traces, region)}")
-    complete_traces = filter_incomplete_traces(traces, log=False) # filtering condition 6 (#endpoints in a trace)
+    complete_traces = filter_incomplete_traces(traces) # filtering condition 6 (#endpoints in a trace)
+    # new_complete_traces = filter_incomplete_traces(traces)
+    
     for region in complete_traces:
         logger.info(f"num complete_traces[{region}]: {get_num_trace(complete_traces, region)}")
     logger.info("start stitch_time")
-    stitched_traces = tst.stitch_time(complete_traces)
+    stitched_traces, num_fail = tst.stitch_time(complete_traces)
     for region in stitched_traces:
         logger.info(f"num stitched_traces[{region}]: {get_num_trace(stitched_traces, region)}")
     stitched_complete_traces = tst.filter_by_num_endpoint(stitched_traces, required_total_num_services)
@@ -2849,7 +3169,6 @@ def training_phase():
                     frontend_coef_history[region] = list()
                 frontend_coef_history[region].append([coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'], coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['intercept']])
                 
-            
             check_negative_coef(coef_dict)
             record_continuous_coef_dict(coef_dict)
                 
@@ -3037,7 +3356,6 @@ def read_config_file():
 
 
 def record_endpoint_rps(aggregated_rps, counter):
-    logger.info("record_endpoint_rps, endpoint_rps_history.csv")
     endpoint_rps_fn = "endpoint_rps_history.csv"
     if os.path.isfile(endpoint_rps_fn) == False:
         with open(endpoint_rps_fn, "w") as f:
@@ -3071,6 +3389,12 @@ def aggregated_rps_routine():
                 aggregated_rps[region][svc_name][endpoint_str] = 0
                 logger.debug(f"Set zero, aggregated_rps[{region}][{svc_name}][{endpoint_str}]: {aggregated_rps[region][svc_name][endpoint_str]}")
     
+    for region in aggregated_rps:
+        for svc_name in aggregated_rps[region]:
+            for endpoint in aggregated_rps[region][svc_name]:
+                aggregated_rps[region][svc_name][endpoint] = 0
+                logger.debug(f"Set zero, aggregated_rps[{region}][{svc_name}][{endpoint}]: {aggregated_rps[region][svc_name][endpoint]}")
+    
     # aggregated_rps.setdefault(region, {}).setdefault(svc_name, {})[endpoint] = 0
     for region in per_pod_ep_rps:
         for svc_name in per_pod_ep_rps[region]:
@@ -3078,7 +3402,10 @@ def aggregated_rps_routine():
                 for podname in per_pod_ep_rps[region][svc_name][endpoint_str]:
                     aggregated_rps[region][svc_name][endpoint_str] += per_pod_ep_rps[region][svc_name][endpoint_str][podname]
                     
-    agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
+    agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table)
+    for region in agg_root_node_rps:
+        agg_root_node_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"] = aggregated_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"]
+    
     # if check_root_node_rps_condition(agg_root_node_rps) > 0:
     record_endpoint_rps(aggregated_rps, temp_counter)
     logger.info("-"*80)
@@ -3086,7 +3413,7 @@ def aggregated_rps_routine():
     for region in agg_root_node_rps:
         for svc in agg_root_node_rps[region]:
             for endpoint in agg_root_node_rps[region][svc]:
-                logger.warning(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
+                logger.info(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
     logger.info("-"*80)
     temp_counter += 1
 
@@ -3142,7 +3469,7 @@ def continuous_model_update():
             if region not in frontend_coef_history:
                 frontend_coef_history[region] = list()
             frontend_coef_history[region].append([coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'], coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['intercept']])
-            logger.info(f"frontend_coef_history[{region}]: {frontend_coef_history[region]}")
+        logger.info(f"frontend_coef_history['us-south-1']: {frontend_coef_history['us-south-1']}")
         # logger.info(f"poly_coef_dict: {poly_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
         # logger.info(f"mm1_coef_dict: {mm1_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
         logger.info(f"coef_dict: {coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
@@ -3152,6 +3479,7 @@ def continuous_model_update():
 def add_new_traces_to_stitched_complete_traces(new_traces):
     global stitched_complete_traces
     global stitched_complete_traces_mutex
+    print_num_trace_in_all_regions(stitched_complete_traces, "prev stitched_complete_traces")
     with stitched_complete_traces_mutex:
         for region in new_traces:
             logger.debug(f"newly added stitched_complete_traces[{region}]): {get_num_trace(new_traces, region)}")
@@ -3162,11 +3490,11 @@ def add_new_traces_to_stitched_complete_traces(new_traces):
                 if load_bucket not in stitched_complete_traces[region]:
                     stitched_complete_traces[region][load_bucket] = dict()
                 for trace_id in new_traces[region][load_bucket]:
-                    if trace_id not in stitched_complete_traces[region][load_bucket]:
-                        stitched_complete_traces[region][load_bucket][trace_id] = new_traces[region][load_bucket][trace_id]
-                    else:
+                    if trace_id in stitched_complete_traces[region][load_bucket]:
                         logger.error(f"trace_id: {trace_id} already exists in stitched_complete_traces[{region}][{load_bucket}]")
-                
+                    else:
+                        stitched_complete_traces[region][load_bucket][trace_id] = new_traces[region][load_bucket][trace_id]
+    print_num_trace_in_all_regions(stitched_complete_traces, "curr stitched_complete_traces")
 
 def swap_trace_pointer():
     global handleproxy_trace_pointer
@@ -3189,6 +3517,134 @@ def update_traces():
     global stitched_complete_traces_mutex
     global temp_counter
     global num_stitched_trace_history
+    global list_of_body
+    global new_complete_traces
+    global body_trace_cas
+    global df_incomplete_traces
+    
+    update_traces_start_time = time.time()
+    # body_trace_cas = 1 # option 2
+    
+    
+    with list_of_body_mutex: # option 4
+        # with open("body2.csv", "a") as f:
+        #     for body in list_of_body:
+        #         f.write(body)
+        #     f.write("asdf,asdf,asdf\n")
+        # list_of_body = []
+        
+        # body_traces = dict()
+        # if os.path.isfile('body.csv'):
+        #     with open('body.csv', 'r') as f:
+        #         for line in f:
+        #             result = re.split(r'[ ,;:|]+', line)
+        #             # print(result)
+        #             if len(result) == 13:
+        #                 result.insert(6, ' ')
+        #             if (result[0][:3] == 'us-' and len(result) != 14) or "NOT" in result or "FOUND" in result:
+        #                 logger.info(f"weird: {result}")
+        #                 continue
+        #             if len(result) == 14:
+        #                 region = result[0]
+        #                 serviceName = result[1].split('-')[0]
+        #                 method = result[2]
+        #                 path = result[3]
+        #                 traceId = result[4]
+        #                 spanId = result[5]
+        #                 parentSpanId = result[6]
+        #                 startTime = int(result[7])
+        #                 endTime = int(result[8])
+        #                 callsize = int(result[9])
+        #                 ep_load_method_and_path = result[10]
+        #                 rps = int(result[11])
+        #                 inflight = int(result[12])
+                        
+        #                 endpoint_str = f"{serviceName}@{ep_load_method_and_path}"
+        #                 num_pod_of_this_region = len(per_pod_ep_rps[region][serviceName][endpoint_str])
+        #                 rps_of_all_pods = rps * num_pod_of_this_region
+        #                 load_bucket = max(1, (rps_of_all_pods - (load_bucket_size // 2)) // load_bucket_size + 1)
+                        
+        #                 rps_dict = {endpoint_str: rps_of_all_pods}
+        #                 num_inflight_dict = {endpoint_str: inflight}
+                        
+        #                 span = sp.Span(cluster_id=region, svc_name=serviceName, method=method, url=path, trace_id=traceId, span_id=spanId, parent_span_id=parentSpanId, st=startTime, et=endTime, callsize=callsize, rps_dict=rps_dict, num_inflight_dict=num_inflight_dict, rps=rps_of_all_pods, load_bucket=load_bucket)
+        #                 if region not in body_traces:
+        #                     body_traces[region] = dict()
+        #                 if load_bucket not in body_traces[region]:
+        #                     body_traces[region][load_bucket] = dict()
+        #                 if traceId not in body_traces[region][load_bucket]:
+        #                     body_traces[region][load_bucket][traceId] = dict()
+        #                     body_traces[region][load_bucket][traceId]['span'] = list()
+        #                     body_traces[region][load_bucket][traceId]['time'] = list()
+        #                 body_traces[region][load_bucket][traceId]['span'].append(span)
+        #                 body_traces[region][load_bucket][traceId]['time'].append(time.time())
+        #             else:
+        #                 continue
+        #     with open('body.csv', 'w') as f:
+        #         pass
+                
+        temp = list()
+        body_traces = dict()
+        for body in list_of_body:
+            # logger.info(f"body: {body}")
+            for line in body.split('\n'):
+                result = re.split(r'[ ,;:|]+', line)
+                # logger.info(f"result: {result}")
+                """
+                result: ['us-central-1', 'checkoutservice-us-central-1', 'POST', '/hipstershop.CheckoutService/PlaceOrder', '2953b8672ba8f07a5d59594184d6cce6', 'c6fbb69a83b09dc1', 'ddd74b04a28e02ac', '1731627568679', '1731627568689', '0', 'POST@/hipstershop.CheckoutService/PlaceOrder,8,0|']
+                
+                result 14: ['us-south-1', 'sslateingress-us-south-1', 'POST', '/cart/checkout', '6f11db9eb19ab79ce26efcba89c37d74', 'e26efcba89c37d74', ' ', '1731636869805', '1731636869831', '0', 'POST@/cart/checkout', '11', '0', '']
+                """
+                if len(result) == 13:
+                    result.insert(6, ' ')
+                    # logger.info(f"result 13: {result}")
+                if len(result) == 14:
+                    # result.append(section)
+                    logger.debug(f"result 14: {result}")
+                    temp.append(result)
+            
+        if len(temp) > 0:
+            try:
+                df_new_traces = pd.DataFrame(temp, columns=['region', 'service', 'method', 'url', 'trace_id', 'span_id', 'parent_span_id', 'st', 'et', 'callsize', 'ep', 'rps', 'inflight', "dummy"])
+                df_new_traces['st'] = df_new_traces['st'].astype(int)
+                df_new_traces['et'] = df_new_traces['et'].astype(int)
+                df_new_traces['callsize'] = df_new_traces['callsize'].astype(int)
+                df_new_traces['rps'] = df_new_traces['rps'].astype(int)
+                df_incomplete_traces = pd.concat([df_incomplete_traces, df_new_traces])
+            except Exception as e:
+                logger.error(f"{e}")
+                assert False
+            
+        df_incomplete_traces['num_span'] = df_incomplete_traces.groupby('trace_id')['span_id'].transform('count')
+        trace_ids_with_complete_spans = df_incomplete_traces[df_incomplete_traces['num_span'] == 8]['trace_id'].unique()
+        df_complete_traces = df_incomplete_traces[df_incomplete_traces['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+        avg_num_svc_in_trace = df_incomplete_traces.groupby('trace_id').size().mean()
+        logger.info(f"avg_num_svc_in_trace: {avg_num_svc_in_trace}")
+        
+        df_incomplete_traces = df_incomplete_traces[~df_incomplete_traces['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+        for region in df_complete_traces['region'].unique():
+            logger.info(f"#complete_traces, {region}: {len(df_complete_traces[df_complete_traces['region'] == region])}")
+        
+        if len(df_complete_traces) > 0:
+            for _, row in df_complete_traces.iterrows():
+                rps_dict = {row['ep']: row['rps']}
+                num_inflight_dict = {row['ep']: row['inflight']}
+                svc_name = row['service'].split('-')[0]
+                temp_span = sp.Span(cluster_id=row['region'], svc_name=svc_name, method=row['method'], url=row['url'], trace_id=row['trace_id'], span_id=row['span_id'], parent_span_id=row['parent_span_id'], st=row['st'], et=row['et'], callsize=row['callsize'], rps_dict=rps_dict, num_inflight_dict=num_inflight_dict, rps=row['rps'], load_bucket=1)
+                add_span_to_traces(body_traces, temp_span)
+            
+            # spans = parse_body_to_span(body)
+            # temp.append(spans)
+            
+            
+        # body_traces = dict()
+        # with open("spans.csv", "a") as f:
+        #     for spans in temp:
+        #         for span in spans:
+        #             f.write(str(span))
+        #             add_span_to_traces(body_traces, span)
+    # file_write_traces(body_traces, "body_traces.csv")
+    
     if not train_done:
         logger.info(f"Train has not been done yet. train_done: {train_done}")
         return
@@ -3197,29 +3653,34 @@ def update_traces():
         return
     ts = time.time()
     start_counter = temp_counter
-    logger.info(f"counter[{start_counter}], update_traces starts")
-    swap_trace_pointer()
-    logger.info(f"counter[{start_counter}], swapped trace pointers")
-    print_num_trace_in_all_regions(incomplete_traces[update_traces_pointer], "incomplete_traces")
     
-    complete_traces = filter_incomplete_traces(incomplete_traces[update_traces_pointer], log=False)
-    logger.info(f"counter[{start_counter}], filter_incomplete_traces")
+    ## option 1: incomplete_traces to complete_traces
+    # swap_trace_pointer()
+    # print_num_trace_in_all_regions(incomplete_traces[update_traces_pointer], "incomplete_traces")
+    # complete_traces = filter_incomplete_traces(incomplete_traces[update_traces_pointer])
+    # file_write_traces(incomplete_traces[update_traces_pointer], "continuous_traces.csv")
+    
+    ## option 2: body_traces
+    complete_traces = filter_incomplete_traces(body_traces)
     print_num_trace_in_all_regions(complete_traces, "complete_traces")
     
-    logger.info(f"counter[{start_counter}], start stitch_time")
-    ts2 = time.time()
-    stitched_traces = tst.stitch_time(complete_traces)
-    logger.info(f"counter[{start_counter}], stitch_time, runtime: {int(time.time() - ts2)}s")
+    ## option 3: new_complete_traces
+    # with new_complete_traces_cas.get_lock():
+    #     new_complete_traces_cas.value = 1
+    # complete_traces = copy.deepcopy(new_complete_traces)
+    # new_complete_traces = dict()
+    # file_write_traces(complete_traces, "continuous_traces.csv")
+    # with new_complete_traces_cas.get_lock():
+    #     new_complete_traces_cas.value = 0
+    
+    stitched_traces, num_fail = tst.stitch_time(complete_traces)
     print_num_trace_in_all_regions(stitched_traces, "stitched_traces")
 
     new_stitched_traces = tst.filter_by_num_endpoint(stitched_traces, required_total_num_services)
-    logger.info(f"counter[{start_counter}], filter_by_num_endpoint")
     print_num_trace_in_all_regions(new_stitched_traces, "new_stitched_traces")
         
-    print_num_trace_in_all_regions(stitched_complete_traces, "prev stitched_complete_traces")
     add_new_traces_to_stitched_complete_traces(new_stitched_traces)
-    logger.info(f"counter[{start_counter}], add_new_traces_to_stitched_complete_traces")
-    print_num_trace_in_all_regions(stitched_complete_traces, "curr stitched_complete_traces")
+    
 
 
     def random_sampling_per_load_bucket(sampling_ratio, max_num_trace):
@@ -3237,7 +3698,7 @@ def update_traces():
                         for trace_id in trace_ids_to_delete:
                             del stitched_complete_traces[region][load_bucket][trace_id]
                         curr_num_trace = len(stitched_complete_traces[region][load_bucket])
-                        logger.info(f"counter[{local_counter}], sampling, sampling_ratio: {sampling_ratio}, load_bucket[{load_bucket}]: {prev_num_trace} -> {curr_num_trace}")
+                        logger.info(f"counter[{local_counter}], sampling, sampling_ratio: {sampling_ratio}, load_bucket[{region}][{load_bucket}]: {prev_num_trace} -> {curr_num_trace}")
 
     ## method 3 (probably the most efficient)  
     def enforce_trace_limit(max_num_trace):
@@ -3262,11 +3723,10 @@ def update_traces():
                         current_count = len(stitched_complete_traces[region][load_bucket])
                         logger.info(f"counter[{start_counter}], sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {current_count}")
                     else:
-                        logger.info(f"counter[{start_counter}], sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count}")
+                        logger.debug(f"counter[{start_counter}], sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count}")
     ts3 = time.time()
     random_sampling_per_load_bucket(0.9, max_num_trace)
     enforce_trace_limit(max_num_trace)
-    logger.info(f"counter[{start_counter}], sliding window ends, runtime: {int(time.time() - ts3)}s")
     
     print_num_trace_in_all_regions(stitched_complete_traces, "after sliding window, stitched_complete_traces")
         
@@ -3289,7 +3749,7 @@ def update_traces():
         for load_bucket in incomplete_traces[update_traces_pointer][region]:
             incomplete_traces[update_traces_pointer][region][load_bucket] = dict()
     logger.info(f"counter[{start_counter}], Reinitialize incomplete_trace[{update_traces_pointer}]")
-    logger.info(f"counter[{start_counter}], update_traces ends, runtime: {int(time.time() - ts)}s")
+    logger.info(f"counter[{start_counter}], update_traces ends, runtime: {int(time.time() - update_traces_start_time)}s")
     
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()

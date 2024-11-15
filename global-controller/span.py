@@ -53,7 +53,7 @@ class Endpoint:
 class Span:
     def __init__(self, method="METHOD", url="URL", svc_name="SVC", cluster_id="CID",\
         trace_id="TRACE_ID", span_id="SPAN_ID", parent_span_id="PARENT_SPAN_ID", \
-        st=-1, et=-1, xt=-1, callsize=-1, \
+        st=-1, et=-1, xt=0, callsize=-1, \
         rps_dict={}, num_inflight_dict={}, \
         reported_time=0, rps=-100, load_bucket=-1):
         logger = logging.getLogger(__name__)

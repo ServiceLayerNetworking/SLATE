@@ -581,27 +581,32 @@ def filter_by_num_endpoint(given_traces, num_endpoint):
 
 def stitch_time(given_traces):
     ret_traces = {}
+    num_fail = {}
     timestamp = {"callgraph": 0, "findroot": 0, "relativetime": 0, "exclusivetime": 0}
     for region, loads in given_traces.items():
         region_traces = ret_traces.setdefault(region, {})
         for load_bucket, tids in loads.items():
             load_traces = region_traces.setdefault(load_bucket, {})
             for tid, single_trace in tids.items():
-                ret, temp = stitch_trace(single_trace, tid)
-                # timestamp["callgraph"] += temp["callgraph"]
-                timestamp["findroot"] += temp["findroot"]
-                timestamp["relativetime"] += temp["relativetime"]
-                timestamp["exclusivetime"] += temp["exclusivetime"]
-                if ret:
+                ret, overhead = stitch_trace(single_trace, tid)
+                if len(overhead) == len(timestamp):
+                    timestamp["callgraph"] += overhead["callgraph"]
+                    timestamp["findroot"] += overhead["findroot"]
+                    timestamp["relativetime"] += overhead["relativetime"]
+                    timestamp["exclusivetime"] += overhead["exclusivetime"]
+                if ret == True:
                     load_traces[tid] = single_trace
                 else:
                     logging.debug(f"stitch_trace failed for trace {tid}")
+                    if ret not in num_fail:
+                        num_fail[ret] = 0
+                    num_fail[ret] += 1
     logger.info(f"stitch_time, timestamp: {timestamp}")
-    return ret_traces
+    return ret_traces, num_fail
 
 
 def stitch_trace(single_trace, tid):
-    temp = dict()
+    overhead = dict()
     # ts = time.time()
     # ep_str_cg = single_trace_to_endpoint_str_callgraph(single_trace)
     # temp["callgraph"] = time.time()-ts
@@ -617,18 +622,22 @@ def stitch_trace(single_trace, tid):
             break
     if not root_ep_str:
         logger.error(f"Cannot find root endpoint in callgraph")
-        return False # too many root nodes or no root node
-    temp["findroot"] = time.time()-ts
+        return "too many root", [] # too many root nodes or no root node
+    overhead["findroot"] = time.time()-ts
     ts = time.time()
     relative_time_ret = change_to_relative_time(single_trace, tid)
-    temp["relativetime"] = time.time()-ts
+    overhead["relativetime"] = time.time()-ts
     ts = time.time()
     xt_ret = calc_exclusive_time(single_trace)
-    temp["exclusivetime"] = time.time()-ts
+    overhead["exclusivetime"] = time.time()-ts
     ct_ret = True
-    if xt_ret == False or ct_ret == False or relative_time_ret == False:
-        return False
-    return True, temp
+    if xt_ret == False:
+        return "negative_exclusive_time", []
+    if ct_ret == False:
+        return "negative_critical_tim", []
+    if relative_time_ret == False:
+        return "negative_relative_time", []
+    return True, overhead
 
 def detect_cycle(single_trace):
     """
@@ -702,7 +711,7 @@ def calc_exclusive_time(single_trace):
             exclude_child_rt = calculate_exclude_child_rt(child_spans)
 
         parent_span.xt = parent_span.rt - exclude_child_rt
-        if parent_span.xt <= 0:
+        if parent_span.xt < 0:
             return False
     return True
 
