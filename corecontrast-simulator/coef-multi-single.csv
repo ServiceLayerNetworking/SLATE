@@ -1,0 +1,8 @@
+sslateingress,sslateingress@POST@/multicore,sslateingress@POST@/multicore,1.8545858800198174e-06
+sslateingress,sslateingress@POST@/multicore,intercept,3.1153960518091495
+corecontrast,corecontrast@POST@/multicore,corecontrast@POST@/multicore,0.0015913631904008478
+corecontrast,corecontrast@POST@/multicore,intercept,-404.85540776971175
+corecontrast,corecontrast@POST@/singlecore,corecontrast@POST@/singlecore,0.07834055994856609
+corecontrast,corecontrast@POST@/singlecore,intercept,-281.1784106452699
+sslateingress,sslateingress@POST@/singlecore,sslateingress@POST@/singlecore,0.00017760100646015267
+sslateingress,sslateingress@POST@/singlecore,intercept,1.8226144311397598

@@ -941,7 +941,7 @@ def write_optimizer_output(temp_counter, percentage_df, desc, fn):
         
 
 ## All variables are global variables
-def optimizer_entrypoint(agg_root_node_rps):
+def optimizer_entrypoint(agg_root_node_rps, normalization_dict={}):
     global coef_dict
     global endpoint_level_inflight
     # global endpoint_level_rps
@@ -1049,7 +1049,7 @@ def optimizer_entrypoint(agg_root_node_rps):
             degree, \
             inter_cluster_latency, \
             endpoint_sizes, \
-            DOLLAR_PER_MS)
+            DOLLAR_PER_MS, normalization_dict=normalization_dict)
         logger.info(f"run_optimizer done, runtime: {time.time()-ts} seconds")
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
@@ -1824,7 +1824,9 @@ def training_phase(trainig_input_trace_file, agg_root_node_rps):
 
     if load_coef_flag: # load_coef_flag=True assumes that time stitching is done
         try:
+            logger.info(f"load_coef_flag: {load_coef_flag}, ADI STITCHING")
             stitched_traces = trace_string_file_to_trace_data_structure(trainig_input_trace_file, load_coef_flag)
+            logger.info(f"load_coef_flag: {load_coef_flag}, DONE ADI STITCHING")
         except Exception as e:
             logger.error(f"!!! ERROR !!!: failed to load trace with error: {e}")
             state = "[!!! PANIC !!!] FAILED trace_string_file_to_trace_data_structure() in training_phase"
@@ -1852,7 +1854,9 @@ def training_phase(trainig_input_trace_file, agg_root_node_rps):
             assert False
     
     try:
+        logger.info(f"stitched_traces: {stitched_traces.keys()}")
         ep_str_callgraph_table, cg_key_hashmap = tst.traces_to_endpoint_str_callgraph_table(stitched_traces)
+        logger.info(f"len(ep_str_callgraph_table: {len(ep_str_callgraph_table)}")
     except Exception as e:
         logger.error(f"!!! ERROR !!!: failed to traces_to_endpoint_str_callgraph_table with error: {e}")
         state = "[!!! PANIC !!!] FAILED traces_to_endpoint_str_callgraph_table() in training_phase"
@@ -2039,6 +2043,7 @@ def read_config_file():
                     inter_cluster_latency[dst][src] = oneway_latency
                 # all_clusters.add(src)
                 # all_clusters.add(dst)
+                
             elif line[0] == "load_coef_flag":
                 if load_coef_flag != int(line[1]):
                     logger.info(f'Update load_coef_flag: {load_coef_flag} -> {int(line[1])}')
@@ -2080,12 +2085,49 @@ def read_config_file():
 
 import sys
 if __name__ == "__main__":
-    agg_root_node_rps = { "us-west-1": {"sslateingress": {
-        "sslateingress@POST@/singlecore": 100,
-        "sslateingress@POST@/multicore": 500}}\
-                        , "us-east-1": {"sslateingress": {"sslateingress@POST@/singlecore": 1}}\
-                        , "us-south-1": {"sslateingress": {"sslateingress@POST@/singlecore": 100}}\
-                        , "us-central-1": {"sslateingress": {"sslateingress@POST@/singlecore": 2}}}
+    agg_root_node_rps = { 
+        "us-west-1": {
+            "sslateingress": {
+                "sslateingress@POST@/singlecore": 50,
+                "sslateingress@POST@/multicore": 200
+            },
+        },
+        "us-east-1": {
+            "sslateingress": {
+                "sslateingress@POST@/singlecore": 150,
+                "sslateingress@POST@/multicore": 300
+            },
+        },
+        "us-south-1": {
+            "sslateingress": {
+                "sslateingress@POST@/singlecore": 50,
+                "sslateingress@POST@/multicore": 207
+            },
+        },
+        "us-central-1": {
+            "sslateingress": {
+                "sslateingress@POST@/singlecore": 50,
+                "sslateingress@POST@/multicore": 200
+            },
+        },
+    }
+
+    
+
+    normalization_dict = {
+        "sslateingress@POST@/singlecore": {
+            "sslateingress@POST@/multicore": 1,
+        },
+        "sslateingress@POST@/multicore": {
+            "sslateingress@POST@/singlecore": 1,
+        },
+        "corecontrast@POST@/singlecore": {
+            "corecontrast@POST@/multicore": 0.2,
+        },
+        "corecontrast@POST@/multicore": {
+            "corecontrast@POST@/singlecore": 5,
+        },
+    }
     trainig_input_trace_file=sys.argv[1]
     read_config_file()
     training_phase(trainig_input_trace_file, agg_root_node_rps)
@@ -2095,6 +2137,6 @@ if __name__ == "__main__":
     #                     , "us-central-1": {"frontend": {"cart": 100, "checkout": 100, "empty": 100, "setCurrency": 100}}}
     
     # agg_root_node_rps[cid][svc][ep]
-    routing_output_fn = optimizer_entrypoint(agg_root_node_rps)
+    routing_output_fn = optimizer_entrypoint(agg_root_node_rps, normalization_dict=normalization_dict)
     
     os.system(f"python plot_routing_rule.py {routing_output_fn}")
