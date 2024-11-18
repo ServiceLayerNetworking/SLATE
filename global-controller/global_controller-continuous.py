@@ -3469,7 +3469,11 @@ def continuous_model_update():
             if region not in frontend_coef_history:
                 frontend_coef_history[region] = list()
             frontend_coef_history[region].append([coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'], coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['intercept']])
-        logger.info(f"frontend_coef_history['us-south-1']: {frontend_coef_history['us-south-1']}")
+        
+        for region in frontend_coef_history:
+            if region == "us-south-1":
+                for coef in frontend_coef_history[region]:
+                    logger.info(f"frontend_coef_history,{region},[a:{coef[0]:.2e}, intercetp:{coef[1]:.2e}]")
         # logger.info(f"poly_coef_dict: {poly_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
         # logger.info(f"mm1_coef_dict: {mm1_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
         logger.info(f"coef_dict: {coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
@@ -3602,18 +3606,16 @@ def update_traces():
                     # result.append(section)
                     logger.debug(f"result 14: {result}")
                     temp.append(result)
-            
+        list_of_body = [] # empty list_of_body    
         if len(temp) > 0:
-            try:
-                df_new_traces = pd.DataFrame(temp, columns=['region', 'service', 'method', 'url', 'trace_id', 'span_id', 'parent_span_id', 'st', 'et', 'callsize', 'ep', 'rps', 'inflight', "dummy"])
-                df_new_traces['st'] = df_new_traces['st'].astype(int)
-                df_new_traces['et'] = df_new_traces['et'].astype(int)
-                df_new_traces['callsize'] = df_new_traces['callsize'].astype(int)
-                df_new_traces['rps'] = df_new_traces['rps'].astype(int)
-                df_incomplete_traces = pd.concat([df_incomplete_traces, df_new_traces])
-            except Exception as e:
-                logger.error(f"{e}")
-                assert False
+            df_new_traces = pd.DataFrame(temp, columns=['region', 'service', 'method', 'url', 'trace_id', 'span_id', 'parent_span_id', 'st', 'et', 'callsize', 'ep', 'rps', 'inflight', "dummy"])
+            df_new_traces['st'] = df_new_traces['st'].astype(int)
+            df_new_traces['et'] = df_new_traces['et'].astype(int)
+            df_new_traces['callsize'] = df_new_traces['callsize'].astype(int)
+            df_new_traces['rps'] = df_new_traces['rps'].astype(int)
+            num_pod_of_this_region = 4 # hardcoded
+            df_new_traces['rps'] = df_new_traces['rps']*num_pod_of_this_region
+            df_incomplete_traces = pd.concat([df_incomplete_traces, df_new_traces])
             
         df_incomplete_traces['num_span'] = df_incomplete_traces.groupby('trace_id')['span_id'].transform('count')
         trace_ids_with_complete_spans = df_incomplete_traces[df_incomplete_traces['num_span'] == 8]['trace_id'].unique()
@@ -3630,7 +3632,10 @@ def update_traces():
                 rps_dict = {row['ep']: row['rps']}
                 num_inflight_dict = {row['ep']: row['inflight']}
                 svc_name = row['service'].split('-')[0]
-                temp_span = sp.Span(cluster_id=row['region'], svc_name=svc_name, method=row['method'], url=row['url'], trace_id=row['trace_id'], span_id=row['span_id'], parent_span_id=row['parent_span_id'], st=row['st'], et=row['et'], callsize=row['callsize'], rps_dict=rps_dict, num_inflight_dict=num_inflight_dict, rps=row['rps'], load_bucket=1)
+                load_bucket = (row['rps'] - (load_bucket_size // 2)) // load_bucket_size + 1
+                logger.debug(f"rps: {row['rps']}, load_bucket_size: {load_bucket_size}, load_bucket: {load_bucket}")
+                load_bucket = max(1, load_bucket)
+                temp_span = sp.Span(cluster_id=row['region'], svc_name=svc_name, method=row['method'], url=row['url'], trace_id=row['trace_id'], span_id=row['span_id'], parent_span_id=row['parent_span_id'], st=row['st'], et=row['et'], callsize=row['callsize'], rps_dict=rps_dict, num_inflight_dict=num_inflight_dict, rps=row['rps'], load_bucket=load_bucket)
                 add_span_to_traces(body_traces, temp_span)
             
             # spans = parse_body_to_span(body)
@@ -3651,7 +3656,6 @@ def update_traces():
     if not init_done:
         logger.info(f"Init has not been done yet. init_done: {init_done}")
         return
-    ts = time.time()
     start_counter = temp_counter
     
     ## option 1: incomplete_traces to complete_traces
@@ -3661,6 +3665,8 @@ def update_traces():
     # file_write_traces(incomplete_traces[update_traces_pointer], "continuous_traces.csv")
     
     ## option 2: body_traces
+    # copy_body_traces = copy.deepcopy(body_traces)
+    # body_traces = dict()
     complete_traces = filter_incomplete_traces(body_traces)
     print_num_trace_in_all_regions(complete_traces, "complete_traces")
     
@@ -3674,6 +3680,7 @@ def update_traces():
     #     new_complete_traces_cas.value = 0
     
     stitched_traces, num_fail = tst.stitch_time(complete_traces)
+    logger.info(f"counter[{start_counter}], stitch fail: {num_fail}")
     print_num_trace_in_all_regions(stitched_traces, "stitched_traces")
 
     new_stitched_traces = tst.filter_by_num_endpoint(stitched_traces, required_total_num_services)
@@ -3724,7 +3731,6 @@ def update_traces():
                         logger.info(f"counter[{start_counter}], sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {current_count}")
                     else:
                         logger.debug(f"counter[{start_counter}], sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count}")
-    ts3 = time.time()
     random_sampling_per_load_bucket(0.9, max_num_trace)
     enforce_trace_limit(max_num_trace)
     
