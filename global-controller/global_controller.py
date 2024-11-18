@@ -317,7 +317,7 @@ def perform_jumping():
     logger.info(f"loghill ruleset_overperformance: {ruleset_overperformance}")
 
 
-    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1) and len(percentage_df) > 0 and False:
+    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0 and False:
         logger.info(f"loghill rules are different, stepping towards optimizer output, old rules:\n{compute_traffic_matrix(cur_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
         # here, we want to start defensive jumping towards the optimizer output.
         # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
@@ -1159,7 +1159,7 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict) 
         src_regions = filtered_rules[filtered_rules["dst_endpoint"] == dst_traffic_class]["src_cid"].unique()
         logger.info(f"calculate_ruleset_overperformance: traffic_class: {dst_traffic_class}, src_regions: {src_regions}")
         for src_region in src_regions:
-            src_rules = filtered_rules[filtered_rules["src_cid"] == src_region]
+            src_rules = filtered_rules[(filtered_rules["src_cid"] == src_region) & (filtered_rules["dst_endpoint"] == dst_traffic_class)]
             dst_regions = src_rules["dst_cid"].unique()
             if len(dst_regions) < 2:
                 continue
@@ -2050,7 +2050,7 @@ def handleProxyLoad():
                 if use_optimizer_output or not jumping_feature_enabled:
                     temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
                 else:
-                    if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0:
+                    if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0 and False:
                         logger.info(f"(proxyLoad) loghill rules are different, changing jumping base rules, old rules:\n{compute_traffic_matrix(jumping_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
                         # here, we want to start defensive jumping towards the optimizer output.
                         # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
