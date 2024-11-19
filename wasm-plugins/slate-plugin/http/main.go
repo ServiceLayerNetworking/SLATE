@@ -137,7 +137,7 @@ type httpContext struct {
 }
 
 func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
-	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
+	traceId, err := proxywasm.GetHttpRequestHeader("X-B3-TraceId")
 	if err != nil {
 		shared.IncrementSharedData(shared.KEY_NO_TRACEID, 1)
 		return types.ActionContinue
@@ -214,8 +214,8 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 
 	// if this is a traced request, we need to record load conditions and request details
 	if ctx.tracedRequest(traceId) {
-		spanId, _ := proxywasm.GetHttpRequestHeader("x-b3-spanid")
-		parentSpanId, _ := proxywasm.GetHttpRequestHeader("x-b3-parentspanid")
+		spanId, _ := proxywasm.GetHttpRequestHeader("X-B3-SpanId")
+		parentSpanId, _ := proxywasm.GetHttpRequestHeader("X-B3-ParentSpanId")
 		bSizeStr, err := proxywasm.GetHttpRequestHeader("Content-Length")
 		if err != nil {
 			bSizeStr = "0"
@@ -255,7 +255,7 @@ func (ctx *httpContext) OnHttpResponseHeaders(int, bool) types.Action {
 // bookkeeping and only record the end time for the last response.
 func (ctx *httpContext) OnHttpStreamDone() {
 	// get x-request-id from request headers and lookup entry time
-	traceId, err := proxywasm.GetHttpRequestHeader("x-b3-traceid")
+	traceId, err := proxywasm.GetHttpRequestHeader("X-B3-TraceId")
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get request header x-b3-traceid: %v", err)
 		return
@@ -302,7 +302,7 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		}
 		start, err := strconv.ParseInt(startStr, 10, 64)
 		latencyMs := endTime - start
-		addOutboundLatency(dst, reqMethod, reqPath, processedRegion, latencyMs)
+		addOutboundLatency(dst, reqMethod, reqPath, processedRegion, latencyMs, 5)
 		return
 	} else {
 		// this was an inbound request/response.
@@ -314,7 +314,7 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		}
 		start, err := strconv.ParseInt(startStr, 10, 64)
 		latencyMs := endTime - start
-		addInboundLatency(reqMethod, reqPath, latencyMs)
+		addInboundLatency(reqMethod, reqPath, latencyMs, 5)
 	}
 
 	// record end time
@@ -325,9 +325,11 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	}
 }
 
-func addOutboundLatency(svc, method, path, region string, latencyMs int64) {
+func addOutboundLatency(svc, method, path, region string, latencyMs int64, retries int) {
+	// get the old average and variance
 	outboundLatencyAvgKey := shared.OutboundLatencyRunningAvgKey(svc, method, path)
 	outboundLatencyTotal := shared.OutboundLatencyTotalRequestsKey(svc, method, path)
+	// set the new average and variance
 	shared.IncrementSharedData(outboundLatencyAvgKey, latencyMs)
 	shared.IncrementSharedData(outboundLatencyTotal, 1)
 
@@ -338,9 +340,45 @@ func addOutboundLatency(svc, method, path, region string, latencyMs int64) {
 	shared.IncrementSharedData(regionLatencyTotal, 1)
 }
 
-func addInboundLatency(method, path string, latencyMs int64) {
+func addInboundLatency(method, path string, latencyMs int64, retries int) {
 	inboundLatencyAvgKey := shared.InboundLatencyRunningAvgKey(method, path)
 	inboundLatencyTotal := shared.InboundLatencyTotalRequestsKey(method, path)
+
+	oldLatencyTotal := shared.GetUint64SharedDataOrZero(inboundLatencyAvgKey)
+	oldTotalRequests := shared.GetUint64SharedDataOrZero(inboundLatencyTotal)
+	m2Key := shared.InboundLatencyM2Key(method, path)
+	if oldTotalRequests == 0 {
+		newM2 := 0.0
+		// Set the initial M2
+		newM2Str := fmt.Sprintf("%f", newM2)
+		if err := proxywasm.SetSharedData(m2Key, []byte(newM2Str), 0); err != nil {
+			proxywasm.LogCriticalf("unable to set shared data for traceId %v m2: %v %v", m2Key, newM2Str, err)
+		}
+		shared.IncrementSharedData(inboundLatencyAvgKey, latencyMs)
+		shared.IncrementSharedData(inboundLatencyTotal, 1)
+		return
+	}
+	oldAvg := float64(oldLatencyTotal) / float64(oldTotalRequests)
+	oldDiff := float64(latencyMs) - oldAvg
+	newAvg := (float64(oldTotalRequests)*oldAvg + float64(latencyMs)) / float64(oldTotalRequests+1)
+	newDiff := float64(latencyMs) - newAvg
+	oldM2Bytes, cas, err := proxywasm.GetSharedData(m2Key)
+	oldM2 := "0"
+	if err == nil {
+		oldM2 = string(oldM2Bytes)
+	}
+	oldM2Float, _ := strconv.ParseFloat(oldM2, 64)
+	newM2 := oldM2Float + oldDiff*newDiff
+	// set new m2 as string
+	newM2Str := fmt.Sprintf("%f", newM2)
+	if err := proxywasm.SetSharedData(m2Key, []byte(newM2Str), cas); err != nil {
+		if retries == 0 {
+			proxywasm.LogCriticalf("unable to set shared data for traceId %v m2: %v %v", m2Key, newM2Str, err)
+			return
+		}
+		addInboundLatency(method, path, latencyMs, retries-1)
+	}
+
 	shared.IncrementSharedData(inboundLatencyAvgKey, latencyMs)
 	shared.IncrementSharedData(inboundLatencyTotal, 1)
 }

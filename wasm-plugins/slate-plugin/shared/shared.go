@@ -266,6 +266,15 @@ func OutboundLatencyRunningAvgKey(svc, method, path string) string {
 func OutboundLatencyTotalRequestsKey(svc, method, path string) string {
 	return svc + "@" + method + "@" + path + "-outbound-latency-totalrequests"
 }
+
+func InboundLatencyM2Key(method, path string) string {
+	return method + "@" + path + "-inbound-latency-m2"
+}
+
+func OutboundLatencyM2Key(svc, method, path string) string {
+	return svc + "@" + method + "@" + path + "-outbound-latency-m2"
+}
+
 func RegionOutboundLatencyRunningAvgKey(svc, method, path, region string) string {
 	return svc + "@" + method + "@" + path + "@" + region + "-outbound-latency"
 }

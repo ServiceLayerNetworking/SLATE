@@ -291,6 +291,12 @@ func (p *pluginContext) ReportHillclimbingLatency() {
 			method, path := mp[0], mp[1]
 			totalLatency := shared.GetUint64SharedDataOrZero(shared.InboundLatencyRunningAvgKey(method, path))
 			totalReqs := shared.GetUint64SharedDataOrZero(shared.InboundLatencyTotalRequestsKey(method, path))
+			totalM2Bytes, _, err := proxywasm.GetSharedData(shared.InboundLatencyM2Key(method, path))
+			totalM2 := "0"
+			if err == nil {
+				totalM2 = string(totalM2Bytes)
+			}
+
 			// reset the total latency and total requests
 			nv := 0
 			buf := make([]byte, 8)
@@ -301,11 +307,14 @@ func (p *pluginContext) ReportHillclimbingLatency() {
 			if err := proxywasm.SetSharedData(shared.InboundLatencyTotalRequestsKey(method, path), buf, 0); err != nil {
 				proxywasm.LogCriticalf("Couldn't reset total requests: %v", err)
 			}
+			if err := proxywasm.SetSharedData(shared.InboundLatencyM2Key(method, path), []byte("0"), 0); err != nil {
+				proxywasm.LogCriticalf("Couldn't reset total requests: %v", err)
+			}
 			avgLatency := 0
 			if totalReqs != 0 {
 				avgLatency = int(totalLatency / totalReqs)
 			}
-			reqBody += fmt.Sprintf("%s %s %d %d\n", method, path, avgLatency, totalReqs)
+			reqBody += fmt.Sprintf("%s %s %d %d %s\n", method, path, avgLatency, totalReqs, totalM2)
 		}
 	}
 
