@@ -208,7 +208,7 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	}
 	shared.IncrementSharedData(shared.KEY_REQUEST_COUNT, 1)
 	shared.IncrementSharedData(shared.KEY_HILLCLIMB_INBOUNDRPS, 1)
-	shared.AddToSharedDataList(shared.KEY_ENDPOINT_RPS_LIST, shared.EndpointListKey(reqMethod, reqPath))
+	shared.AddToSharedDataSet(shared.KEY_ENDPOINT_RPS_LIST, shared.EndpointListKey(reqMethod, reqPath))
 	// add the new request to our queue
 	ctx.TimestampListAdd(reqMethod, reqPath)
 
@@ -295,7 +295,7 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		if err != nil {
 			processedRegion = ctx.pluginContext.region
 		}
-		shared.AddToSharedDataList(shared.KEY_OUTBOUND_ENDPOINT_LIST, shared.OutboundRequestListElementKey(dst, reqMethod, reqPath))
+		shared.AddToSharedDataSet(shared.KEY_OUTBOUND_ENDPOINT_LIST, shared.OutboundRequestListElementKey(dst, reqMethod, reqPath))
 		startStr, err := proxywasm.GetHttpRequestHeader("x-slate-start-outbound")
 		if err != nil {
 			return
@@ -307,7 +307,7 @@ func (ctx *httpContext) OnHttpStreamDone() {
 	} else {
 		// this was an inbound request/response.
 		// measure inbound latency.
-		shared.AddToSharedDataList(shared.KEY_INBOUND_ENDPOINT_LIST, shared.InboundRequestListElementKey(reqMethod, reqPath))
+		shared.AddToSharedDataSet(shared.KEY_INBOUND_ENDPOINT_LIST, shared.InboundRequestListElementKey(reqMethod, reqPath))
 		startStr, err := proxywasm.GetHttpRequestHeader("x-slate-start-inbound")
 		if err != nil {
 			return
@@ -381,6 +381,7 @@ func addInboundLatency(method, path string, latencyMs int64, retries int) {
 
 	shared.IncrementSharedData(inboundLatencyAvgKey, latencyMs)
 	shared.IncrementSharedData(inboundLatencyTotal, 1)
+	shared.AddToSharedDataList(shared.InboundLatencyListKey(method, path), fmt.Sprintf("%d", latencyMs))
 }
 
 // AddTracedRequest adds a traceId to the set of traceIds we are tracking (this is collected every Tick and sent
