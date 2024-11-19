@@ -1,12 +1,19 @@
 import pandas as pd
 import numpy as np
+from math import sqrt
+from scipy.stats import t
+
+import logging
 temp_counter=69
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def overperformances_are_different(op1: dict, op2: dict, maxPctDiff=0.5) -> bool:
     """
     overperformances_are_different compares two dictionaries of overperformances (source region -> destination region -> overperformance)
-    and checks if any given overperformance is different by more than maxPctDiff percent. If so, it returns True.
+    and checks if any given
+      overperformance is different by more than maxPctDiff percent. If so, it returns True.
     """
     for src_region in op1:
         if src_region not in op2:
@@ -180,8 +187,147 @@ desired_data = {
 # print(jumping_df)
 
 
+def latency_improved(prev_latency: tuple[float, int, float],
+                     cur_latency: tuple[float, int, float],
+                     threshold_ms: float = 5.0,
+                     alpha: float = 0.05) -> bool:
+    """
+    Determines if the current latency has improved over the previous latency by at least
+    a specified threshold using a one-tailed Welch's t-test.
 
-op2 = {'us-central-1': {'us-central-1': -1096.6242774566474, 'us-south-1': -5077.978896103896, 'us-west-1': -1597.1198099049523}, 'us-east-1': {'us-east-1': -12254.233459033252, 'us-south-1': -45937.99512987013}}
-op1 = {'us-central-1': {'us-central-1': -1493.5474254742546, 'us-south-1': -2410.538707467458, 'us-west-1': -2065.0}, 'us-east-1': {'us-east-1': -11610.0, 'us-south-1': -15811.49965745604}}
+    :param prev_latency: Tuple containing (average_latency, num_reqs, stddev) for previous latency.
+    :param cur_latency: Tuple containing (average_latency, num_reqs, stddev) for current latency.
+    :param threshold_ms: Minimum improvement in milliseconds to consider latency as improved.
+    :param alpha: Significance level for the hypothesis test.
+    :return: True if latency has improved by at least threshold_ms with statistical significance, else False.
+    """
+    # Validate input
+    if prev_latency is None or cur_latency is None:
+        logger.warning("Previous or current latency data is None.")
+        return False
+    
+    try:
+        prev_avg, prev_n, prev_stddev = prev_latency
+        cur_avg, cur_n, cur_stddev = cur_latency
+    except ValueError as e:
+        logger.error(f"Invalid latency tuple format: {e}")
+        return False
+    
+    # Ensure there are enough samples to perform the test
+    if prev_n < 2 or cur_n < 2:
+        logger.warning("Not enough data points to perform t-test. At least 2 requests are required for each latency measurement.")
+        return False
+    
+    # Compute the difference in means
+    # Since we're testing if current latency is better (lower) by at least threshold_ms,
+    # the hypothesis is mu_1 - mu_2 > threshold_ms
+    delta = (prev_avg - cur_avg) - threshold_ms  # Positive delta indicates improvement beyond threshold
+    
+    # Compute the standard error (SE) of the difference
+    SE = sqrt((prev_stddev ** 2) / prev_n + (cur_stddev ** 2) / cur_n)
+    
+    if SE == 0:
+        logger.warning("Standard error is zero. Cannot perform t-test.")
+        return False
+    
+    # Compute the t-statistic
+    t_stat = delta / SE
+    
+    # Compute degrees of freedom using Welch's formula
+    numerator = ( (prev_stddev ** 2) / prev_n + (cur_stddev ** 2) / cur_n ) ** 2
+    denominator = ( ((prev_stddev ** 2) / prev_n) ** 2 ) / (prev_n - 1) + ( ((cur_stddev ** 2) / cur_n) ** 2 ) / (cur_n - 1)
+    
+    if denominator == 0:
+        logger.warning("Denominator for degrees of freedom is zero. Cannot compute degrees of freedom.")
+        return False
+    
+    df = numerator / denominator
+    
+    # Compute the one-tailed p-value
+    p_value = 1 - t.cdf(t_stat, df)
+    
+    logger.debug(f"T-Statistic: {t_stat}, Degrees of Freedom: {df}, P-Value: {p_value}")
+    
+    # Decision rule
+    if p_value < alpha and delta > 0:
+        logger.info(f"Latency improved by at least {threshold_ms}ms with p-value {p_value:.4f}.")
+        return True
+    else:
+        logger.info(f"No significant latency improvement by at least {threshold_ms}ms (p-value: {p_value:.4f}).")
+        return False
+    
 
-print(overperformances_are_different(op1, op2, 2.5))
+def latency_worsened(prev_latency: tuple[float, int, float],
+                     cur_latency: tuple[float, int, float],
+                     threshold_ms: float = 5.0,
+                     alpha: float = 0.05) -> bool:
+    """
+    Determines if the current latency has worsened over the previous latency by at least
+    a specified threshold using a one-tailed Welch's t-test.
+
+    :param prev_latency: Tuple containing (average_latency, num_reqs, stddev) for previous latency.
+    :param cur_latency: Tuple containing (average_latency, num_reqs, stddev) for current latency.
+    :param threshold_ms: Minimum worsening in milliseconds to consider latency as worsened.
+    :param alpha: Significance level for the hypothesis test.
+    :return: True if latency has worsened by at least threshold_ms with statistical significance, else False.
+    """
+    # Validate input
+    if prev_latency is None or cur_latency is None:
+        logger.warning("Previous or current latency data is None.")
+        return False
+    
+    try:
+        prev_avg, prev_n, prev_stddev = prev_latency
+        cur_avg, cur_n, cur_stddev = cur_latency
+    except ValueError as e:
+        logger.error(f"Invalid latency tuple format: {e}")
+        return False
+    
+    # Ensure there are enough samples to perform the test
+    if prev_n < 2 or cur_n < 2:
+        logger.warning("Not enough data points to perform t-test. At least 2 requests are required for each latency measurement.")
+        return False
+    
+    # Compute the difference in means
+    # Since we're testing if current latency is worse (higher) by at least threshold_ms,
+    # the hypothesis is mu_2 - mu_1 > threshold_ms
+    delta = (cur_avg - prev_avg) - threshold_ms  # Positive delta indicates worsening beyond threshold
+    
+    # Compute the standard error (SE) of the difference
+    SE = sqrt((prev_stddev ** 2) / prev_n + (cur_stddev ** 2) / cur_n)
+    
+    if SE == 0:
+        logger.warning("Standard error is zero. Cannot perform t-test.")
+        return False
+    
+    # Compute the t-statistic
+    t_stat = delta / SE
+    
+    # Compute degrees of freedom using Welch's formula
+    numerator = ( (prev_stddev ** 2) / prev_n + (cur_stddev ** 2) / cur_n ) ** 2
+    denominator = ( ((prev_stddev ** 2) / prev_n) ** 2 ) / (prev_n - 1) + ( ((cur_stddev ** 2) / cur_n) ** 2 ) / (cur_n - 1)
+    
+    if denominator == 0:
+        logger.warning("Denominator for degrees of freedom is zero. Cannot compute degrees of freedom.")
+        return False
+    
+    df = numerator / denominator
+    
+    # Compute the one-tailed p-value
+    p_value = 1 - t.cdf(t_stat, df)
+    
+    logger.debug(f"T-Statistic: {t_stat}, Degrees of Freedom: {df}, P-Value: {p_value}")
+    
+    # Decision rule
+    if p_value < alpha and delta > 0:
+        logger.info(f"Latency worsened by at least {threshold_ms}ms with p-value {p_value:.4f}.")
+        return True
+    else:
+        logger.info(f"No significant latency worsening by at least {threshold_ms}ms (p-value: {p_value:.4f}).")
+        return False
+
+
+prev = (29.109933106146663, 79023, 62.868883964647495)
+cur = (27.620539291014882, 76137, 58.95973003283683)
+print(f"Latency improved: {latency_improved(prev, cur, threshold_ms=1, alpha=0.05)}")
+print(f"Latency worsened: {latency_worsened(prev, cur, threshold_ms=1, alpha=0.05)}")

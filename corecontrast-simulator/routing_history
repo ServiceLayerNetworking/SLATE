@@ -1,47 +1,121 @@
 digraph {
-	"sslateingressus-west-1" [label=GW fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"corecontrastus-west-1" [label=FR fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-west-1" -> "corecontrastus-west-1" [label="52(51%)" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
-	"sslateingressus-west-1" [label=GW fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"corecontrastus-central-1" [label=FR fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-west-1" -> "corecontrastus-central-1" [label="49(49%)" arrowsize=1.2 color=purple fontcolor=purple fontsize=14 minlen=1.2 penwidth=1.0 style=dashed]
-	"sslateingressus-central-1" [label=GW fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"corecontrastus-central-1" [label=FR fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-central-1" -> "corecontrastus-central-1" [label="2(100%)" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
-	"sslateingressus-south-1" [label=GW fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"corecontrastus-south-1" [label=FR fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-south-1" -> "corecontrastus-south-1" [label="52(51%)" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
-	"sslateingressus-south-1" [label=GW fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"corecontrastus-east-1" [label=FR fillcolor="#ff6375" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-south-1" -> "corecontrastus-east-1" [label="49(49%)" arrowsize=1.2 color=purple fontcolor=purple fontsize=14 minlen=1.2 penwidth=1.0 style=dashed]
-	"sslateingressus-east-1" [label=GW fillcolor="#ff6375" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"corecontrastus-east-1" [label=FR fillcolor="#ff6375" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-east-1" -> "corecontrastus-east-1" [label="1(100%)" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
-	"sslateingressus-west-1" [label=GW fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"corecontrastus-west-1" [label=FR fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-west-1" -> "corecontrastus-west-1" [label="153(30%)" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
-	"sslateingressus-west-1" [label=GW fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"corecontrastus-central-1" [label=FR fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-west-1" -> "corecontrastus-central-1" [label="130(26%)" arrowsize=1.2 color=purple fontcolor=purple fontsize=14 minlen=1.2 penwidth=1.0 style=dashed]
-	"sslateingressus-west-1" [label=GW fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"corecontrastus-south-1" [label=FR fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-west-1" -> "corecontrastus-south-1" [label="122(24%)" arrowsize=1.2 color=purple fontcolor=purple fontsize=14 minlen=1.2 penwidth=1.0 style=dashed]
-	"sslateingressus-west-1" [label=GW fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"corecontrastus-east-1" [label=FR fillcolor="#ff6375" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-west-1" -> "corecontrastus-east-1" [label="97(19%)" arrowsize=1.2 color=purple fontcolor=purple fontsize=14 minlen=1.2 penwidth=1.0 style=dashed]
+	"sslateingressus-south-1" [label="GW
+us-south-1" fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"corecontrastus-south-1" [label="FR
+us-south-1" fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-south-1" -> "corecontrastus-south-1" [label="55(100%)
+singlecore" arrowsize=1.2 color=blue fontcolor=blue fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	"sslateingressus-central-1" [label="GW
+us-central-1" fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"corecontrastus-south-1" [label="FR
+us-south-1" fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-central-1" -> "corecontrastus-south-1" [label="4(7%)
+singlecore" arrowsize=1.2 color=blue fontcolor=blue fontsize=14 minlen=1.2 penwidth=1.0 style=dashed]
+	"sslateingressus-central-1" [label="GW
+us-central-1" fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"corecontrastus-west-1" [label="FR
+us-west-1" fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-central-1" -> "corecontrastus-west-1" [label="50(93%)
+singlecore" arrowsize=1.2 color=blue fontcolor=blue fontsize=14 minlen=1.2 penwidth=1.0 style=dashed]
+	"sslateingressus-east-1" [label="GW
+us-east-1" fillcolor="#ff6375" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"corecontrastus-south-1" [label="FR
+us-south-1" fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-east-1" -> "corecontrastus-south-1" [label="68(100%)
+singlecore" arrowsize=1.2 color=blue fontcolor=blue fontsize=14 minlen=1.2 penwidth=1.0 style=dashed]
+	"sslateingressus-west-1" [label="GW
+us-west-1" fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"corecontrastus-west-1" [label="FR
+us-west-1" fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-west-1" -> "corecontrastus-west-1" [label="53(100%)
+singlecore" arrowsize=1.2 color=blue fontcolor=blue fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	"sslateingressus-south-1" [label="GW
+us-south-1" fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"corecontrastus-central-1" [label="FR
+us-central-1" fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-south-1" -> "corecontrastus-central-1" [label="148(76%)
+multicore" arrowsize=1.2 color=red fontcolor=red fontsize=14 minlen=1.2 penwidth=1.0 style=dashed]
+	"sslateingressus-south-1" [label="GW
+us-south-1" fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"corecontrastus-east-1" [label="FR
+us-east-1" fillcolor="#ff6375" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-south-1" -> "corecontrastus-east-1" [label="59(24%)
+multicore" arrowsize=1.2 color=red fontcolor=red fontsize=14 minlen=1.2 penwidth=1.0 style=dashed]
+	"sslateingressus-central-1" [label="GW
+us-central-1" fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"corecontrastus-central-1" [label="FR
+us-central-1" fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-central-1" -> "corecontrastus-central-1" [label="207(100%)
+multicore" arrowsize=1.2 color=red fontcolor=red fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	"sslateingressus-east-1" [label="GW
+us-east-1" fillcolor="#ff6375" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"corecontrastus-east-1" [label="FR
+us-east-1" fillcolor="#ff6375" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-east-1" -> "corecontrastus-east-1" [label="411(100%)
+multicore" arrowsize=1.2 color=red fontcolor=red fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	"sslateingressus-west-1" [label="GW
+us-west-1" fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"corecontrastus-central-1" [label="FR
+us-central-1" fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-west-1" -> "corecontrastus-central-1" [label="118(59%)
+multicore" arrowsize=1.2 color=red fontcolor=red fontsize=14 minlen=1.2 penwidth=1.0 style=dashed]
+	"sslateingressus-west-1" [label="GW
+us-west-1" fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"corecontrastus-west-1" [label="FR
+us-west-1" fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-west-1" -> "corecontrastus-west-1" [label="83(41%)
+multicore" arrowsize=1.2 color=red fontcolor=red fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
 	SOURCEXXXX [label=SOURCE fillcolor=gray fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-west-1" [label=GW fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	SOURCEXXXX -> "sslateingressus-west-1" [label=100 arrowsize=1.2 color=purple fontcolor=purple fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	"sslateingressus-south-1" [label="GW
+us-south-1" fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	SOURCEXXXX -> "sslateingressus-south-1" [label="55
+SOURCE" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
 	SOURCEXXXX [label=SOURCE fillcolor=gray fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-central-1" [label=GW fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	SOURCEXXXX -> "sslateingressus-central-1" [label=2 arrowsize=1.2 color=purple fontcolor=purple fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	"sslateingressus-central-1" [label="GW
+us-central-1" fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	SOURCEXXXX -> "sslateingressus-central-1" [label="53
+SOURCE" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
 	SOURCEXXXX [label=SOURCE fillcolor=gray fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-south-1" [label=GW fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	SOURCEXXXX -> "sslateingressus-south-1" [label=100 arrowsize=1.2 color=purple fontcolor=purple fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	"sslateingressus-east-1" [label="GW
+us-east-1" fillcolor="#ff6375" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	SOURCEXXXX -> "sslateingressus-east-1" [label="68
+SOURCE" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
 	SOURCEXXXX [label=SOURCE fillcolor=gray fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-east-1" [label=GW fillcolor="#ff6375" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	SOURCEXXXX -> "sslateingressus-east-1" [label=1 arrowsize=1.2 color=purple fontcolor=purple fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	"sslateingressus-west-1" [label="GW
+us-west-1" fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	SOURCEXXXX -> "sslateingressus-west-1" [label="53
+SOURCE" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
 	SOURCEXXXX [label=SOURCE fillcolor=gray fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	"sslateingressus-west-1" [label=GW fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
-	SOURCEXXXX -> "sslateingressus-west-1" [label=500 arrowsize=1.2 color=purple fontcolor=purple fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	"sslateingressus-south-1" [label="GW
+us-south-1" fillcolor="#bbfbfc" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	SOURCEXXXX -> "sslateingressus-south-1" [label="206
+SOURCE" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	SOURCEXXXX [label=SOURCE fillcolor=gray fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-central-1" [label="GW
+us-central-1" fillcolor="#c8ffbf" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	SOURCEXXXX -> "sslateingressus-central-1" [label="207
+SOURCE" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	SOURCEXXXX [label=SOURCE fillcolor=gray fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-east-1" [label="GW
+us-east-1" fillcolor="#ff6375" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	SOURCEXXXX -> "sslateingressus-east-1" [label="411
+SOURCE" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	SOURCEXXXX [label=SOURCE fillcolor=gray fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	"sslateingressus-west-1" [label="GW
+us-west-1" fillcolor="#FFBF00" fixedsize=True fontname="times bold italic" fontsize=16 penwidth=1.4 shape=circle style=filled width=0.6]
+	SOURCEXXXX -> "sslateingressus-west-1" [label="200
+SOURCE" arrowsize=1.2 color=black fontcolor=black fontsize=14 minlen=1.2 penwidth=1.0 style=filled]
+	subgraph cluster_legend {
+		label=Legend
+		"legend_region_us-south-1" [label="us-south-1" fillcolor="#bbfbfc" fixedsize=true fontsize=10 height=0.3 shape=circle style=filled width=0.3]
+		"legend_region_us-east-1" [label="us-east-1" fillcolor="#ff6375" fixedsize=true fontsize=10 height=0.3 shape=circle style=filled width=0.3]
+		"legend_region_us-west-1" [label="us-west-1" fillcolor="#FFBF00" fixedsize=true fontsize=10 height=0.3 shape=circle style=filled width=0.3]
+		"legend_region_us-central-1" [label="us-central-1" fillcolor="#c8ffbf" fixedsize=true fontsize=10 height=0.3 shape=circle style=filled width=0.3]
+		legend_src_0 [label="" style=invisible]
+		legend_dst_0 [label="" style=invisible]
+		legend_src_0 -> legend_dst_0 [label=singlecore color=blue fontsize=10]
+		legend_src_1 [label="" style=invisible]
+		legend_dst_1 [label="" style=invisible]
+		legend_src_1 -> legend_dst_1 [label=multicore color=red fontsize=10]
+	}
 }

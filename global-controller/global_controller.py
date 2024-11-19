@@ -20,6 +20,7 @@ from sklearn.preprocessing import StandardScaler
 import datetime
 import os
 import collections
+from scipy.stats import t
 import math
 import matplotlib.pyplot as plt
 import numpy as np
@@ -44,7 +45,8 @@ logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
 logging.getLogger('apscheduler').setLevel(logging.DEBUG)
 
 warnings.filterwarnings("ignore", message="The behavior of DataFrame concatenation with empty or all-NA entries is deprecated")
-
+pd.set_option('display.max_columns', None)  # Show all columns
+pd.set_option('display.width', 1000)    
 
 '''runtime (optimizer)'''
 endpoint_level_inflight = {}
@@ -69,6 +71,7 @@ endpoint_sizes = {}
 
 placement = {}
 coef_dict = {}
+normalization = dict()
 e2e_coef_dict = {}
 degree = 0
 endpoint_to_placement = dict()
@@ -79,11 +82,11 @@ prev_jumping_df = pd.DataFrame()
 starting_df = pd.DataFrame()
 desired_df = pd.DataFrame()
 cur_convex_comb_value = 0 # between 0 and 1
-convex_comb_step = 0.25
+convex_comb_step = 1
 convex_comb_direction = 1 # 1 or -1
 jumping_ruleset_num_iterations = 0
-jumping_ruleset_convergence_iterations = 10
-cur_jumping_ruleset = ""
+jumping_ruleset_convergence_iterations = 5
+cur_jumping_ruleset = ("", "")
 completed_rulesets = set()
 historical_svc_latencies = dict() # svc -> list of latencies
 # optimizer_cnt = 0
@@ -127,7 +130,7 @@ train_start = False
 profile_output_file="trace_string.csv" # traces_str_list -> profile_output_file in write_trace_str_to_file() function every 5s
 latency_func = {}
 trainig_input_trace_file="trace.csv" # NOTE: It should be updated when the app is changed
-x_feature = "rps_dict" # "num_inflight_dict"
+x_feature = "rps_dict" # "num_inflightglobal norm_dict"
 target_y = "xt"
 
 '''config'''
@@ -211,21 +214,29 @@ def handleHillclimbLatency():
             # todo parse these into a separate structure (probably for observability)
         else:
             parts = line.split(" ")
-            if len(parts) != 4:
-                # logger.info(f"hillclimbingLatency for (pod {podname}, svc {svc}): len(parts) != 4 for inbound, skipping")
+            if len(parts) != 5:
+                logger.info(f"hillclimbingLatency for (pod {podname}, svc {svc}): len(parts) != 5 for inbound, skipping")
                 continue
             for i in range(len(parts)):
                 parts[i] = parts[i].strip()
-            method, path, avgLatency, numReqs = parts[0], parts[1], parts[2], parts[3]
+            method, path, avgLatency, numReqs, m2 = parts[0], parts[1], float(parts[2]), int(parts[3]), float(parts[4])
             mp = f"{method}@{path}"
             if mp not in global_processing_latencies[svc][region][podname]:
                 global_processing_latencies[svc][region][podname][mp] = {
                     "latency_total": float(avgLatency) * int(numReqs),
-                    "num_reqs": int(numReqs)
+                    "num_reqs": int(numReqs),
+                    "m2": float(m2),
                 }
             else:
+                # update m2
+                cur_num_reqs = global_processing_latencies[svc][region][podname][mp]["num_reqs"]
+                mean_delta = float(avgLatency) - global_processing_latencies[svc][region][podname][mp]["latency_total"] / cur_num_reqs
+                adjustment = (mean_delta ** 2) * ((numReqs * cur_num_reqs )/ (numReqs + cur_num_reqs))
+                m2_new = float(global_processing_latencies[svc][region][podname][mp]["m2"]) + float(m2) + adjustment 
                 global_processing_latencies[svc][region][podname][mp]["latency_total"] += float(avgLatency) * int(numReqs)
                 global_processing_latencies[svc][region][podname][mp]["num_reqs"] += int(numReqs)
+                global_processing_latencies[svc][region][podname][mp]["m2"] = m2_new
+                
     processing_latencies_mutex.release()
     return ""
 
@@ -285,12 +296,12 @@ def perform_jumping():
     global_prev_processing_latencies = global_processing_latencies.copy()
     global_processing_latencies.clear()
     processing_latencies_mutex.release()
-    prev_processing_latency = calculate_avg_processing_latency(prev_processing_latencies, "sslateingress", "POST@/cart/checkout")
-    cur_processing_latency = calculate_avg_processing_latency(cur_processing_latencies, "sslateingress", "POST@/cart/checkout")
+    prev_processing_latency = calculate_avg_processing_latency(prev_processing_latencies, "sslateingress")
+    cur_processing_latency = calculate_avg_processing_latency(cur_processing_latencies, "sslateingress")
     prev_aggregated_rps = global_prev_aggregated_rps.copy()
     cur_aggregated_rps = aggregated_rps.copy()
     global_prev_aggregated_rps = aggregated_rps.copy()
-    write_latency("sslateingress", cur_processing_latency, cur_processing_latencies)
+    write_latency("sslateingress", cur_processing_latency[0], cur_processing_latencies)
     if not jumping_feature_enabled:
         return
 
@@ -306,7 +317,7 @@ def perform_jumping():
     logger.info(f"loghill ruleset_overperformance: {ruleset_overperformance}")
 
 
-    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1) and len(percentage_df) > 0:
+    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0 and False:
         logger.info(f"loghill rules are different, stepping towards optimizer output, old rules:\n{compute_traffic_matrix(cur_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
         # here, we want to start defensive jumping towards the optimizer output.
         # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
@@ -360,7 +371,7 @@ def perform_jumping():
         jumping_ruleset_num_iterations = 0
         cur_jumping_ruleset = pick_best_ruleset(ruleset_overperformance, completed_rulesets)
         logger.info(f"loghill picked new ruleset: {cur_jumping_ruleset}")
-        if cur_jumping_ruleset == "": # no more rulesets to jump to
+        if cur_jumping_ruleset == ("", ""): # no more rulesets to jump to
             currently_globally_oscillating = True
             logger.info(f"loghill no more rulesets to jump to, starting oscillation detection (currently_globally_oscillating=True)")
             return
@@ -387,10 +398,21 @@ def perform_jumping():
             prev_processing_latencies.clear()
             prev_jumping_df = jumping_df.copy()
             return
-        if len(prev_processing_latencies) > 0 and prev_processing_latency < cur_processing_latency: # gangmuk: statistical model
-            # reverse direction
-            logger.info(f"loghill reversing direction from {convex_comb_direction} to {-convex_comb_direction}")
-            convex_comb_direction = -convex_comb_direction
+        if len(prev_processing_latencies) > 0:
+            jumping_ruleset_num_iterations += 1
+            if latency_worsened(prev_processing_latency, cur_processing_latency, threshold_ms=5, alpha=0.05): # gangmuk: statistical model
+                # reverse direction
+                logger.info(f"latency worsened, loghill reversing direction from {convex_comb_direction} to {-convex_comb_direction}")
+                convex_comb_direction = -convex_comb_direction
+            elif latency_improved(prev_processing_latency, cur_processing_latency, threshold_ms=1, alpha=0.05):
+                # keep going in the same direction
+                logger.info(f"latency improved, loghill continuing direction {convex_comb_direction}")
+            else:
+                # need more data
+                logger.info(f"loghill need more data to determine if change worked (cur_convex_comb_value: {cur_convex_comb_value})")
+                global_prev_processing_latencies = prev_processing_latencies.copy()
+                global_processing_latencies = cur_processing_latencies.copy()
+                return
         logger.info(f"loghill old cur_convex_comb_value: {cur_convex_comb_value}")
         proposed = cur_convex_comb_value + convex_comb_direction * convex_comb_step
         if proposed < 0:
@@ -425,7 +447,7 @@ def perform_jumping():
         ideally, the direction will always be the same, and we just have to check latency...
         """
 
-        if cur_jumping_ruleset == "":
+        if cur_jumping_ruleset == ("", ""):
             cur_jumping_ruleset = pick_best_ruleset(ruleset_overperformance, completed_rulesets)
             logger.info(f"loghill picked new ruleset: {cur_jumping_ruleset}")
         # first adjust jumping_df based on the current and previous latencies (accept the rule from prev_jumping_df to jumping_df)
@@ -436,7 +458,7 @@ def perform_jumping():
             # 1) we are oscillating between two rules -- this is fine. in this case, we just roll back and keep oscillating.
             # 2) we are somehow getting worse with each rule. in this case, rollback becomes a no-op (what are we rolling back to?).
             #    in this case, we probably want to clear the prev_processing_latencies and start over.
-            if len(prev_jumping_df) == 0:
+            if len(prev_jumping_df) == 0:   
                 logger.info(f"loghill no previous rule to roll back to, clearing prev_processing_latencies and starting over.")
                 # to rule to rollback to, clear the prev_processing_latencies and start over.
                 global_prev_processing_latencies.clear()
@@ -451,13 +473,17 @@ def perform_jumping():
             prev_jumping_df = jumping_df.copy()
             # this is the new calculated direction / weights for that direction.
             # apply this overperformance to jumping_df, and then apply the jumping_df to the actual routing rules.
-            adjusted_df, did_adjust = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset, ruleset_overperformance.get(cur_jumping_ruleset, {}), step_size=0.05)
-            if not did_adjust:
-                # add this to completed rulesets
-                logger.info(f"loghill ruleset did not adjust, adding ruleset {cur_jumping_ruleset} to completed rulesets")
-                completed_rulesets.add(cur_jumping_ruleset)
+            if cur_jumping_ruleset != ("", ""):
+                adjusted_df, did_adjust = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset[0], cur_jumping_ruleset[1], ruleset_overperformance.get(cur_jumping_ruleset[1], {}).get(cur_jumping_ruleset[0], {}), step_size=0.05)
+                if not did_adjust:
+                    # add this to completed rulesets
+                    logger.info(f"loghill ruleset did not adjust, adding ruleset {cur_jumping_ruleset} to completed rulesets")
+                    completed_rulesets.add(cur_jumping_ruleset)
+                    cur_jumping_ruleset = pick_best_ruleset(ruleset_overperformance, completed_rulesets)
+                else:
+                    jumping_df = adjusted_df.copy()
             else:
-                jumping_df = adjusted_df.copy()
+                logger.info(f"failing to adjust ruleset, no ruleset to adjust")
         else:
             jumping_df = percentage_df.copy()
     return
@@ -493,6 +519,146 @@ def rules_are_different(df1: pd.DataFrame, df2: pd.DataFrame, maxThreshold=0.1):
 
     return False
 
+def latency_improved(prev_latency: tuple[float, int, float],
+                     cur_latency: tuple[float, int, float],
+                     threshold_ms: float = 5.0,
+                     alpha: float = 0.05) -> bool:
+    """
+    Determines if the current latency has improved over the previous latency by at least
+    a specified threshold using a one-tailed Welch's t-test.
+
+    :param prev_latency: Tuple containing (average_latency, num_reqs, stddev) for previous latency.
+    :param cur_latency: Tuple containing (average_latency, num_reqs, stddev) for current latency.
+    :param threshold_ms: Minimum improvement in milliseconds to consider latency as improved.
+    :param alpha: Significance level for the hypothesis test.
+    :return: True if latency has improved by at least threshold_ms with statistical significance, else False.
+    """
+    # Validate input
+    if prev_latency is None or cur_latency is None:
+        logger.warning("Previous or current latency data is None.")
+        return False
+    
+    try:
+        prev_avg, prev_n, prev_stddev = prev_latency
+        cur_avg, cur_n, cur_stddev = cur_latency
+    except ValueError as e:
+        logger.error(f"Invalid latency tuple format: {e}")
+        return False
+    
+    # Ensure there are enough samples to perform the test
+    if prev_n < 2 or cur_n < 2:
+        logger.warning("Not enough data points to perform t-test. At least 2 requests are required for each latency measurement.")
+        return False
+    
+    # Compute the difference in means
+    # Since we're testing if current latency is better (lower) by at least threshold_ms,
+    # the hypothesis is mu_1 - mu_2 > threshold_ms
+    delta = (prev_avg - cur_avg) - threshold_ms  # Positive delta indicates improvement beyond threshold
+    
+    # Compute the standard error (SE) of the difference
+    SE = math.sqrt((prev_stddev ** 2) / prev_n + (cur_stddev ** 2) / cur_n)
+    
+    if SE == 0:
+        logger.warning("Standard error is zero. Cannot perform t-test.")
+        return False
+    
+    # Compute the t-statistic
+    t_stat = delta / SE
+    
+    # Compute degrees of freedom using Welch's formula
+    numerator = ( (prev_stddev ** 2) / prev_n + (cur_stddev ** 2) / cur_n ) ** 2
+    denominator = ( ((prev_stddev ** 2) / prev_n) ** 2 ) / (prev_n - 1) + ( ((cur_stddev ** 2) / cur_n) ** 2 ) / (cur_n - 1)
+    
+    if denominator == 0:
+        logger.warning("Denominator for degrees of freedom is zero. Cannot compute degrees of freedom.")
+        return False
+    
+    df = numerator / denominator
+    
+    # Compute the one-tailed p-value
+    p_value = 1 - t.cdf(t_stat, df)
+    
+    logger.debug(f"T-Statistic: {t_stat}, Degrees of Freedom: {df}, P-Value: {p_value}")
+    
+    # Decision rule
+    if p_value < alpha and delta > 0:
+        logger.info(f"Latency improved by at least {threshold_ms}ms with p-value {p_value:.4f}.")
+        return True
+    else:
+        logger.info(f"No significant latency improvement by at least {threshold_ms}ms (p-value: {p_value:.4f}).")
+        return False
+
+
+
+def latency_worsened(prev_latency: tuple[float, int, float],
+                     cur_latency: tuple[float, int, float],
+                     threshold_ms: float = 5.0,
+                     alpha: float = 0.05) -> bool:
+    """
+    Determines if the current latency has worsened over the previous latency by at least
+    a specified threshold using a one-tailed Welch's t-test.
+
+    :param prev_latency: Tuple containing (average_latency, num_reqs, stddev) for previous latency.
+    :param cur_latency: Tuple containing (average_latency, num_reqs, stddev) for current latency.
+    :param threshold_ms: Minimum worsening in milliseconds to consider latency as worsened.
+    :param alpha: Significance level for the hypothesis test.
+    :return: True if latency has worsened by at least threshold_ms with statistical significance, else False.
+    """
+    # Validate input
+    if prev_latency is None or cur_latency is None:
+        logger.warning("Previous or current latency data is None.")
+        return False
+    
+    try:
+        prev_avg, prev_n, prev_stddev = prev_latency
+        cur_avg, cur_n, cur_stddev = cur_latency
+    except ValueError as e:
+        logger.error(f"Invalid latency tuple format: {e}")
+        return False
+    
+    # Ensure there are enough samples to perform the test
+    if prev_n < 2 or cur_n < 2:
+        logger.warning("Not enough data points to perform t-test. At least 2 requests are required for each latency measurement.")
+        return False
+    
+    # Compute the difference in means
+    # Since we're testing if current latency is worse (higher) by at least threshold_ms,
+    # the hypothesis is mu_2 - mu_1 > threshold_ms
+    delta = (cur_avg - prev_avg) - threshold_ms  # Positive delta indicates worsening beyond threshold
+    
+    # Compute the standard error (SE) of the difference
+    SE = math.sqrt((prev_stddev ** 2) / prev_n + (cur_stddev ** 2) / cur_n)
+    
+    if SE == 0:
+        logger.warning("Standard error is zero. Cannot perform t-test.")
+        return False
+    
+    # Compute the t-statistic
+    t_stat = delta / SE
+    
+    # Compute degrees of freedom using Welch's formula
+    numerator = ( (prev_stddev ** 2) / prev_n + (cur_stddev ** 2) / cur_n ) ** 2
+    denominator = ( ((prev_stddev ** 2) / prev_n) ** 2 ) / (prev_n - 1) + ( ((cur_stddev ** 2) / cur_n) ** 2 ) / (cur_n - 1)
+    
+    if denominator == 0:
+        logger.warning("Denominator for degrees of freedom is zero. Cannot compute degrees of freedom.")
+        return False
+    
+    df = numerator / denominator
+    
+    # Compute the one-tailed p-value
+    p_value = 1 - t.cdf(t_stat, df)
+    
+    logger.debug(f"T-Statistic: {t_stat}, Degrees of Freedom: {df}, P-Value: {p_value}")
+    
+    # Decision rule
+    if p_value < alpha and delta > 0:
+        logger.info(f"Latency worsened by at least {threshold_ms}ms with p-value {p_value:.4f}.")
+        return True
+    else:
+        logger.info(f"No significant latency worsening by at least {threshold_ms}ms (p-value: {p_value:.4f}).")
+        return False
+
 def processing_latencies_delta_are_different(
     cur_processing_latencies: dict,
     prev_processing_latencies: dict,
@@ -500,6 +666,7 @@ def processing_latencies_delta_are_different(
     prev_aggregated_rps: dict,
     maxPctDiff: float = 0.5  # Represents 50%
 ) -> bool:
+    global bottleneck_service
     """
     Compare the percentage difference between the previous and current latency deltas for the "frontend" service.
     
@@ -517,32 +684,32 @@ def processing_latencies_delta_are_different(
     if prev_processing_latencies is None or len(prev_processing_latencies) == 0:
         return False
     for region, services in cur_aggregated_rps.items():
-        if "frontend" not in services:
+        if bottleneck_service not in services:
             continue
-        for endpoint, cur_load in services["frontend"].items():
-            if region not in prev_aggregated_rps or "frontend" not in prev_aggregated_rps[region] or endpoint not in prev_aggregated_rps[region]["frontend"]:
+        for endpoint, cur_load in services[bottleneck_service].items():
+            if region not in prev_aggregated_rps or bottleneck_service not in prev_aggregated_rps[region] or endpoint not in prev_aggregated_rps[region][bottleneck_service]:
                 continue
-            prev_load = prev_aggregated_rps[region]["frontend"][endpoint]
+            prev_load = prev_aggregated_rps[region][bottleneck_service][endpoint]
             methodpath = endpoint.split("@")[1] + "@" + endpoint.split("@")[2]
             # Calculate expected latencies based on previous and current load levels
-            expected_latency_prev = get_expected_latency_for_rule(prev_load, "frontend", methodpath)
-            expected_latency_cur = get_expected_latency_for_rule(cur_load, "frontend", methodpath)
+            expected_latency_prev = get_expected_latency_for_rule(prev_load, bottleneck_service, methodpath)
+            expected_latency_cur = get_expected_latency_for_rule(cur_load, bottleneck_service, methodpath)
             
             # Skip comparison if expected latencies are zero to avoid division by zero
             if expected_latency_prev == 0 or expected_latency_cur == 0:
                 logger.debug(
-                    f"Skipping comparison for Region: {region}, Service: frontend, Endpoint: {endpoint} "
+                    f"Skipping comparison for Region: {region}, Service: {bottleneck_service}, Endpoint: {endpoint} "
                     f"due to zero expected latency."
                 )
                 continue
 
             # Retrieve actual latencies; default to 0 if not present
             # methodpath is just method@path, e.g., GET@/cart/checkout, get it from endpoint which is of form svc@method@path
-            actual_prev = calculate_avg_processing_latency(
-                prev_processing_latencies, "frontend", methodpath, region
+            actual_prev, _, _ = calculate_avg_processing_latency_for_traffic_class(
+                prev_processing_latencies, endpoint, region
             )
-            actual_cur = calculate_avg_processing_latency(
-                cur_processing_latencies, "frontend", methodpath, region
+            actual_cur, _, _ = calculate_avg_processing_latency_for_traffic_class(
+                cur_processing_latencies, endpoint, region
             )
 
             # Calculate the deltas
@@ -553,8 +720,8 @@ def processing_latencies_delta_are_different(
                 # check if within 30ms
                 if abs(delta_prev - delta_cur) > 30:
                     logger.info(
-                        f"Latency delta difference exceeded: {delta_cur}ms > 30ms (abs({delta_prev} - {delta_cur})) "
-                        f"for Region: {region}, Service: frontend, Endpoint: {endpoint}"
+                        f"Latency delta difference exceeded: {abs(delta_prev - delta_cur)}ms > 30ms (abs({delta_prev} - {delta_cur})) "
+                    f"for Region: {region}, Service: {bottleneck_service}, Endpoint: {endpoint}"
                     )
                     return True
             else:
@@ -626,38 +793,62 @@ def overperformances_are_different(op1: dict, op2: dict, maxPctDiff=0.5) -> bool
     return False
 
 
-# Function to compute traffic matrix from DataFrame
-def compute_traffic_matrix(df):
-    if 'src_svc' not in df.columns or 'dst_svc' not in df.columns:
-        return pd.DataFrame()
-    filtered = df[(df['src_svc'] == 'sslateingress') & (df['dst_svc'] == 'frontend')]
+def compute_traffic_matrix(df, src_service="sslateingress", dst_service=""):
+    global bottleneck_service
+    dst_service = bottleneck_service
+    """
+    Computes the traffic matrix for the specified source and destination services.
+
+    Args:
+        df (pd.DataFrame): Input DataFrame containing traffic data.
+        src_service (str): Source service name to filter.
+        dst_service (str): Destination service name to filter.
+
+    Returns:
+        pd.DataFrame: Pivot table representing the traffic matrix.
+    """
+    # Ensure necessary columns are present
+    required_columns = {'src_svc', 'dst_svc', 'dst_cid', 'dst_endpoint', 'weight', 'src_cid'}
+    if not required_columns.issubset(df.columns):
+        raise ValueError(f"DataFrame must contain the following columns: {required_columns}, but has columns: {df.columns}")
+
+    # Filter the DataFrame for the specified source and destination services
+    filtered = df[
+        (df['src_svc'] == src_service) & 
+        (df['dst_svc'] == dst_service)
+    ]
+
+    # Create a MultiIndex for the columns using dst_cid and dst_endpoint
     traffic_matrix = filtered.pivot_table(
-        index='src_cid',
-        columns='dst_cid',
+        index=['src_cid', 'src_endpoint'],    
+        columns=['dst_cid', 'dst_endpoint'],
         values='weight',
         aggfunc='sum',
         fill_value=0
     )
+
     return traffic_matrix
 
-def jump_towards_optimizer_desired(starting_df: pd.DataFrame, desired_df: pd.DataFrame, cur_convex_comb_value: float) -> pd.DataFrame:
-    global temp_counter
+def jump_towards_optimizer_desired(starting_df: pd.DataFrame, desired_df: pd.DataFrame,
+                                   cur_convex_comb_value: float, src_service="sslateingress", dst_service="") -> pd.DataFrame:
     """
-    jump_towards_optimizer_desired computes the convex combination of two traffic matrices
-    represented by starting_df and desired_df based on cur_convex_comb_value.
-    
+    Computes the convex combination of two traffic matrices based on the given combination value.
+
     Args:
         starting_df (pd.DataFrame): The starting traffic matrix DataFrame.
         desired_df (pd.DataFrame): The desired traffic matrix DataFrame.
+        src_service (str): Source service name to filter.
+        dst_service (str): Destination service name to filter.
         cur_convex_comb_value (float): The convex combination factor (between 0 and 1).
-        
+
     Returns:
         pd.DataFrame: The new traffic matrix as a DataFrame in the same format as the inputs.
     """
+    global bottleneck_service
+    dst_service = bottleneck_service
     # Validate cur_convex_comb_value
     if not (0 <= cur_convex_comb_value <= 1):
         raise ValueError("cur_convex_comb_value must be between 0 and 1.")
-    
 
     required_columns = {'src_svc', 'dst_svc'}
     for df_name, df in zip(['starting_df', 'desired_df'], [starting_df, desired_df]):
@@ -665,51 +856,52 @@ def jump_towards_optimizer_desired(starting_df: pd.DataFrame, desired_df: pd.Dat
             raise ValueError(f"{df_name} must contain columns: {required_columns} (has columns: {df.columns})")
 
     # Compute traffic matrices for starting and desired DataFrames
-    starting_matrix = compute_traffic_matrix(starting_df)
-    desired_matrix = compute_traffic_matrix(desired_df)
+    starting_matrix = compute_traffic_matrix(starting_df, src_service=src_service, dst_service=dst_service)
+    desired_matrix = compute_traffic_matrix(desired_df, src_service=src_service, dst_service=dst_service)
     
-    # Identify all unique regions across both matrices
-    all_regions = sorted(set(starting_matrix.index).union(set(starting_matrix.columns))
-                        .union(set(desired_matrix.index)).union(set(desired_matrix.columns)))
+    # Identify all unique (src_cid, src_endpoint) and (dst_cid, dst_endpoint) across both matrices
+    all_src = starting_matrix.index.union(desired_matrix.index)
+    all_dst = starting_matrix.columns.union(desired_matrix.columns)
     
-    starting_matrix = starting_matrix.reindex(index=all_regions, columns=all_regions, fill_value=0)
-    desired_matrix = desired_matrix.reindex(index=all_regions, columns=all_regions, fill_value=0)
+    # Reindex both matrices to include all sources and destinations
+    starting_matrix = starting_matrix.reindex(index=all_src, columns=all_dst, fill_value=0)
+    desired_matrix = desired_matrix.reindex(index=all_src, columns=all_dst, fill_value=0)
     
     # Compute the convex combination
     combined_matrix = (1 - cur_convex_comb_value) * starting_matrix + cur_convex_comb_value * desired_matrix
     combined_matrix = combined_matrix.round(6)
-    logger.info(f"loghill (defensive jumping) new traffic matrix:\n{combined_matrix}\nstarting_matrix:\n{starting_matrix}\ndesired_matrix:\n{desired_matrix}")
+    logger.info(f"Combined traffic matrix:\n{combined_matrix}\nStarting matrix:\n{starting_matrix}\nDesired matrix:\n{desired_matrix}")
     
     # Transform the combined matrix back into a DataFrame
-    combined_df = combined_matrix.reset_index().melt(id_vars='src_cid', var_name='dst_cid', value_name='weight')
+    combined_df = combined_matrix.reset_index().melt(id_vars=['src_cid', 'src_endpoint'], 
+                                                   var_name=['dst_cid', 'dst_endpoint'], 
+                                                   value_name='weight')
     combined_df = combined_df[combined_df['weight'] > 0].reset_index(drop=True)
     
-    # Merge with starting_df to get 'total' and 'counter' information
-    # First, prepare a mapping from (src_cid, dst_cid) to 'total' and other columns
-    # We'll prioritize starting_df's 'total'; if not present, use desired_df's 'total'
+    # Merge with starting_df and desired_df to get 'total' and 'flow' information
+    # **Important Correction**: Include 'src_endpoint' and 'dst_endpoint' in the merge keys
+    starting_totals = starting_df[
+        (starting_df['src_svc'] == src_service) & 
+        (starting_df['dst_svc'] == dst_service)
+    ][['src_cid', 'src_endpoint', 'dst_cid', 'dst_endpoint', 'total']].drop_duplicates()
     
-    # Create a helper DataFrame with 'total' from starting_df
-    starting_totals = starting_df[(starting_df['src_svc'] == 'sslateingress') & (starting_df['dst_svc'] == 'frontend')][
-        ['src_cid', 'dst_cid', 'total']
-    ].drop_duplicates()
-    
-    # Similarly, from desired_df
-    desired_totals = desired_df[(desired_df['src_svc'] == 'sslateingress') & (desired_df['dst_svc'] == 'frontend')][
-        ['src_cid', 'dst_cid', 'total']
-    ].drop_duplicates()
+    desired_totals = desired_df[
+        (desired_df['src_svc'] == src_service) & 
+        (desired_df['dst_svc'] == dst_service)
+    ][['src_cid', 'src_endpoint', 'dst_cid', 'dst_endpoint', 'total']].drop_duplicates()
     
     # Merge combined_df with starting_totals
     combined_df = combined_df.merge(
         starting_totals,
-        on=['src_cid', 'dst_cid'],
+        on=['src_cid', 'src_endpoint', 'dst_cid', 'dst_endpoint'],
         how='left',
         suffixes=('', '_start')
     )
     
-    # For rows where 'total' is NaN, fill from desired_totals
+    # Merge combined_df with desired_totals
     combined_df = combined_df.merge(
         desired_totals,
-        on=['src_cid', 'dst_cid'],
+        on=['src_cid', 'src_endpoint', 'dst_cid', 'dst_endpoint'],
         how='left',
         suffixes=('', '_desired')
     )
@@ -721,18 +913,20 @@ def jump_towards_optimizer_desired(starting_df: pd.DataFrame, desired_df: pd.Dat
     combined_df['flow'] = combined_df['weight'] * combined_df['total']
     
     # Add 'src_svc' and 'dst_svc' columns
-    combined_df['src_svc'] = 'sslateingress'
-    combined_df['dst_svc'] = 'frontend'
+    combined_df['src_svc'] = src_service
+    combined_df['dst_svc'] = dst_service
     
-    # Assuming endpoints are in the format: {svc}@POST@/cart/checkout
-    combined_df['src_endpoint'] = combined_df['src_svc'] + '@POST@/cart/checkout'
-    combined_df['dst_endpoint'] = combined_df['dst_svc'] + '@POST@/cart/checkout'
+    # Optional: Enforce weight limits if necessary
+    # Here, we clip weights to ensure they stay within [0, 1]
+    combined_df['weight'] = combined_df['weight'].clip(lower=0, upper=1.0)
     
     # Reorder and select columns to match the original format
     final_df = combined_df[
         ['src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint',
          'src_cid', 'dst_cid', 'flow', 'total', 'weight']
     ]
+    
+    # Sort and reset index
     final_df = final_df.sort_values(by=['src_cid', 'dst_cid']).reset_index(drop=True)
     
     return final_df
@@ -754,82 +948,198 @@ def latency_is_oscillating(svc: str, last_iters: int, thresh_ms=6) -> bool:
     # todo check for cycles in the latencies
     return max_latency - min_latency < thresh_ms
 
-def pick_best_ruleset(overperformance: dict, exclude_rulesets: set) -> str:
+def pick_best_ruleset(overperformance: dict, exclude_rulesets: set) -> tuple[str, str]:
     """
     pick_best_ruleset will pick the best ruleset based on the max variance in overperformance of each ruleset.
     It will return the best ruleset which is not in the exclude_rulesets set.
     It expects overperformance to be a dictionary of source region -> destination region -> overperformance.
+    returns a tuple of (source region, traffic class).
     returns an empty string if no ruleset is found.
     """
-    best_ruleset = ""
+    best_ruleset = ("", "")
     max_variance = float('-inf')
 
-    for source_region, destinations in overperformance.items():
-        if source_region in exclude_rulesets:
-            continue
+    for traffic_class, source_regions in overperformance.items():
+        for source_region, destinations in source_regions.items():
+            if (source_region, traffic_class) in exclude_rulesets:
+                continue
 
-        # Get the overperformance values for the current source region
-        overperformance_values = list(destinations.values())
+            # Get the overperformance values for the current source region
+            overperformance_values = list(destinations.values())
 
-        # Calculate variance if there are enough values
-        if len(overperformance_values) > 1:
-            variance = statistics.variance(overperformance_values)
-        else:
-            variance = 0  # If there's only one value, variance is 0
+            # Calculate variance if there are enough values
+            if len(overperformance_values) > 1:
+                variance = statistics.variance(overperformance_values)
+            else:
+                variance = 0  # If there's only one value, variance is 0
 
-        # Update the best ruleset if the current variance is higher than the maximum found so far
-        if variance > max_variance:
-            max_variance = variance
-            best_ruleset = source_region
+            # Update the best ruleset if the current variance is higher than the maximum found so far
+            if variance > max_variance:
+                max_variance = variance
+                best_ruleset = (source_region, traffic_class)
 
     return best_ruleset
 
-def calculate_avg_processing_latency(latencies: dict, svc: str, methodpath: str, region="") -> dict:
+
+def calculate_avg_processing_latency_for_traffic_class(
+    latencies: dict, traffic_class: str, region=""
+) -> tuple[float, int, float]:
     """
-    calculate_avg_processing_latency will calculate the average processing latency (across all pods and regions for a given method@path) for a given service.
-    returns an int.
+    Calculates the average processing latency and combines m2 values across all pods and regions
+    for a given traffic class. Returns a tuple of (average_latency, total_num_reqs, combined_m2).
     """
-    total_latency, total_reqs = 0, 0
-    if svc not in latencies:
-        return 0
-    if region and region not in latencies[svc]:
-        return 0
+    svc = traffic_class.split("@")[0]
+    methodpath = traffic_class.split("@")[1] + "@" + traffic_class.split("@")[2]
     
-    if region:
-        for pod in latencies[svc][region]:
-            if methodpath not in latencies[svc][region][pod]:
+    total_num_reqs = 0
+    combined_mean = 0.0
+    combined_m2 = 0.0
+
+    if svc not in latencies:
+        return 0.0, 0, 0.0
+    if region and region not in latencies[svc]:
+        return 0.0, 0, 0.0
+
+    # Determine which regions to iterate over
+    regions_to_iterate = [region] if region else latencies[svc].keys()
+
+    for reg in regions_to_iterate:
+        for pod in latencies[svc][reg]:
+            if methodpath not in latencies[svc][reg][pod]:
                 continue
-            total_latency += latencies[svc][region][pod][methodpath]["latency_total"]
-            total_reqs += latencies[svc][region][pod][methodpath]["num_reqs"]
+            pod_data = latencies[svc][reg][pod][methodpath]
+            batch_latency_total = pod_data["latency_total"]
+            batch_num_reqs = pod_data["num_reqs"]
+            batch_m2 = pod_data["m2"]
+
+            # Ensure there are requests to process
+            if batch_num_reqs == 0:
+                continue
+
+            batch_mean = batch_latency_total / batch_num_reqs
+
+            if total_num_reqs == 0:
+                # Initialize with the first batch
+                combined_mean = batch_mean
+                combined_m2 = batch_m2
+                total_num_reqs = batch_num_reqs
+            else:
+                # Compute delta between batch mean and combined mean
+                delta = batch_mean - combined_mean
+                total_n = total_num_reqs + batch_num_reqs
+
+                # Update combined mean
+                combined_mean_new = (combined_mean * total_num_reqs + batch_mean * batch_num_reqs) / total_n
+
+                # Compute adjustment for m2
+                adjustment = (delta ** 2) * (total_num_reqs * batch_num_reqs) / total_n
+
+                # Update combined m2
+                combined_m2_new = combined_m2 + batch_m2 + adjustment
+
+                # Update combined statistics
+                combined_mean = combined_mean_new
+                combined_m2 = combined_m2_new
+                total_num_reqs = total_n
+
+    if total_num_reqs == 0:
+        return 0.0, 0, 0.0
+
+    return combined_mean, total_num_reqs, combined_m2
+
+def calculate_avg_processing_latency(latencies: dict, svc: str, region="") -> tuple[float, int, float]:
+    """
+    Calculates the average processing latency, total number of requests, and combined stddev
+    (sum of squared deviations from the mean) across all pods and regions for a given service.
+
+    :param latencies: Nested dictionary containing latency data.
+    :param svc: Service name to calculate latency for.
+    :param region: Specific region to filter by. If empty, all regions are included.
+    :return: A tuple containing (average_latency, total_num_reqs, combined_m2).
+    """
+    # Extract all unique method@path for the specified service
+    method_paths = set()
+    if svc in latencies:
+        regions_to_iterate = [region] if region else latencies[svc].keys()
+        for reg in regions_to_iterate:
+            if reg not in latencies[svc]:
+                continue
+            for pod in latencies[svc][reg]:
+                for mp in latencies[svc][reg][pod].keys():
+                    method_paths.add(mp)
     else:
-        for region in latencies[svc]:
-            for pod in latencies[svc][region]:
-                if methodpath not in latencies[svc][region][pod]:
-                    continue
-                total_latency += latencies[svc][region][pod][methodpath]["latency_total"]
-                total_reqs += latencies[svc][region][pod][methodpath]["num_reqs"]
-    return total_latency / total_reqs if total_reqs > 0 else 0
+        # Service not found
+        return 0.0, 0, 0.0
+
+    combined_mean = 0.0
+    combined_num_reqs = 0
+    combined_m2 = 0.0
+
+    for methodpath in method_paths:
+        # Construct the traffic_class as "svc@method@path"
+        traffic_class = f"{svc}@{methodpath}"
+        
+        # Retrieve the combined statistics for this traffic_class
+        # Assuming calculate_avg_processing_latency_for_traffic_class returns (mean, num_reqs, m2)
+        mean, num_reqs, m2 = calculate_avg_processing_latency_for_traffic_class(latencies, traffic_class, region)
+        
+        if num_reqs == 0:
+            continue  # Skip if there are no requests for this traffic class
+        
+        if combined_num_reqs == 0:
+            # Initialize with the first traffic class's statistics
+            combined_mean = mean
+            combined_num_reqs = num_reqs
+            combined_m2 = m2
+        else:
+            # Compute the delta between the new mean and the current combined mean
+            delta = mean - combined_mean
+            
+            # Update the combined mean using a weighted average
+            total_n = combined_num_reqs + num_reqs
+            combined_mean = (combined_mean * combined_num_reqs + mean * num_reqs) / total_n
+            
+            # Compute the adjustment for M2
+            adjustment = (delta ** 2) * (combined_num_reqs * num_reqs) / total_n
+            
+            # Update the combined M2
+            combined_m2 += m2 + adjustment
+            
+            # Update the total number of requests
+            combined_num_reqs = total_n
+
+    if combined_num_reqs == 0:
+        # No requests found across all traffic classes
+        return 0.0, 0, 0.0
+
+    stddev = math.sqrt(combined_m2 / combined_num_reqs)
+
+    return combined_mean, combined_num_reqs, stddev
 
 def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict) -> dict:
     """
     calculate_ruleset_overperformance will calculate the overperformance of all rulesets based on the current vs expected latencies.
-    the only rulesets considered are between sslateingress and frontend.
-    ruleset is defined as every set of rules originating from a source region to more than one destination region.
+    the only rulesets considered are between sslateingress and frontend, but for all traffic classes.
+    ruleset is defined as every set of rules (across traffic classes) originating from a source region to more than one destination region.
     it calculates overperfomance as (expected latency - actual latency) * requests affected.
 
-    it returns a dictionary of destination region to overperformance. (source region -> destination region -> overperformance)
+    it returns a dictionary of destination region to overperformance. (traffic class (svc@method@path) -> source region -> destination region -> overperformance)
     example:
     {
-        "us-west-1": {
-            "us-west-1": 37,
-            "us-east-1": 12,
-            "us-central-1": 0,
-            "us-south-1": -59   
+        "frontend@POST@/cart/checkout": {
+            "us-west-1": {
+                "us-west-1": 37,
+                "us-east-1": 12,
+                "us-central-1": 0,
+                "us-south-1": -59   
+            }
         }
     }
     It needs access to the processing latencies, the current load conditions, and the processing latency function for frontend.
     """
     global aggregated_rps
+    global normalization
+    global bottleneck_service
     # first filter src_svc being sslateingress and dst_svc being frontend
     # then, for each of these entries, get the source regions that have more than one destination region
     # for each of these source regions, calculate the overperformance of the ruleset.
@@ -839,47 +1149,77 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict) 
     logger.info(f"calculate_ruleset_overperformance: rules:\n{rules.columns}")
     if "src_svc" not in rules.columns or "dst_svc" not in rules.columns or "src_cid" not in rules.columns or "dst_cid" not in rules.columns:
         return dict()
-    filtered_rules = rules[(rules["src_svc"] == "sslateingress") & (rules["dst_svc"] == "frontend")]
-    src_regions = filtered_rules["src_cid"].unique()
-    logger.info(f"calculate_ruleset_overperformance: src_regions: {src_regions}")
+    filtered_rules = rules[(rules["src_svc"] == "sslateingress") & (rules["dst_svc"] == bottleneck_service)]
+    dst_traffic_classes = filtered_rules["dst_endpoint"].unique()
+    logger.info(f"calculate_ruleset_overperformance: traffic_classes: {dst_traffic_classes}")
     overperformance = dict()
-    for src_region in src_regions:
-        src_rules = filtered_rules[filtered_rules["src_cid"] == src_region]
-        dst_regions = src_rules["dst_cid"].unique()
-        if len(dst_regions) < 2:
-            continue
-        else:
-            logger.info(f"calculate_ruleset_overperformance: src_region: {src_region}, dst_regions: {dst_regions}")
-        overperformance[src_region] = dict()
-        for dst_region in dst_regions:
-            # calculate the overperformance for this rule
-            # get the expected latency based on the current load conditions
-            # get the actual latency from cur_latencies
-            # calculate the overperformance as (expected - actual) * requests
-            # requests is the total requests for a certain traffic class at a service in a region.
-            actual_latency_in_dst_region = calculate_avg_processing_latency(cur_latencies, "frontend", "POST@/cart/checkout", region=dst_region)
-            total_load_in_dst_region = aggregated_rps.get(dst_region, {}).get("frontend", {}).get("frontend@POST@/cart/checkout", 0)
-            expected_latency_in_dst_region = get_expected_latency_for_rule(total_load_in_dst_region, "frontend", "POST@/cart/checkout")
-            total_load_in_src_region = aggregated_rps.get(src_region, {}).get("sslateingress", {}).get("sslateingress@POST@/cart/checkout", 0)
-            ruleset_rps_in_dst_region = total_load_in_src_region * src_rules[src_rules["dst_cid"] == dst_region]["weight"].values[0]
-            overperformance[src_region][dst_region] = (expected_latency_in_dst_region - actual_latency_in_dst_region) * ruleset_rps_in_dst_region
 
-            # actual_latency = calculate_avg_processing_latency(cur_latencies, "frontend", "POST@/cart/checkout", region=dst_region)
-            # load = aggregated_rps.get(src_region, {}).get("frontend", {}).get("frontend@POST@/cart/checkout", 0)
-            # load_in_dst_region = aggregated_rps.get(dst_region, {}).get("frontend", {}).get("frontend@POST@/cart/checkout", 0)
-            # expected_latency = get_expected_latency_for_rule(load_in_dst_region, "frontend", "POST@/cart/checkout")
-            logger.info(f"loghill calculate_ruleset_overperformance: src_region: {src_region}, dst_region: {dst_region}, expected_latency ({total_load_in_dst_region} rps): {expected_latency_in_dst_region}, actual_latency: {actual_latency_in_dst_region}, load in {dst_region} for this ruleset: {ruleset_rps_in_dst_region}")
-            # overperformance[src_region][dst_region] = (expected_latency - actual_latency) * load
+    # ruleset: rules for a given traffic class from a source region to multiple destination regions.
+    for dst_traffic_class in dst_traffic_classes:
+        src_regions = filtered_rules[filtered_rules["dst_endpoint"] == dst_traffic_class]["src_cid"].unique()
+        logger.info(f"calculate_ruleset_overperformance: traffic_class: {dst_traffic_class}, src_regions: {src_regions}")
+        for src_region in src_regions:
+            src_rules = filtered_rules[(filtered_rules["src_cid"] == src_region) & (filtered_rules["dst_endpoint"] == dst_traffic_class)]
+            dst_regions = src_rules["dst_cid"].unique()
+            if len(dst_regions) < 2:
+                continue
+            else:
+                logger.info(f"calculate_ruleset_overperformance: src_region: {src_region}, dst_regions: {dst_regions}")
+            overperformance[src_region] = dict()
+            for dst_region in dst_regions:
+                # src_traffic_class is src_endpoint
+                src_traffic_class = src_rules[src_rules["dst_cid"] == dst_region]["src_endpoint"].values[0]
+                # calculate the overperformance for this rule
+                # get the expected latency based on the current load conditions
+                # get the actual latency from cur_latencies
+                # calculate the overperformance as (expected - actual) * requests
+                # requests is the total requests for a certain traffic class at a service in a region.
+
+                actual_latency_in_dst_region , _, m2 = calculate_avg_processing_latency_for_traffic_class(cur_latencies, dst_traffic_class, region=dst_region)
+                expected_latency_in_dst_region = get_expected_latency_for_traffic_class(dst_region, bottleneck_service, dst_traffic_class)
+
+                total_load_in_src_region = aggregated_rps.get(src_region, {}).get(parent_of_bottleneck_service, {}).get(src_traffic_class, 0)
+                ruleset_rps_in_dst_region = total_load_in_src_region * src_rules[src_rules["dst_cid"] == dst_region]["weight"].values[0]
+                if dst_traffic_class not in overperformance:
+                    overperformance[dst_traffic_class] = dict()
+                if src_region not in overperformance[dst_traffic_class]:
+                    overperformance[dst_traffic_class][src_region] = dict()
+                overperformance[dst_traffic_class][src_region][dst_region] = (expected_latency_in_dst_region - actual_latency_in_dst_region) * ruleset_rps_in_dst_region
+
+                total_load_in_dst_region = aggregated_rps.get(dst_region, {}).get(bottleneck_service, {}).get(dst_traffic_class, 0)
+                logger.info(f"loghill calculate_ruleset_overperformance: src_region: {src_region}, traffic class {dst_traffic_class}, dst_region: {dst_region}, expected_latency ({total_load_in_dst_region} rps): {expected_latency_in_dst_region}, actual_latency: {actual_latency_in_dst_region}, load in {dst_region} for this ruleset: {ruleset_rps_in_dst_region}")
     return overperformance
 
-
-def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, step_size=0.05) -> tuple[pd.DataFrame, bool]:
+def get_expected_latency_for_traffic_class(region: str, svc: str, traffic_class: str) -> int:
     """
-    adjust_ruleset will adjust the (source region) ruleset based on the overperformance of the ruleset.
+    get_expected_latency_for_traffic_class will return the expected latency for a given traffic class based on the current load (in all traffic classes).
+    The expected latency of a traffic class (given the current load of every traffic class) is the weighted, normalized sum of the expected latencies of every traffic class.
+    For example, with two traffic classes M and S, the expected total average latency is (given m rps of M and s rps of S):
+    L(m, s) = (m * L_m(m + s/n) + s * L_s(nm + s)) / (m + s)
+    The expected average latency of the M type is:
+    L_m(m, s) = L_m(m + s/n)
+    The expected average latency of the S type is:
+    L_s(m, s) = L_m(nm + s)
+    """
+    global aggregated_rps # dict of region -> svcname -> endpoint -> rps
+    global normalization # src endpoint -> dst endpoint -> normalization factor
+    global bottleneck_service
+    normalized_load = aggregated_rps.get(region, {}).get(svc, {}).get(traffic_class, 0)
+    for dst_endpoint in normalization.get(traffic_class, {}):
+        normalized_load += aggregated_rps.get(region, {}).get(svc, {}).get(dst_endpoint, 0) * normalization[traffic_class][dst_endpoint]
+    svc = traffic_class.split("@")[0]
+    methodpath = traffic_class.split("@")[1] + "@" + traffic_class.split("@")[2]
+    return get_expected_latency_for_rule(normalized_load, svc, methodpath)
+
+
+def adjust_ruleset(ruleset: pd.DataFrame, region: str, traffic_class: str, overperformance: dict, step_size=0.05) -> tuple[pd.DataFrame, bool]:
+    """
+    adjust_ruleset will adjust the (source region, traffic_class) ruleset based on the overperformance of the ruleset.
     overperformance is expected to be in the form of a dictionary of destination region to overperformance.
     it will find the average performance in the source region, partition the destination regions into underperformers and overperformers,
     and adjust the ruleset accordingly. second parameter is a boolean indicating if the ruleset was adjusted.
     """
+    global bottleneck_service
     # first, get the average performance of the ruleset in the source region
     # then, partition the destination regions into underperformers and overperformers
     # adjust the ruleset based on the overperformance of the ruleset.
@@ -889,13 +1229,13 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, st
         return ruleset, False
     
     # get the destination regions, and the average performance of the ruleset (for those destination regions)
-    src_svc, dst_svc, src_endpoint, dst_endpoint = "sslateingress", "frontend", "sslateingress@POST@/cart/checkout", "frontend@POST@/cart/checkout"
+    src_svc, dst_svc, src_endpoint, dst_endpoint = "sslateingress", bottleneck_service, traffic_class.replace(bottleneck_service, "sslateingress"), traffic_class
     dst_cids = list(overperformance.keys())
     avg_performance = sum([overperformance[dst_cid] for dst_cid in dst_cids]) / len(dst_cids)
     # partition the destination regions into underperformers and overperformers
     underperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] < avg_performance]
     overperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] >= avg_performance]
-    logger.info(f"loghill for ruleset [{region}] underperformers: {underperformers}, overperformers: {overperformers}")
+    logger.info(f"loghill for ruleset [{region}, {traffic_class}] underperformers: {underperformers}, overperformers: {overperformers}")
 
     # proportionally adjust underperformers and overperformers.
     # calculate the weight each underperformer/overperformer has wieh their respective set, and
@@ -917,6 +1257,9 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, st
             (adjusted_ruleset["src_endpoint"] == src_endpoint) &
             (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
         )
+        if len(adjusted_ruleset.loc[mask]) == 0:
+            logger.info(f"loghill underperformer: {dst_cid}, no rule found (mask: {mask}, ruleset: \n{adjusted_ruleset})")
+            continue
         cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
         step = weight * step_size
         if cur_weight - step < 0:
@@ -939,6 +1282,9 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, st
             (adjusted_ruleset["src_endpoint"] == src_endpoint) &
             (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
         )
+        if len(adjusted_ruleset.loc[mask]) == 0:
+            logger.info(f"loghill overperformer: {dst_cid}, no rule found (mask: {mask}, ruleset: \n{adjusted_ruleset})")
+            continue
         cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
         step = weight * step_size
         if cur_weight + step > 1:
@@ -950,7 +1296,8 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, overperformance: dict, st
                                 & (adjusted_ruleset["src_endpoint"] == src_endpoint) & (adjusted_ruleset["dst_endpoint"] == dst_endpoint), "weight"] += weight * step_size
     # log the old and adjusted rulesets, with just the weights (something in the form of source region -> destination region -> weight for old and new.)
     # hold the dest service (frontend) and the source service (sslateingress) constant.
-    logger.info(f"loghill old ruleset: {compute_traffic_matrix(ruleset)}\nadjusted ruleset: {compute_traffic_matrix(adjusted_ruleset)}")
+    logger.info(f"loghill (on {region} {traffic_class})\
+                nold ruleset: {compute_traffic_matrix(ruleset)}\\nadjusted ruleset: {compute_traffic_matrix(adjusted_ruleset)}")
     return adjusted_ruleset if not out_of_bounds else ruleset, not out_of_bounds
 
 
@@ -978,7 +1325,10 @@ def write_latency(svc: str, avg_processing_latency: int, latency_dict: dict):
         f.write(f"{temp_counter},{avg_processing_latency}\n")
     with open ("region_jumping_latency.csv", "a") as f:
         for region in ["us-west-1", "us-central-1", "us-south-1", "us-east-1"]:
-            f.write(f"{temp_counter},{region},{calculate_avg_processing_latency(latency_dict, svc, 'POST@/cart/checkout', region)}\n")
+            f.write(f"{temp_counter},{region},{calculate_avg_processing_latency(latency_dict, svc, region)[0]}\n")
+            for tc in ["POST@/singlecore", "POST@/multicore"]:
+                l, _, m2 = calculate_avg_processing_latency_for_traffic_class(latency_dict, f"{svc}@{tc}", region)
+                f.write(f"{temp_counter},{region},{tc},{l}\n")
     if svc not in historical_svc_latencies:
         historical_svc_latencies[svc] = list()
     historical_svc_latencies[svc].append(avg_processing_latency)
@@ -1162,7 +1512,7 @@ def write_global_hillclimb_history_to_file():
     # write the entire hillclimbing history as a csv file.
     global global_hillclimbing_distribution_history
     logger.info(f"len(global_hillclimbing_distribution_history): {len(global_hillclimbing_distribution_history)}")
-    if len(global_hillclimbing_distribution_history) > 0:
+    if len(global_hillclimbing_distribution_history) > 0: 
         # open in overwrite mode
         with open(f'global_hillclimbing_distribution_history.csv', 'w') as f:
             # write the header as all the keys in the first record
@@ -1467,6 +1817,10 @@ def handleProxyLoad():
     global use_optimizer_output
     global temp_counter
     global jumping_feature_enabled
+    global jumping_last_seen_opt_output
+    global jumping_ruleset_num_iterations
+    global currently_globally_oscillating
+    global global_prev_processing_latencies
     
     ''' * HEADER in request from WASM * 
     {":method", "POST"},
@@ -1696,6 +2050,20 @@ def handleProxyLoad():
                 if use_optimizer_output or not jumping_feature_enabled:
                     temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
                 else:
+                    if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0 and False:
+                        logger.info(f"(proxyLoad) loghill rules are different, changing jumping base rules, old rules:\n{compute_traffic_matrix(jumping_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
+                        # here, we want to start defensive jumping towards the optimizer output.
+                        # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
+                        # use_optimizer_output = True
+                        jumping_ruleset_num_iterations = 0
+                        currently_globally_oscillating = False
+                        # make jumping_df the same as percentage_df, because /proxyLoad will use percentage_df, so the latencies
+                        # in processing_latencies will be based on the percentage_df.
+                        # jumping_df = percentage_df.copy()
+                        jumping_df = percentage_df.copy()
+                        jumping_last_seen_opt_output = percentage_df.copy()
+                        # clear the prev processing latencies, because we will be making a measurement based on the current rules, compared to the proposed (step) rules.
+                        global_prev_processing_latencies.clear()
                     temp_df = jumping_df.loc[(jumping_df['src_svc'] == svc) & (jumping_df['src_cid'] == region)].copy()
                 if len(temp_df) == 0:
                     logger.debug(f"WARNING, Rollback to local routing. {region}, {full_podname}. percentage_df becomes empty after filtering.")
@@ -2017,6 +2385,7 @@ def optimizer_entrypoint():
     global use_optimizer_output
     global jumping_df
     global jumping_feature_enabled
+    global normalization
     # aggregated_rps = aggregate_rps_by_region()
     # record_endpoint_rps(aggregated_rps)
     # agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
@@ -2110,7 +2479,7 @@ def optimizer_entrypoint():
             degree, \
             inter_cluster_latency, \
             endpoint_sizes, \
-            DOLLAR_PER_MS)
+            DOLLAR_PER_MS, normalization_dict=normalization)
         logger.info(f"run_optimizer done, runtime: {time.time()-ts} seconds")
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
@@ -3066,6 +3435,7 @@ def read_config_file():
     global degree
     global inter_cluster_latency
     global train_done
+    global normalization
     global parent_of_bottleneck_service
     global bottleneck_service
     global load_coef_flag
@@ -3147,6 +3517,18 @@ def read_config_file():
                 if degree != int(line[1]):
                     logger.info(f'Update degree: {degree} -> {line[1]}')
                     degree = int(line[1])
+            elif line[0] == "normalization":
+                # Format: normalization,srcsrv@method@path,dstsvc@method@path,0.01
+                #          [0]          [1]                [2]                [3]
+                src = line[1]
+                dst = line[2]
+                norm = float(line[3])
+                if src not in normalization:
+                    normalization[src] = dict()
+                if dst not in normalization[src]:
+                    normalization[src][dst] = dict()
+                logger.info(f'Update normalization: {src} -> {dst}: {norm}')
+                normalization[src][dst] = norm
             elif line[0] == "inter_cluster_latency":
                 # Format: inter_cluster_latency,us-west-1,us-west-1,0
                 src = line[1]
@@ -3318,7 +3700,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_load_conditions, trigger="interval", seconds=10)
-    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=10)
+    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=20)
     scheduler.add_job(func=state_check, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)
     # scheduler.add_job(func=write_global_hillclimb_history_to_file, trigger="interval", seconds=15)

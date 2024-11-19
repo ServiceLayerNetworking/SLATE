@@ -104,6 +104,7 @@ def get_compute_arc_var_name(endpoint, cid):
     return (f'{endpoint}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start', f'{endpoint}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end') # tuple
     # return f'{endpoint}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start,{endpoint}{cfg.DELIMITER}{cid}{cfg.DELIMITER}end' # string
     
+    
 
 def create_compute_arc_var_name(all_endpoints):
     compute_arc_var_name = list()
@@ -181,6 +182,8 @@ def get_compute_latency(load, svc_name, slope, intercept, target_cg, callgraph):
     # elif = "B, target_cg":
     #     latency_function = YYY
     return ret
+
+
 
 
 def plot_latency_function_3d(compute_df, y_axis_target_cg_key):

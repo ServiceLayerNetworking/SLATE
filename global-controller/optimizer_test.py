@@ -90,7 +90,7 @@ def run_optimizer(coef_dict, \
         degree, \
         inter_cluster_latency, \
         endpoint_sizes, \
-        DOLLAR_PER_MS):
+        DOLLAR_PER_MS, normalization_dict=dict()):
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -215,6 +215,7 @@ def run_optimizer(coef_dict, \
     compute_load = dict()
     compute_latency = gppd.add_vars(gurobi_model, compute_df, name="compute_latency", lb="min_compute_latency")
     compute_load = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge", ub="max_load")
+    normalized_compute_load = gppd.add_vars(gurobi_model, compute_df, name="normalized_load_for_compute_edge", ub="max_load")
     '''
     compute_load2 = compute_load**2
     latency = compute_load2**2 + b
@@ -226,6 +227,15 @@ def run_optimizer(coef_dict, \
     for index, row in compute_df.iterrows():
         if degree == 4:
             gurobi_model.addConstr(compute_load2[index] == compute_load[index]**2, name=f'for_higher_degree-{index}')
+        ep = row['endpoint']
+        cid = row['src_cid']
+        rh = compute_load[opt_func.get_compute_arc_var_name(ep, cid)]
+        if ep in normalization_dict:
+            for colocated_endpoint in normalization_dict[ep]:
+                rh += compute_load[opt_func.get_compute_arc_var_name(colocated_endpoint, cid)] * normalization_dict[ep][colocated_endpoint]
+        gurobi_model.addConstr(normalized_compute_load[index] == rh, name=f'normalized_load_{index}')
+        gurobi_model.update()
+        # constraint_file.write(f'normalized_compute_load[{index}] == {rh}\n')
         
     gurobi_model.update()
     constraint_file = open(f'constraint.log', 'w')
@@ -272,16 +282,17 @@ def run_optimizer(coef_dict, \
                     # degree is 4 using compute_load2 = compute_load**2
                     rh += coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2) 
                 elif degree == 2:
-                    rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
+                    # rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
+                    rh += coefs[dependent_ep] * (normalized_compute_load[dependent_arc_name] ** 2) 
                 else:
                     # degree is 1
                     rh += coefs[dependent_ep] * (compute_load[dependent_arc_name])
         rh += coefs['intercept']
-        constraint_file.write(f"{lh}\n")
-        constraint_file.write("==\n")
-        constraint_file.write(f"{rh}\n")
-        constraint_file.write("-"*80)
-        constraint_file.write("\n")
+        # constraint_file.write(f"{lh}\n")
+        # constraint_file.write("==\n")
+        # constraint_file.write(f"{rh}\n")
+        # constraint_file.write("-"*80)
+        # constraint_file.write("\n")
         gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
     gurobi_model.update()
 

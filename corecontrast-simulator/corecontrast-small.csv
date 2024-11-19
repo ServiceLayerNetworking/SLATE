@@ -1,0 +1,16 @@
+us-central-1,corecontrast,POST,/singlecore,0002ef94398582221906d10497d4ea54,448a8accf108ef97,1906d10497d4ea54,3.0,490.0,487.0,487.0,487.0,-1,corecontrast@POST@/singlecore:0|,corecontrast@POST@/singlecore:120|
+us-central-1,sslateingress,POST,/singlecore,0002ef94398582221906d10497d4ea54,1906d10497d4ea54,nan,0.0,491.0,491.0,4.0,491.0,-1,sslateingress@POST@/singlecore:0|,sslateingress@POST@/singlecore:136|
+us-east-1,corecontrast,POST,/singlecore,0002ef94398582221906d10497d4ea54,448a8accf108ef97,1906d10497d4ea54,3.0,490.0,487.0,487.0,487.0,-1,corecontrast@POST@/singlecore:0|,corecontrast@POST@/singlecore:120|
+us-east-1,sslateingress,POST,/singlecore,0002ef94398582221906d10497d4ea54,1906d10497d4ea54,nan,0.0,491.0,491.0,4.0,491.0,-1,sslateingress@POST@/singlecore:0|,sslateingress@POST@/singlecore:136|
+us-south-1,corecontrast,POST,/singlecore,0002ef94398582221906d10497d4ea54,448a8accf108ef97,1906d10497d4ea54,3.0,490.0,487.0,487.0,487.0,-1,corecontrast@POST@/singlecore:0|,corecontrast@POST@/singlecore:120|
+us-south-1,sslateingress,POST,/singlecore,0002ef94398582221906d10497d4ea54,1906d10497d4ea54,nan,0.0,491.0,491.0,4.0,491.0,-1,sslateingress@POST@/singlecore:0|,sslateingress@POST@/singlecore:136|
+us-west-1,corecontrast,POST,/singlecore,0002ef94398582221906d10497d4ea54,448a8accf108ef97,1906d10497d4ea54,3.0,490.0,487.0,487.0,487.0,-1,corecontrast@POST@/singlecore:0|,corecontrast@POST@/singlecore:120|
+us-west-1,sslateingress,POST,/singlecore,0002ef94398582221906d10497d4ea54,1906d10497d4ea54,nan,0.0,491.0,491.0,4.0,491.0,-1,sslateingress@POST@/singlecore:0|,sslateingress@POST@/singlecore:136|
+us-central-1,sslateingress,POST,/multicore,00003f18a7475afb1069d0f5882840ce,1069d0f5882840ce,nan,0.0,12.0,12.0,2.0,12.0,-1,sslateingress@POST@/multicore:0|,sslateingress@POST@/multicore:1080|
+us-central-1,corecontrast,POST,/multicore,00003f18a7475afb1069d0f5882840ce,d661fad34f303c26,1069d0f5882840ce,1.0,11.0,10.0,10.0,10.0,-1,corecontrast@POST@/multicore:0|,corecontrast@POST@/multicore:1124|
+us-east-1,sslateingress,POST,/multicore,00003f18a7475afb1069d0f5882840ce,1069d0f5882840ce,nan,0.0,12.0,12.0,2.0,12.0,-1,sslateingress@POST@/multicore:0|,sslateingress@POST@/multicore:1080|
+us-east-1,corecontrast,POST,/multicore,00003f18a7475afb1069d0f5882840ce,d661fad34f303c26,1069d0f5882840ce,1.0,11.0,10.0,10.0,10.0,-1,corecontrast@POST@/multicore:0|,corecontrast@POST@/multicore:1124|
+us-west-1,sslateingress,POST,/multicore,00003f18a7475afb1069d0f5882840ce,1069d0f5882840ce,nan,0.0,12.0,12.0,2.0,12.0,-1,sslateingress@POST@/multicore:0|,sslateingress@POST@/multicore:1080|
+us-west-1,corecontrast,POST,/multicore,00003f18a7475afb1069d0f5882840ce,d661fad34f303c26,1069d0f5882840ce,1.0,11.0,10.0,10.0,10.0,-1,corecontrast@POST@/multicore:0|,corecontrast@POST@/multicore:1124|
+us-south-1,sslateingress,POST,/multicore,00003f18a7475afb1069d0f5882840ce,1069d0f5882840ce,nan,0.0,12.0,12.0,2.0,12.0,-1,sslateingress@POST@/multicore:0|,sslateingress@POST@/multicore:1080|
+us-south-1,corecontrast,POST,/multicore,00003f18a7475afb1069d0f5882840ce,d661fad34f303c26,1069d0f5882840ce,1.0,11.0,10.0,10.0,10.0,-1,corecontrast@POST@/multicore:0|,corecontrast@POST@/multicore:1124|
