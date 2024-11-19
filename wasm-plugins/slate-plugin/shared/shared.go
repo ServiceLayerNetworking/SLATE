@@ -142,9 +142,9 @@ func GetUint64SharedData(key string) (uint64, error) {
 	return binary.LittleEndian.Uint64(data), nil
 }
 
-// AddToSharedDataList adds a value to a list stored in shared data at the given key, if it is not already in the list.
+// AddToSharedDataSet adds a value to a list stored in shared data at the given key, if it is not already in the list.
 // The list is stored as a comma separated string.
-func AddToSharedDataList(key string, value string) {
+func AddToSharedDataSet(key string, value string) {
 	listBytes, cas, err := proxywasm.GetSharedData(key)
 	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
 		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
@@ -163,6 +163,25 @@ func AddToSharedDataList(key string, value string) {
 			proxywasm.LogCriticalf("unable to set shared data: %v", err)
 			return
 		}
+	}
+}
+
+// AddToSharedDataList adds a value to a list stored in shared data at the given key.
+// The list is stored as a comma separated string.
+func AddToSharedDataList(key string, value string) {
+	listBytes, cas, err := proxywasm.GetSharedData(key)
+	if err != nil && !errors.Is(err, types.ErrorStatusNotFound) {
+		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
+		return
+	}
+	list := string(listBytes)
+	if list[len(list)-1] != ',' {
+		list += ","
+	}
+	list += value
+	if err := proxywasm.SetSharedData(key, []byte(list), cas); err != nil {
+		proxywasm.LogCriticalf("unable to set shared data: %v", err)
+		return
 	}
 }
 
@@ -273,6 +292,10 @@ func InboundLatencyM2Key(method, path string) string {
 
 func OutboundLatencyM2Key(svc, method, path string) string {
 	return svc + "@" + method + "@" + path + "-outbound-latency-m2"
+}
+
+func InboundLatencyListKey(method, path string) string {
+	return method + "@" + path + "-inbound-latency-list"
 }
 
 func RegionOutboundLatencyRunningAvgKey(svc, method, path, region string) string {

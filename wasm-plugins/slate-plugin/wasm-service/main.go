@@ -316,6 +316,24 @@ func (p *pluginContext) ReportHillclimbingLatency() {
 			}
 			reqBody += fmt.Sprintf("%s %s %d %d %s\n", method, path, avgLatency, totalReqs, totalM2)
 		}
+		reqBody += "inboundLatencies\n"
+		for _, endpoint := range inboundEndpoints {
+			if shared.EmptyBytes([]byte(endpoint)) {
+				continue
+			}
+			mp := strings.Split(endpoint, "@")
+			if len(mp) != 2 {
+				continue
+			}
+			method, path := mp[0], mp[1]
+			latencyListBytes, _, err := proxywasm.GetSharedData(shared.InboundLatencyListKey(method, path))
+			if err != nil {
+				proxywasm.LogCriticalf("Couldn't get shared data for inbound latency list: %v", err)
+				continue
+			}
+			latencyList := strings.TrimSpace(string(latencyListBytes))
+			reqBody += fmt.Sprintf("%s %s %s\n", method, path, latencyList)
+		}
 	}
 
 	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
