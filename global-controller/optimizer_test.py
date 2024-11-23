@@ -398,6 +398,10 @@ def run_optimizer(coef_dict, \
     network_latency = dict()
     network_load = dict()
     network_egress_cost = dict()
+    if network_df.index.duplicated().any():
+        logger.error("Duplicate index entries found:")
+        logger.error(network_df[network_df.index.duplicated(keep=False)])
+        # network_df = network_df.reset_index(drop=True)
     network_latency = gppd.add_vars(gurobi_model, network_df, name="network_latency", lb="min_network_time", ub="max_network_time")
     network_load = gppd.add_vars(gurobi_model, network_df, name="load_for_network_edge")
     network_egress_cost = gppd.add_vars(gurobi_model, network_df, name="network_egress_cost", lb="min_egress_cost", ub="max_egress_cost")

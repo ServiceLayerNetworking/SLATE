@@ -2877,13 +2877,13 @@ def initialize_global_datastructure(stitched_traces):
 
     for region in all_endpoints:
         for svc_name in all_endpoints[region]:
-            logger.debug(f"Init all_endpoints[{region}][{svc_name}]: {all_endpoints[region][svc_name]}")
+            logger.info(f"Init all_endpoints[{region}][{svc_name}]: {all_endpoints[region][svc_name]}")
     for endpoint in endpoint_to_placement:
-        logger.debug(f"Init endpoint_to_placement[{endpoint}]: {endpoint_to_placement[endpoint]}")
+        logger.info(f"Init endpoint_to_placement[{endpoint}]: {endpoint_to_placement[endpoint]}")
     for svc_name in svc_to_placement:
-        logger.debug(f"Init svc_to_placement[{svc_name}]: {svc_to_placement[svc_name]}")
+        logger.info(f"Init svc_to_placement[{svc_name}]: {svc_to_placement[svc_name]}")
     for region in placement:
-        logger.debug(f"Init placement[{region}]: {placement[region]}")
+        logger.info(f"Init placement[{region}]: {placement[region]}")
     
     for region in placement:
         if region not in num_stitched_trace_history:
