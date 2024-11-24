@@ -93,7 +93,7 @@ def get_callsize_dict(ep_str_callgraph, endpoint_sizes):
             child_url = child_endpoint.split(cfg.ep_del)[2]
             if child_url in endpoint_sizes:
                 callsize_dict[(parent_endpoint,child_endpoint)] = endpoint_sizes[child_url]
-                logger.info(f"callsize_dict[{parent_endpoint},{child_endpoint}] = {endpoint_sizes[child_url]}")
+                # logger.info(f"callsize_dict[{parent_endpoint},{child_endpoint}] = {endpoint_sizes[child_url]}")
             else:
                 callsize_dict[(parent_endpoint,child_endpoint)] = 1024
                 logger.info(f"{parent_endpoint} does not exist in endpoint_sizes. Set to 1024")
@@ -566,10 +566,10 @@ def create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, m
     for index, row in compute_df.iterrows():
         logger.debug(f'{row["svc_name"]}, {row["endpoint"]}')
         try:
-            compute_df.at[index, 'coef'] = coef_dict[row["svc_name"]][row['endpoint']]
+            compute_df.at[index, 'coef'] = coef_dict[row['src_cid']][row["svc_name"]][row['endpoint']]
             # compute_df.at[index, 'latency_function'] = latency_func[row['svc_name']][row['endpoint']]
         except Exception as e:
-            logger.error(f"!!! ERROR !!! coef_dict[{row['svc_name']}][{row['endpoint']}] fill_compute_df failed: {type(e).__name__}, {e}")
+            logger.error(f"!!! ERROR !!! coef_dict[{row['src_cid']}][{row['svc_name']}][{row['endpoint']}] fill_compute_df failed: {type(e).__name__}, {e}")
     return compute_df
 
 def print_gurobi_var(gurobi_model):
@@ -1198,9 +1198,15 @@ def svc_to_cid(svc_order, unique_service):
                 svc_to_placement[idx].append(cid)
     return svc_to_placement
 
+def get_root_status(cg):
+    status = {node: True for node in cg}
+    for node, children in cg.items():
+        for child in children:
+            if child in status:
+                status[child] = False
+    return status
 
 def find_root_node(cg):
-    logger = logging.getLogger(__name__)
     temp = dict()
     root_node = list()
     for parent_node in cg:
@@ -1211,7 +1217,7 @@ def find_root_node(cg):
         if temp[parent_node] == "True":
             root_node.append(parent_node)
     if len(root_node) == 0:
-        logger.error(f'ERROR: cannot find root node in callgraph')
+        logger.debug(f'ERROR: cannot find root node in callgraph')
         return False
     if len(root_node) > 1:
         logger.error(f'ERROR: too many root node in callgraph')
@@ -1219,6 +1225,12 @@ def find_root_node(cg):
         logger.error(cg)
         return False
     return root_node[0]
+
+    # root_nodes = [node for node, is_root in get_root_status(cg).items() if is_root]
+    # if len(root_nodes) != 1:
+    #     logging.error(f'ERROR: Invalid root node count in callgraph: {len(root_nodes)}')
+    #     return False
+    # return root_nodes[0]
 
     
 def create_path(svc_order, comb, unpack_list, callgraph, key):
