@@ -22,6 +22,8 @@ import os
 import collections
 from scipy.stats import t
 import math
+import matplotlib
+matplotlib.use('Agg')  # Use a faster non-interactive backend
 import matplotlib.pyplot as plt
 import numpy as np
 import time
@@ -2234,9 +2236,8 @@ def handleProxyLoad():
     
     if svc_level_rps > 0:
         with list_of_body_mutex: # option 4
-            # with open("body.csv", "a") as f:
-            with open("body.csv", "a") as f: # to avoid duplicated traces
-                f.write(body)
+            # with open("body.csv", "a") as f: # to avoid duplicated traces
+            #     f.write(body)
             ## option 2
             list_of_body.append(body) 
         
@@ -2246,15 +2247,14 @@ def handleProxyLoad():
     # The next set of filtering will happen during stitching (relative time, exclusive time, valid call graph, num endpoints)
         
     for span in spans:
-        # if mode == "profile":
-        list_of_span.append(span) # part of continuous profiling
-        logger.debug(f"sp1: {span}")
+        if mode == "profile":
+            list_of_span.append(span) # part of continuous profiling
         
         ## option 1
         # add_span_to_traces(incomplete_traces[handleproxy_trace_pointer], span)
         
         ## option 3
-        add_span_to_traces_to_new_complete(incomplete_traces[handleproxy_trace_pointer], span)
+        # add_span_to_traces_to_new_complete(incomplete_traces[handleproxy_trace_pointer], span)
         """
         Adds a span to the specified trace in given_traces.
         
@@ -3478,13 +3478,19 @@ def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, e
     model = LinearRegression(fit_intercept=False)
     model.fit(X_transformed, exclusive_time_list)
     
-    if svc_name in ["frontend", "checkoutservice"]: # and region in ["us-west-1"]:
+    ## Bottleneck!!!
+    # if svc_name in ["frontend"] and region in ["us-west-1"]:
+    if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
+    # if svc_name in ["frontend", "checkoutservice"]:
         plt.figure()
+        # Scatter plots
         plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt", marker='x')
         plt.scatter(rps_list, response_time_list, color='green', alpha=0.5, label="rt")
+        # Line plot
         xplot = np.linspace(0, max(rps_list), 1000)
         yplot = model.coef_[0] * xplot**degree + model.coef_[1]
-        plt.plot(xplot, yplot, color='blue') # label=f"a: {model.coef_[0]}, b: {model.coef_[1]}"
+        plt.plot(xplot, yplot, color='blue')
+        # Save the plot
         if "poly" not in os.listdir():
             os.mkdir("poly")
         fn = f"poly/poly-{region}-{svc_name}-{local_counter}.pdf"
@@ -3492,8 +3498,8 @@ def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, e
         plt.xlabel("RPS")
         plt.ylabel("Exclusive Time")
         plt.legend(loc='upper left')
-        plt.savefig(fn)
-        logger.info(f"Save the plot to {fn}")
+        plt.savefig(fn, format='pdf', bbox_inches='tight')  # Add format for efficiency
+        print(f"Saved the plot to {fn}")  # Replace logger.info for simpler debug (optional)
         plt.close()
     
     return {ep_str: model.coef_[0], 'intercept': model.coef_[1]}
@@ -3639,28 +3645,15 @@ def training_phase():
     else: # Train
         with coef_dict_mutex:
             trace_df = new_read_trace_csv(trainig_input_trace_file)
-            poly_coef_dict = new_train_latency_function_with_trace("poly", trace_df, degree=2)
-            mm1_coef_dict = new_train_latency_function_with_trace("mm1", trace_df, degree=None)
-            if model == "mm1":
-                coef_dict = mm1_coef_dict
-            elif model == "poly":
-                coef_dict = poly_coef_dict
-            else:
-                logger.error(f"!!! ERROR !!!: unknown model: {model}")
-                state = "[!!! PANIC !!!] unknown latency model"
-                assert False
-            logger.info(f"poly_coef_dict: {poly_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
-            logger.info(f"mm1_coef_dict: {mm1_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
+            coef_dict = new_train_latency_function_with_trace("poly", trace_df, degree=2)
+            # coef_dict = new_train_latency_function_with_trace("mm1", trace_df, degree=None)
             logger.info(f"coef_dict: {coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
-            
             for region in coef_dict:
                 if region not in frontend_coef_history:
                     frontend_coef_history[region] = list()
                 frontend_coef_history[region].append([coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'], coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['intercept']])
-                
             check_negative_coef(coef_dict)
             record_continuous_coef_dict(coef_dict)
-                
     if ROUTING_RULE == "WATERFALL" or ROUTING_RULE == "WATERFALL2":
         set_zero_coef(coef_dict)
     # This is just a file write for the final coef for debugging purpose
@@ -4313,7 +4306,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=read_config_file, trigger="interval", seconds=1)
     scheduler.add_job(func=write_spans_to_file, trigger="interval", seconds=5)
     time.sleep(3)
-    scheduler.add_job(func=update_traces, trigger="interval", seconds=5) # continuous profiling
+    scheduler.add_job(func=update_traces, trigger="interval", seconds=10) # continuous profiling
     scheduler.add_job(func=training_phase, trigger="interval", seconds=1) # training_phase()
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
