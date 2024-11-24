@@ -189,7 +189,7 @@ load_bucket_size = 0
 
 should_we_rollback = True
 
-endpoint_sizes = {
+endpoint_size = {
     "/cart": 520,
     "/cart/checkout": 520,
     "/cart/empty": 259,
@@ -2726,7 +2726,7 @@ def optimizer_entrypoint():
                 for region in max_capacity_per_service[svc]:
                     max_capacity_per_service[svc][region] = 100000
         logger.debug(f"run_optimizer starts")
-        global endpoint_sizes
+        global endpoint_size
         global DOLLAR_PER_MS
         state = f"{temp_counter}-Optimizer running"
         optimizer_start_ts = time.time()
@@ -2778,7 +2778,7 @@ def optimizer_entrypoint():
             max_capacity_per_service, \
             degree, \
             inter_cluster_latency, \
-            endpoint_sizes, \
+            endpoint_size, \
             DOLLAR_PER_MS, \
             max_rps = 1000, \
             normalization_dict=normalization)
@@ -3164,11 +3164,11 @@ def trace_string_file_to_trace_data_structure(trainig_input_trace_file):
             # svc_name = ep.split("@")[0]
             # method = ep.split("@")[1]
             # path = ep.split("@")[2]
-        normalize = 0.01
-        for key, value in endpoint_sizes.items():
-            endpoint_sizes[key] = value * normalize
-        if row["path"] in endpoint_sizes:
-            call_size = endpoint_sizes[row["path"]]
+        endpoint_size_normalize = 0.01
+        for key, value in endpoint_size.items():
+            endpoint_size[key] = value * endpoint_size_normalize
+        if row["path"] in endpoint_size:
+            call_size = endpoint_size[row["path"]]
         else:
             call_size = int(row["call_size"])
         try:
