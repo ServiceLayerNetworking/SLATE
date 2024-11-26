@@ -293,9 +293,11 @@ def run_optimizer(coef_dict, \
                         rh = coefs[dependent_ep] * (normalized_compute_load[dependent_arc_name] ** 2)
                         rh += coefs['intercept']
                         logger.info(f"Normalizing RPS")
+                        lh = compute_latency[index]
                     else:
                         rh = coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
                         rh += coefs['intercept']
+                        lh = compute_latency[index]
                 elif degree == 1:
                     rh = coefs[dependent_ep] * compute_load[dependent_arc_name]
                     rh += coefs['intercept']

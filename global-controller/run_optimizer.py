@@ -307,7 +307,7 @@ def gen_endpoint_level_rps(all_endpoints):
     return ep_rps
 
 def trace_string_file_to_trace_data_structure(trace_string_file_path):
-    col = ["cluster_id","svc_name","method","path","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size","inflight_dict","rps_dict"]
+    col = ['cluster_id','svc_name','method','url','trace_id','span_id','parent_span_id','st','et','rt','xt','ct','call_size','inflight_dict','rps_dict']
     df = pd.read_csv(trace_string_file_path, names=col, header=None)
     # span_df = df.iloc[:, :-2] # inflight_dict, rps_dict
     # inflight_df = df.iloc[:, -2:-1] # inflight_dict, rps_dict
@@ -315,7 +315,7 @@ def trace_string_file_to_trace_data_structure(trace_string_file_path):
     list_of_span = list()
     # for (index1, span_df_row), (index2, inflight_df_row), (index2, rps_df_row) in zip(span_df.iterrows(), inflight_df.iterrows(), rps_df.iterrows()):
     for index, row in df.iterrows():
-        if row["cluster_id"] == "SLATE_UNKNOWN_REGION" or row["svc_name"] == "consul":
+        if row['cluster_id'] == 'SLATE_UNKNOWN_REGION' or row['svc_name'] == 'consul':
             continue
         # row: user-us-west-1@POST@/user.User/CheckUser:1|,user-us-west-1@POST@/user.User/CheckUser:14|
         # , is delimiter between rps_dict and inflight_dict
@@ -364,7 +364,7 @@ def trace_string_file_to_trace_data_structure(trace_string_file_path):
         # if serviceName.find("-us-") != -1:
         #     serviceName = serviceName.split("-us-")[0]
         ##################################################
-        span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], row["trace_id"], row["span_id"], row["parent_span_id"], st=float(row["st"]), et=float(row["et"]), callsize=int(row["call_size"]), rps_dict=num_inflight_dict, num_inflight_dict=num_inflight_dict)
+        span = sp.Span(row['method'], row['url'], row['svc_name'], row['cluster_id'], row['trace_id'], row['span_id'], row['parent_span_id'], st=float(row['st']), et=float(row['et']), callsize=int(row["call_size"]), rps_dict=num_inflight_dict, num_inflight_dict=num_inflight_dict)
         list_of_span.append(span)
         # print(str(span))
         # exit()
