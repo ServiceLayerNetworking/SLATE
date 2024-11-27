@@ -941,7 +941,7 @@ def write_optimizer_output(temp_counter, percentage_df, desc, fn):
         
 
 ## All variables are global variables
-def optimizer_entrypoint(agg_root_node_rps):
+def optimizer_entrypoint(agg_root_node_rps, normalization_dict={}):
     global coef_dict
     global endpoint_level_inflight
     # global endpoint_level_rps
@@ -1049,7 +1049,7 @@ def optimizer_entrypoint(agg_root_node_rps):
             degree, \
             inter_cluster_latency, \
             endpoint_sizes, \
-            DOLLAR_PER_MS)
+            DOLLAR_PER_MS, normalization_dict=normalization_dict)
         logger.info(f"run_optimizer done, runtime: {time.time()-ts} seconds")
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
@@ -2077,13 +2077,88 @@ def read_config_file():
                 logger.debug(f"SKIP parsing unknown config: {line}")
 
 # west central south east
+def enrich_normalization(norm_dict):
+    """
+    Enrich the normalization dict with all the inverses.
+    """
+    for key in list(norm_dict.keys()):
+        for subkey in list(norm_dict[key].keys()):
+            # Check if the value under norm_dict[key][subkey] is a number
+            if isinstance(norm_dict[key][subkey], (int, float)):
+                # Add inverse to the subkey if not already present
+                if subkey not in norm_dict:
+                    norm_dict[subkey] = dict()
+                # Create the inverse
+                norm_dict[subkey][key] = 1 / norm_dict[key][subkey]
+    return norm_dict
+
 
 import sys
 if __name__ == "__main__":
-    agg_root_node_rps = { "us-west-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 100}}\
-                        , "us-east-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 400}}\
-                        , "us-south-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 100}}\
-                        , "us-central-1": {"sslateingress": {"sslateingress@POST@/cart/checkout": 700}}}
+    agg_root_node_rps = {
+        "us-west-1": {
+            "sslateingress": {
+                "sslateingress@POST@/cart/checkout":  400,
+                "sslateingress@POST@/cart": 150,
+            }
+        },
+        "us-central-1": {
+            "sslateingress": {
+                "sslateingress@POST@/cart/checkout": 200,
+                "sslateingress@POST@/cart": 150
+            }
+        },
+        # "us-south-1": {
+        #     "sslateingress": {
+        #         "sslateingress@POST@/cart/checkout": 100,
+        #         "sslateingress@POST@/cart": 50
+        #     }
+        # },
+        # "us-east-1": {
+        #     "sslateingress": {
+        #         "sslateingress@POST@/cart/checkout": 100,
+        #         "sslateingress@POST@/cart": 50
+        #     }
+        # }
+    }
+    # normalization_dict = {
+    #     "sslateingress@POST@/cart/checkout": {
+    #         "sslateingress@POST@/cart": 1,
+    #     },
+    #     "frontend@POST@/cart/checkout": {
+    #         "frontend@POST@/cart": 1,
+    #     },
+    #     "cartservice@POST@/hipstershop.CartService/GetCart": {
+    #         "cartservice@POST@/hipstershop.CartService/AddItem": 1,
+    #     },
+    # }
+    normalization_dict = {
+        "sslateingress@POST@/cart/checkout": {
+            "sslateingress@POST@/cart": 1,
+        },
+        "frontend@POST@/cart/checkout": {
+            "frontend@POST@/cart": 1.4,
+        },
+        "cartservice@POST@/hipstershop.CartService/GetCart": {
+            "cartservice@POST@/hipstershop.CartService/AddItem": 1.423,
+        },
+    }
+    """
+    500rps checkout: 710mc*4 = 2840mc
+    600rps checkout: 870mc*4 = 3480mc
+    700rps checkout: 1000mc*4 = 4000mc
+    mc/request = 5.8
+
+
+    500rps addtocart: 350mc*4 = 1400mc
+    700rps addtocart: 490mc*4 = 1960mc
+    900rps addtocart: 630mc*4 = 2520mc
+    mc/request = 4
+
+
+    """
+    normalization_dict = enrich_normalization(normalization_dict)
+
     trainig_input_trace_file=sys.argv[1]
     read_config_file()
     training_phase(trainig_input_trace_file, agg_root_node_rps)
@@ -2093,6 +2168,6 @@ if __name__ == "__main__":
     #                     , "us-central-1": {"frontend": {"cart": 100, "checkout": 100, "empty": 100, "setCurrency": 100}}}
     
     # agg_root_node_rps[cid][svc][ep]
-    routing_output_fn = optimizer_entrypoint(agg_root_node_rps)
+    routing_output_fn = optimizer_entrypoint(agg_root_node_rps, normalization_dict=normalization_dict)
     
     os.system(f"python plot_routing_rule.py {routing_output_fn}")

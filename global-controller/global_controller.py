@@ -259,16 +259,23 @@ def handleHillclimbLatency():
 
     lines = body.split("\n")
     parsingOutbound = False
+    parsingInboundLatencies = False
     for line in lines:
         if not line:
             continue
         if line == "outbound":
             parsingOutbound = True
+            parsingInboundLatencies = False
+            continue
+        if line == "inboundLatencies":
+            parsingInboundLatencies = True
+            parsingOutbound = False
+            continue
+        if line == "inbound":
+            parsingOutbound = False
+            parsingInboundLatencies = False
             continue
         if parsingOutbound:
-            if line == "inbound":
-                parsingOutbound = False
-                continue
             parts = line.split(" ")
             if len(parts) != 5:
                 # logger.info(f"hillclimbingLatency for (pod {podname}, svc {svc}): len(parts) != 5, skipping")
@@ -277,6 +284,24 @@ def handleHillclimbLatency():
                 parts[i] = parts[i].strip()
             dstSvc, method, path, avgLatency, numReqs = parts[0], parts[1], parts[2], parts[3], parts[4]
             # todo parse these into a separate structure (probably for observability)
+        elif parsingInboundLatencies:
+            parts = line.split(" ")
+            if len(parts) != 3:
+                logger.info(f"hillclimbingLatency for (pod {podname}, svc {svc}): len(parts) != 3 for inbound latencies, skipping")
+                continue
+            for i in range(len(parts)):
+                parts[i] = parts[i].strip()
+            method, path, latency_list = parts[0], parts[1], parts[2]
+            mp = f"{method}@{path}"
+            if mp not in global_processing_latencies[svc][region][podname]:
+                global_processing_latencies[svc][region][podname][mp] = {
+                    "latency_list": latency_list.split(",")
+                }
+            else:
+                if "latency_list" not in global_processing_latencies[svc][region][podname][mp]:
+                    global_processing_latencies[svc][region][podname][mp]["latency_list"] = latency_list.split(",")
+                else:
+                    global_processing_latencies[svc][region][podname][mp]["latency_list"].extend(latency_list.split(","))
         else:
             parts = line.split(" ")
             if len(parts) != 5:
@@ -296,7 +321,7 @@ def handleHillclimbLatency():
                 # update m2
                 cur_num_reqs = global_processing_latencies[svc][region][podname][mp]["num_reqs"]
                 mean_delta = float(avgLatency) - global_processing_latencies[svc][region][podname][mp]["latency_total"] / cur_num_reqs
-                adjustment = (mean_delta ** 2) * ((numReqs * cur_num_reqs )/ (numReqs + cur_num_reqs))
+                adjustment = (mean_delta ** 2) * ((numReqs * cur_num_reqs) / (numReqs + cur_num_reqs))
                 m2_new = float(global_processing_latencies[svc][region][podname][mp]["m2"]) + float(m2) + adjustment 
                 global_processing_latencies[svc][region][podname][mp]["latency_total"] += float(avgLatency) * int(numReqs)
                 global_processing_latencies[svc][region][podname][mp]["num_reqs"] += int(numReqs)
@@ -1412,7 +1437,7 @@ def write_latency(svc: str, avg_processing_latency: int, latency_dict: dict):
     with open ("region_jumping_latency.csv", "a") as f:
         for region in ["us-west-1", "us-central-1", "us-south-1", "us-east-1"]:
             f.write(f"{temp_counter},{region},{calculate_avg_processing_latency(latency_dict, svc, region)[0]}\n")
-            for tc in ["POST@/singlecore", "POST@/multicore"]:
+            for tc in ["POST@/cart", "POST@/cart/checkout"]:
                 l, _, m2 = calculate_avg_processing_latency_for_traffic_class(latency_dict, f"{svc}@{tc}", region)
                 f.write(f"{temp_counter},{region},{tc},{l}\n")
     if svc not in historical_svc_latencies:
@@ -2318,13 +2343,13 @@ def handleProxyLoad():
             if train_done == False:
                 _, csv_string = local_and_failover_routing_rule(svc, region)
                 return csv_string
-            if percentage_df.empty or (not use_optimizer_output and jumping_df.empty and jumping_feature_enabled):
+            if percentage_df.empty:
                 logger.debug(f"WARNING, Rollback to local routing. {region}, {full_podname}, percentage_df is empty.")
                 _, csv_string = local_and_failover_routing_rule(svc, region)
                 return csv_string
             else:
                 temp_df: pd.DataFrame = None
-                if use_optimizer_output or not jumping_feature_enabled:
+                if use_optimizer_output or not jumping_feature_enabled or jumping_df.empty:
                     temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
                 else:
                     if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0 and False:
@@ -4311,7 +4336,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_load_conditions, trigger="interval", seconds=10)
-    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=20)
+    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=15)
     scheduler.add_job(func=state_check, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)
     # scheduler.add_job(func=write_global_hillclimb_history_to_file, trigger="interval", seconds=15)
