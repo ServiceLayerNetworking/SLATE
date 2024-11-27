@@ -2088,32 +2088,33 @@ if __name__ == "__main__":
     agg_root_node_rps = { 
         "us-west-1": {
             "sslateingress": {
-                "sslateingress@POST@/singlecore": 50,
-                "sslateingress@POST@/multicore": 200
+                "sslateingress@POST@/singlecore": 600,
+                "sslateingress@POST@/multicore": 400, # 1800 mb/s
             },
         },
         "us-east-1": {
             "sslateingress": {
-                "sslateingress@POST@/singlecore": 150,
-                "sslateingress@POST@/multicore": 300
+                "sslateingress@POST@/singlecore": 25,
+                "sslateingress@POST@/multicore": 700 # 1100 mb/s
             },
         },
-        "us-south-1": {
-            "sslateingress": {
-                "sslateingress@POST@/singlecore": 50,
-                "sslateingress@POST@/multicore": 207
-            },
-        },
-        "us-central-1": {
-            "sslateingress": {
-                "sslateingress@POST@/singlecore": 50,
-                "sslateingress@POST@/multicore": 200
-            },
-        },
+        # "us-south-1": {
+        #     "sslateingress": {
+        #         "sslateingress@POST@/singlecore": 50,
+        #         "sslateingress@POST@/multicore": 200
+        #     },
+        # },
+        # "us-central-1": {
+        #     "sslateingress": {
+        #         "sslateingress@POST@/singlecore": 50,
+        #         "sslateingress@POST@/multicore": 200
+        #     },
+        # },
     }
 
     
 
+    multicore_in_singlecore = 1/4
     normalization_dict = {
         "sslateingress@POST@/singlecore": {
             "sslateingress@POST@/multicore": 1,
@@ -2122,10 +2123,10 @@ if __name__ == "__main__":
             "sslateingress@POST@/singlecore": 1,
         },
         "corecontrast@POST@/singlecore": {
-            "corecontrast@POST@/multicore": 0.2,
+            "corecontrast@POST@/multicore": multicore_in_singlecore,
         },
         "corecontrast@POST@/multicore": {
-            "corecontrast@POST@/singlecore": 5,
+            "corecontrast@POST@/singlecore": 1/multicore_in_singlecore,
         },
     }
     trainig_input_trace_file=sys.argv[1]

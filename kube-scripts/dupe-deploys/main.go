@@ -74,7 +74,14 @@ func main() {
 			consulClusterIP = consul.Spec.ClusterIP
 		}
 	}
-
+	replMap := map[string]string{
+		"gcr.io/google-samples/microservices-demo/frontend:v0.10.1": "docker.io/adiprerepa/boutique-frontend:latest",
+		"gcr.io/google-samples/microservices-demo/checkoutservice:v0.10.1": "docker.io/adiprerepa/boutique-checkout:latest",
+		"gcr.io/google-samples/microservices-demo/recommendationservice:v0.10.1": "docker.io/adiprerepa/boutique-recommendation:latest",
+		"us-central1-docker.pkg.dev/google-samples/microservices-demo/frontend:v0.10.2": "docker.io/adiprerepa/boutique-frontend:latest",
+		"us-central1-docker.pkg.dev/google-samples/microservices-demo/checkoutservice:v0.10.2": "docker.io/adiprerepa/boutique-checkout:latest",
+		"us-central1-docker.pkg.dev/google-samples/microservices-demo/recommendationservice:v0.10.2": "docker.io/adiprerepa/boutique-recommendation:latest",
+	}
 	if *justswitchimage {
 		fmt.Printf("switching image of deployments %v from deathstarbench to adiprerepa.\n", deploymentsList)
 		for _, deployment := range deploymentsList {
@@ -87,12 +94,8 @@ func main() {
 				fmt.Printf("Ignoring deployment %s: %v.", deployment, err)
 				continue
 			}
-			originalDeployment.Spec.Template.Spec.Containers[0].Image = strings.ReplaceAll(originalDeployment.Spec.Template.Spec.Containers[0].Image, "deathstarbench", "adiprerepa")
-			if *excludeconsul {
-				originalDeployment.Spec.Template.Annotations["traffic.sidecar.istio.io/excludeOutboundIPRanges"] = consulClusterIP + "/32"
-			}
-			if *sharedspancontext {
-				originalDeployment.Spec.Template.Annotations["sidecar.istio.io/bootstrapOverride"] = "shared-span-bootstrap-config"
+			if repl, ok := replMap[originalDeployment.Spec.Template.Spec.Containers[0].Image]; ok {
+				originalDeployment.Spec.Template.Spec.Containers[0].Image = repl
 			}
 			// originalDeployment.Spec.Template.Spec.Containers[0].Resources.Limits = map[v13.ResourceName]resource.Quantity{
 			// 	v13.ResourceCPU: resource.MustParse("5"),
@@ -108,11 +111,7 @@ func main() {
 		fmt.Printf("done.\n")
 		return
 	}
-	replMap := map[string]string{
-		"gcr.io/google-samples/microservices-demo/frontend:v0.10.1": "docker.io/adiprerepa/boutique-frontend:latest",
-		"gcr.io/google-samples/microservices-demo/checkoutservice:v0.10.1": "docker.io/adiprerepa/boutique-checkout:latest",
-		"gcr.io/google-samples/microservices-demo/recommendationservice:v0.10.1": "docker.io/adiprerepa/boutique-recommendation:latest",
-	}
+	
 
 	fmt.Printf("processing deployments %v in regions %v.\n", deploymentsList, regionsList)
 	for _, deployment := range deploymentsList {
