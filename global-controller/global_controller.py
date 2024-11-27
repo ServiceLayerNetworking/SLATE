@@ -143,7 +143,7 @@ benchmark_name = ""
 # benchmark_set = ["metrics", "matmul-app", "hotelreservation", "spread-unavail-30bg"]
 required_total_num_services = 0
 ROUTING_RULE = "LOCAL" # It will be updated by read_config_file function.
-ROUTING_RULE_SET = ["LOCAL", "SLATE", "SLATE-with-jumping-local","SLATE-with-jumping-global", "SLATE-without-jumping", "REMOTE", "MCLB", "WATERFALL", "WATERFALL2"]
+ROUTING_RULE_SET = ["LOCAL", "SLATE", "SLATE-with-jumping-local","SLATE-with-jumping-global", "SLATE-without-jumping", "REMOTE", "MCLB", "WATERFALL", "WATERFALL2", "SLATE-with-jumping-global-continuous-profiling"]
 CAPACITY = 0 # If it is runtime -> training_phase() -> max_capacity_per_service() -> set max_capacity_per_service[svc] = CAPACITY
 max_capacity_per_service = dict() # max_capacity_per_service[svc][region] = CAPACITY
 hillclimbing_distribution_history = list() #list(dict())
@@ -1976,6 +1976,8 @@ def handleProxyLoad():
     lines = body.split("\n")
     svc_level_rps = int(lines[0])
     inflightStats = lines[1]
+    if "sslateingress" in svc:
+        logger.debug(f"inflightStats: {inflightStats}")
     if region not in service_level_rps:
         service_level_rps[region] = dict()
     service_level_rps[region][svc] = svc_level_rps
@@ -1988,8 +1990,9 @@ def handleProxyLoad():
                         per_pod_ep_rps[region][svc][ep][podname] = 0
                         
     for endpoint_stat in active_endpoint_stats: # ["POST@/cart/checkout,28,0"]
-        method = endpoint_stat.split(",")[0].split("@")[0]
-        path = endpoint_stat.split(",")[0].split("@")[1]
+        # "POST@/cart/checkout,28,0"
+        method = endpoint_stat.split(",")[0].split("@")[0] # POST
+        path = endpoint_stat.split(",")[0].split("@")[1] # /cart/checkout
         active_ep_ontick_rps = int(endpoint_stat.split(",")[1]) # 28
         endpoint = svc + cfg.ep_del + method + cfg.ep_del + path # frontend@POST@/cart/checkout"        
         if region not in aggregated_rps:
@@ -2011,11 +2014,12 @@ def handleProxyLoad():
             #     logger.info(f"ERROR: Skip per_pod_ep_rps, {endpoint}. this endpoint is not in stitched trace.")
     
     if svc_level_rps > 0:
-        with list_of_body_mutex: # option 4
-            # with open("body.csv", "a") as f: # to avoid duplicated traces
-            #     f.write(body)
-            ## option 2
-            list_of_body.append(body) 
+        if ROUTING_RULE == "SLATE-with-jumping-global-continuous-profiling":
+            with list_of_body_mutex: # option 4
+                # with open("body.csv", "a") as f: # to avoid duplicated traces
+                #     f.write(body)
+                ## option 2
+                list_of_body.append(body) 
         
     if mode == "profile":
         """
@@ -2411,7 +2415,7 @@ def optimizer_entrypoint():
     if mode != "runtime":
         logger.warning(f"run optimizer only in runtime mode. current mode: {mode}.")
         return
-    if ROUTING_RULE != "SLATE" and ROUTING_RULE != "SLATE-with-jumping-local" and ROUTING_RULE != "SLATE-with-jumping-global" and ROUTING_RULE != "SLATE-without-jumping" and ROUTING_RULE != "WATERFALL" and ROUTING_RULE != "WATERFALL2":
+    if "SLATE" not in ROUTING_RULE and "WATERFALL" not in ROUTING_RULE:
         logger.warning(f"run optimizer only in SLATE, SLATE-with-jumping, SLATE-without-jumping or WATERFALL ROUTING_RULE. current ROUTING_RULE: {ROUTING_RULE}.")
         return
     if train_done == False:
@@ -3172,7 +3176,7 @@ def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, e
         # Line plot
         xplot = np.linspace(0, max(rps_list), 1000)
         yplot = model.coef_[0] * xplot**degree + model.coef_[1]
-        plt.plot(xplot, yplot, color='blue', label=f"a: {model.coef_[0]:.2f}, b: {model.coef_[1]:.2f}")
+        plt.plot(xplot, yplot, color='blue', label=f"a: {model.coef_[0]:.8f}, b: {model.coef_[1]:.8f}")
         # Save the plot
         if "poly" not in os.listdir():
             os.mkdir("poly")
@@ -3603,9 +3607,11 @@ def aggregated_rps_routine():
             for endpoint in per_pod_ep_rps[region][svc_name]:
                 for podname in per_pod_ep_rps[region][svc_name][endpoint]:
                     aggregated_rps[region][svc_name][endpoint] += per_pod_ep_rps[region][svc_name][endpoint][podname]
-                    
+
+    # root_node_rps[region][svc_name][endpoint]: rps
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table)
     for region in agg_root_node_rps:
+        # NOTE: hardcoded
         agg_root_node_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"] = aggregated_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"]
     
     # if check_root_node_rps_condition(agg_root_node_rps) > 0:
@@ -3688,7 +3694,6 @@ def random_sampling_per_load_bucket_in_df(df, sampling_ratio, max_num_trace):
     return df
 
 
-# TODO: implementing sliding window
 def sliding_window(df, max_num_trace):
     global load_bucket_size
     """
@@ -3706,31 +3711,32 @@ def sliding_window(df, max_num_trace):
     """
     updated_df = pd.DataFrame()  # To collect filtered spans
     for region, region_group in df.groupby('cluster_id'):
-        for load_bucket, bucket_group in region_group.groupby('load_bucket'):
-            # Group by trace_id and find the most recent added_time per trace
-            trace_times = (
-                bucket_group.groupby('trace_id')['added_time']
-                .max()
-                .reset_index()
-                .sort_values(by='added_time', ascending=True)
-            )
-            previous_count = len(trace_times)
-            if previous_count > max_num_trace:
-                trace_ids_to_keep = trace_times.iloc[-max_num_trace:]['trace_id']
-                bucket_group_to_keep = bucket_group[bucket_group['trace_id'].isin(trace_ids_to_keep)]
-                bucket_group_to_remove = bucket_group[~bucket_group['trace_id'].isin(trace_ids_to_keep)]
-                load_bucket_range = [load_bucket_size * (load_bucket - 1), load_bucket_size * load_bucket - 1]
-                logger.info(
-                    f"Sliding window applied: region {region}, load_bucket[{load_bucket}], "
-                    f"{load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {len(trace_ids_to_keep)}"
+        for endpoint, endpoint_group in region_group.groupby('endpoint'):
+            for load_bucket, bucket_group in endpoint_group.groupby('load_bucket'):
+                # Group by trace_id and find the most recent added_time per trace
+                trace_times = (
+                    bucket_group.groupby('trace_id')['added_time']
+                    .max()
+                    .reset_index()
+                    .sort_values(by='added_time', ascending=True)
                 )
-            else:
-                bucket_group_to_keep = bucket_group
-                bucket_group_to_remove = pd.DataFrame()  # No traces to remove
-                logger.debug(
-                    f"No sliding window applied: region {region}, load_bucket[{load_bucket}]: {previous_count}"
-                )
-            updated_df = pd.concat([updated_df, bucket_group_to_keep], ignore_index=True)
+                previous_count = len(trace_times)
+                if previous_count > max_num_trace:
+                    trace_ids_to_keep = trace_times.iloc[-max_num_trace:]['trace_id']
+                    bucket_group_to_keep = bucket_group[bucket_group['trace_id'].isin(trace_ids_to_keep)]
+                    bucket_group_to_remove = bucket_group[~bucket_group['trace_id'].isin(trace_ids_to_keep)]
+                    load_bucket_range = [load_bucket_size * (load_bucket - 1), load_bucket_size * load_bucket - 1]
+                    logger.info(
+                        f"Sliding window applied: region {region}, endpoint{endpoint}, load_bucket[{load_bucket}], "
+                        f"{load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {len(trace_ids_to_keep)}"
+                    )
+                else:
+                    bucket_group_to_keep = bucket_group
+                    bucket_group_to_remove = pd.DataFrame()  # No traces to remove
+                    logger.debug(
+                        f"No sliding window applied: region {region}, load_bucket[{load_bucket}]: {previous_count}"
+                    )
+                updated_df = pd.concat([updated_df, bucket_group_to_keep], ignore_index=True)
     return updated_df
 
 
@@ -3769,6 +3775,10 @@ def update_traces():
     global global_stitched_df
     global required_total_num_services
     global ep_str_callgraph_table
+    global ROUTING_RULE
+    if ROUTING_RULE != "SLATE-with-jumping-global-continuous-profiling":
+        logger.info(f"ROUTING_RULE({ROUTING_RULE}) is not SLATE-with-jumping-global-continuous-profiling. Skip update_traces()")
+        return
     ts = time.time()
     with list_of_body_mutex: # option 4
         temp = list()

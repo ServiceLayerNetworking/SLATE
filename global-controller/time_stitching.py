@@ -727,23 +727,22 @@ def change_to_relative_time_in_df(single_trace):
 
 def calculate_exclude_child_rt_in_df(child_spans):
     exclude_child_rt = 0
-
+    relationship = 0
+    sum_rt = 0
+    max_rt = 0
     for i in range(len(child_spans)):
+        sum_rt += child_spans.iloc[i]["rt"]
+        max_rt = max(max_rt, child_spans.iloc[i]["rt"])
         for j in range(i + 1, len(child_spans)):
-            if is_parallel_execution_in_df(child_spans.iloc[i], child_spans.iloc[j]):
-                ## max response time
-                exclude_child_rt = max(exclude_child_rt, max(child_spans.iloc[i]["rt"], child_spans.iloc[j]["rt"]),)
-                
-                ## combined response time
-                # exclude_child_rt = (
-                #     max(child_spans.iloc[i]["et"], child_spans.iloc[j]["et"]) -
-                #     min(child_spans.iloc[i]["st"], child_spans.iloc[j]["st"])
-                # )
-            else:
-                exclude_child_rt += (
-                    child_spans.iloc[i]["rt"] + child_spans.iloc[j]["rt"]
-                )  # Sequential execution: add runtimes
-
+            temp = is_parallel_execution_in_df(child_spans.iloc[i], child_spans.iloc[j])
+            relationship = max(relationship, temp)  
+    if relationship == 2:
+        exclude_child_rt = max_rt        
+    elif relationship == 1:
+        exclude_child_rt = max_rt        
+        # exclude_child_rt = sum_rt
+    else:
+        exclude_child_rt = 0
     return exclude_child_rt
 
 ############################################################
@@ -818,26 +817,23 @@ def calc_exclusive_time_in_df(single_trace, ep_str_callgraph_table, overhead):
             return False
     return True
 
-def calculate_exclude_child_rt_in_df(child_spans):
-    exclude_child_rt = 0
-    for i in range(len(child_spans)):
-        for j in range(i + 1, len(child_spans)):
-            if is_parallel_execution_in_df(child_spans.iloc[i], child_spans.iloc[j]):
-                exclude_child_rt = max(child_spans.iloc[i]["rt"], child_spans.iloc[j]["rt"])
-                # exclude_child_rt = max(child_spans.iloc[i]["et"], child_spans.iloc[j]["et"]) - min(child_spans.iloc[i]["st"], child_spans.iloc[j]["st"])
-            else:
-                exclude_child_rt = child_spans.iloc[i]["rt"] + child_spans.iloc[j]["rt"]
-    return exclude_child_rt
+# def calculate_exclude_child_rt_in_df(child_spans):
+#     exclude_child_rt = 0
+#     for i in range(len(child_spans)):
+#         for j in range(i + 1, len(child_spans)):
+#             if is_parallel_execution_in_df(child_spans.iloc[i], child_spans.iloc[j]):
+#                 exclude_child_rt = max(child_spans.iloc[i]["rt"], child_spans.iloc[j]["rt"])
+#                 # exclude_child_rt = max(child_spans.iloc[i]["et"], child_spans.iloc[j]["et"]) - min(child_spans.iloc[i]["st"], child_spans.iloc[j]["st"])
+#             else:
+#                 # exclude_child_rt = child_spans.iloc[i]["rt"] + child_spans.iloc[j]["rt"]
+#                 exclude_child_rt = child_spans.iloc[i]["rt"] + child_spans.iloc[j]["rt"]
+#     return exclude_child_rt
 
 
 ## 2
 def is_parallel_execution_in_df(span_a, span_b):
-    # Check if spans overlap
-    if span_a["et"] > span_b["st"] and span_b["et"] > span_a["st"]:
-        # Fully nested case
-        if (span_a["st"] < span_b["st"] and span_a["et"] > span_b["et"]) or (
-            span_b["st"] < span_a["st"] and span_b["et"] > span_a["et"]
-        ):
+    if span_a["et"] > span_b["st"] and span_b["et"] > span_a["st"] or span_b["et"] > span_a["st"] and span_a["et"] > span_b["st"]:
+        if (span_a["st"] < span_b["st"] and span_a["et"] > span_b["et"]) or (span_b["st"] < span_a["st"] and span_b["et"] > span_a["et"]):
             return 1  # Fully nested
         else:
             return 2  # Partially overlapping
