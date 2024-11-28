@@ -34,6 +34,9 @@ import replicate_trace_to_diff_region as trace_parser
 import heapq
 from multiprocessing import Value
 import re
+from concurrent.futures import ThreadPoolExecutor
+
+plot_executor = ThreadPoolExecutor(max_workers=1)
 
 # Filter specific FutureWarning related to pandas concatenation.
 
@@ -3135,7 +3138,7 @@ def new_read_trace_csv(trace_csv):
         df['endpoint'] = df['svc_name'] + '@' + df['method'] + '@' + df['url']
         df['inflight'] = df['inflight_dict'].apply(lambda x: int(x.split(':')[1].split('|')[0]))
         df['rps'] = df['rps_dict'].apply(lambda x: int(x.split(':')[1].split('|')[0]))
-        df['added_time'] = 0
+        df['added_time'] = random.random() # between 0 and 1
         df['load_bucket'] = (df['rps'] // load_bucket_size + 1).clip(lower=1)
         df['trace_id'] = df['cluster_id'].astype(str) + "-" + df['trace_id'].astype(str) # needed because replicate.py uses the same trace_id. make trace id in each region unique
         df.drop(columns=['inflight_dict', 'rps_dict'], inplace=True)
@@ -3156,7 +3159,35 @@ def new_fit_mm1_model(local_counter, region, svc_name, df, ep_str):
     return {ep_str: popt[0], 'intercept': popt[1]}
 
 
-def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, ep_str):
+def save_polynomial_plot(
+    rps_list, exclusive_time_list, response_time_list, model, degree, region, svc_name, local_counter
+):
+    plt.figure()
+    plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt", marker='x')
+    plt.scatter(rps_list, response_time_list, color='green', alpha=0.5, label="rt")
+    
+    # Generate line plot
+    xplot = np.linspace(0, max(rps_list), 1000)
+    yplot = model.coef_[0] * xplot**degree + model.coef_[1]
+    plt.plot(xplot, yplot, color='blue', label=f"a: {model.coef_[0]:.8f}, b: {model.coef_[1]:.8f}")
+    
+    # Save the plot
+    if "poly" not in os.listdir():
+        os.mkdir("poly")
+    fn = f"poly/poly-{region}-{svc_name}-{local_counter}.pdf"
+    plt.title(f"{fn}")
+    plt.xlabel("RPS")
+    plt.ylabel("Exclusive Time")
+    plt.legend(loc='upper left')
+    plt.xlim(left=0)
+    plt.ylim(0, 1000)
+    plt.savefig(fn, format='pdf', bbox_inches='tight')
+    logger.info(f"Saved the plot to {fn}")
+    plt.close()
+
+
+def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, ep_str, overhead):
+    ts = time.time()
     rps_list = df["rps"].tolist()
     exclusive_time_list = df["xt"].tolist()
     response_time_list = df["rt"].tolist()
@@ -3164,30 +3195,48 @@ def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, e
     X_transformed = np.hstack((temp, np.ones((len(rps_list), 1))))
     model = LinearRegression(fit_intercept=False)
     model.fit(X_transformed, exclusive_time_list)
+    overhead["curve_fit"] = overhead.get("curve_fit", 0) + time.time()-ts
     
+    ts = time.time()
+    if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
+        plot_executor.submit(
+            save_polynomial_plot,
+            rps_list,
+            exclusive_time_list,
+            response_time_list,
+            copy.deepcopy(model),
+            degree,
+            region,
+            svc_name,
+            local_counter
+        )
+    overhead["plot"] = overhead.get("plot", 0) + time.time() - ts
+    
+    ##################################################################
     ## Bottleneck!!!
     # if svc_name in ["frontend"] and region in ["us-west-1"]:
-    if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
-    # if svc_name in ["frontend", "checkoutservice"]:
-        plt.figure()
-        # Scatter plots
-        plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt", marker='x')
-        plt.scatter(rps_list, response_time_list, color='green', alpha=0.5, label="rt")
-        # Line plot
-        xplot = np.linspace(0, max(rps_list), 1000)
-        yplot = model.coef_[0] * xplot**degree + model.coef_[1]
-        plt.plot(xplot, yplot, color='blue', label=f"a: {model.coef_[0]:.8f}, b: {model.coef_[1]:.8f}")
-        # Save the plot
-        if "poly" not in os.listdir():
-            os.mkdir("poly")
-        fn = f"poly/poly-{region}-{svc_name}-{local_counter}.pdf"
-        plt.title(f"{fn}")
-        plt.xlabel("RPS")
-        plt.ylabel("Exclusive Time")
-        plt.legend(loc='upper left')
-        plt.savefig(fn, format='pdf', bbox_inches='tight')  # Add format for efficiency
-        print(f"Saved the plot to {fn}")  # Replace logger.info for simpler debug (optional)
-        plt.close()
+    # ts = time.time()
+    # if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
+    #     plt.figure()
+    #     plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt", marker='x')
+    #     plt.scatter(rps_list, response_time_list, color='green', alpha=0.5, label="rt")
+    #     # Line plot
+    #     xplot = np.linspace(0, max(rps_list), 1000)
+    #     yplot = model.coef_[0] * xplot**degree + model.coef_[1]
+    #     plt.plot(xplot, yplot, color='blue', label=f"a: {model.coef_[0]:.8f}, b: {model.coef_[1]:.8f}")
+    #     # Save the plot
+    #     if "poly" not in os.listdir():
+    #         os.mkdir("poly")
+    #     fn = f"poly/poly-{region}-{svc_name}-{local_counter}.pdf"
+    #     plt.title(f"{fn}")
+    #     plt.xlabel("RPS")
+    #     plt.ylabel("Exclusive Time")
+    #     plt.legend(loc='upper left')
+    #     plt.savefig(fn, format='pdf', bbox_inches='tight')
+    #     logger.info(f"Saved the plot to {fn}")
+    #     plt.close()
+    # overhead["plot"] = overhead.get("plot", 0) + time.time()-ts
+    #############################################################
     return {ep_str: model.coef_[0], 'intercept': model.coef_[1]}
 
 def print_coef_dict(msg=""):
@@ -3202,16 +3251,18 @@ def new_train_latency_function_with_trace(model, df, degree):
     logger.info(f"new_train_latency_function_with_trace start, model: {model}, degree: {degree}")
     coef_dict = {}
     local_counter = temp_counter
+    overhead = {}
     for (region, svc_name, ep_str), ep_df in df.groupby(['cluster_id', 'svc_name', 'endpoint']):
         coef_dict.setdefault(region, {}).setdefault(svc_name, {})
         latency_func.setdefault(svc_name, {})
         if model == "poly":
-            coef_dict[region][svc_name][ep_str] = new_fit_polynomial_regression(local_counter, region, svc_name, ep_df, degree, ep_str)
+            coef_dict[region][svc_name][ep_str] = new_fit_polynomial_regression(local_counter, region, svc_name, ep_df, degree, ep_str, overhead)
         elif model == "mm1":
             coef_dict[region][svc_name][ep_str] = new_fit_mm1_model(local_counter, region, svc_name, ep_df, ep_str)
         else:
             logger.error(f"ERROR: Unsupported model type '{model}' specified")
             raise ValueError(f"Invalid model: {model}")
+    logger.info(f"overhead took: {overhead}")
     logger.info(f"new_train_latency_function_with_trace end")
     return coef_dict
 
@@ -3273,6 +3324,7 @@ def training_phase():
     ts = time.time()
     assert len(global_stitched_df) == 0
     global_stitched_df = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
+    # global_stitched_df = tst.stitch_time_in_df_concurrent(df_new_complete_traces, ep_str_callgraph_table, max_workers=8)
     print_len_df_trace(global_stitched_df, "training_phase, global_stitched_df")
     logger.info(f"stitch_time_in_df took {int(time.time()-ts)}s")
     
@@ -3693,51 +3745,69 @@ def random_sampling_per_load_bucket_in_df(df, sampling_ratio, max_num_trace):
         df = df[df['trace_id'].isin(sampled_tid)]
     return df
 
-
 def sliding_window(df, max_num_trace):
     global load_bucket_size
-    """
-    Enforce a sliding window on the DataFrame by removing older traces
-    (grouped by `trace_id`) when the number of traces exceeds num_max_traces
-    for each load_bucket.
+    df['rank'] = df.groupby(['cluster_id', 'load_bucket', 'trace_id'])['added_time'].transform('max')
+    df['rank'] = df.groupby(['cluster_id', 'load_bucket'])['rank'].rank(method='first', ascending=False)
+    filtered_df = df[df['rank'] <= max_num_trace].drop(columns=['rank'])
+    grouped_counts = df.groupby(['cluster_id', 'load_bucket'])['trace_id'].nunique()
+    filtered_counts = filtered_df.groupby(['cluster_id', 'load_bucket'])['trace_id'].nunique()
+    for (region, load_bucket), count in grouped_counts.items():
+        filtered_count = filtered_counts.get((region, load_bucket), 0)
+        if count > max_num_trace:
+            load_bucket_range = [load_bucket_size * (load_bucket - 1), load_bucket_size * load_bucket - 1]
+            logger.info(f"Sliding window applied: region {region},load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {count} -> {filtered_count}")
+        else:
+            logger.debug(
+                f"No sliding window applied: region {region}, load_bucket[{load_bucket}]: {count}"
+            )
+    return filtered_df
 
-    Parameters:
-    - df (pd.DataFrame): The DataFrame containing span data.
-    - num_max_traces (int): Maximum number of traces to retain per load_bucket.
-    - load_bucket_size (int): The size of each load bucket.
 
-    Returns:
-    - pd.DataFrame: Updated DataFrame with excess traces removed.
-    """
-    updated_df = pd.DataFrame()  # To collect filtered spans
-    for region, region_group in df.groupby('cluster_id'):
-        for endpoint, endpoint_group in region_group.groupby('endpoint'):
-            for load_bucket, bucket_group in endpoint_group.groupby('load_bucket'):
-                # Group by trace_id and find the most recent added_time per trace
-                trace_times = (
-                    bucket_group.groupby('trace_id')['added_time']
-                    .max()
-                    .reset_index()
-                    .sort_values(by='added_time', ascending=True)
-                )
-                previous_count = len(trace_times)
-                if previous_count > max_num_trace:
-                    trace_ids_to_keep = trace_times.iloc[-max_num_trace:]['trace_id']
-                    bucket_group_to_keep = bucket_group[bucket_group['trace_id'].isin(trace_ids_to_keep)]
-                    bucket_group_to_remove = bucket_group[~bucket_group['trace_id'].isin(trace_ids_to_keep)]
-                    load_bucket_range = [load_bucket_size * (load_bucket - 1), load_bucket_size * load_bucket - 1]
-                    logger.info(
-                        f"Sliding window applied: region {region}, endpoint{endpoint}, load_bucket[{load_bucket}], "
-                        f"{load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {len(trace_ids_to_keep)}"
-                    )
-                else:
-                    bucket_group_to_keep = bucket_group
-                    bucket_group_to_remove = pd.DataFrame()  # No traces to remove
-                    logger.debug(
-                        f"No sliding window applied: region {region}, load_bucket[{load_bucket}]: {previous_count}"
-                    )
-                updated_df = pd.concat([updated_df, bucket_group_to_keep], ignore_index=True)
-    return updated_df
+# def sliding_window(df, max_num_trace):
+#     global load_bucket_size
+#     """
+#     Enforce a sliding window on the DataFrame by removing older traces
+#     (grouped by `trace_id`) when the number of traces exceeds num_max_traces
+#     for each load_bucket.
+
+#     Parameters:
+#     - df (pd.DataFrame): The DataFrame containing span data.
+#     - num_max_traces (int): Maximum number of traces to retain per load_bucket.
+#     - load_bucket_size (int): The size of each load bucket.
+
+#     Returns:
+#     - pd.DataFrame: Updated DataFrame with excess traces removed.
+#     """
+#     updated_df = pd.DataFrame()  # To collect filtered spans
+#     for region, region_group in df.groupby('cluster_id'):
+#         for endpoint, endpoint_group in region_group.groupby('endpoint'):
+#             for load_bucket, bucket_group in endpoint_group.groupby('load_bucket'):
+#                 # Group by trace_id and find the most recent added_time per trace
+#                 trace_times = (
+#                     bucket_group.groupby('trace_id')['added_time']
+#                     .max()
+#                     .reset_index()
+#                     .sort_values(by='added_time', ascending=True)
+#                 )
+#                 previous_count = len(trace_times)
+#                 if previous_count > max_num_trace:
+#                     trace_ids_to_keep = trace_times.iloc[-max_num_trace:]['trace_id']
+#                     bucket_group_to_keep = bucket_group[bucket_group['trace_id'].isin(trace_ids_to_keep)]
+#                     bucket_group_to_remove = bucket_group[~bucket_group['trace_id'].isin(trace_ids_to_keep)]
+#                     load_bucket_range = [load_bucket_size * (load_bucket - 1), load_bucket_size * load_bucket - 1]
+#                     logger.info(
+#                         f"Sliding window applied: region {region}, endpoint{endpoint}, load_bucket[{load_bucket}], "
+#                         f"{load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {len(trace_ids_to_keep)}"
+#                     )
+#                 else:
+#                     bucket_group_to_keep = bucket_group
+#                     bucket_group_to_remove = pd.DataFrame()  # No traces to remove
+#                     logger.debug(
+#                         f"No sliding window applied: region {region}, load_bucket[{load_bucket}]: {previous_count}"
+#                     )
+#                 updated_df = pd.concat([updated_df, bucket_group_to_keep], ignore_index=True)
+#     return updated_df
 
 
 
@@ -3837,6 +3907,7 @@ def update_traces():
     print_len_df_trace(df_incomplete_traces, "update_traces/df_new_complete_traces")
     
     df_new_stitched_tracess = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
+    # df_new_stitched_tracess = tst.stitch_time_in_df_concurrent(df_new_complete_traces, ep_str_callgraph_table, max_workers=8)
     print_len_df_trace(df_incomplete_traces, "update_traces/df_new_stitched_tracess")
     
     global_stitched_df = pd.concat([global_stitched_df, df_new_stitched_tracess], ignore_index=True)

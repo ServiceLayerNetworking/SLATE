@@ -2,7 +2,6 @@
 # coding: utf-8
 
 import time
-# from global_controller import app
 import config as cfg
 import optimizer_header as opt_func
 import span as sp
@@ -13,6 +12,7 @@ import os
 from pprint import pprint
 from global_controller import app
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logging.config.dictConfig(cfg.LOGGING_CONFIG)
 logger = logging.getLogger(__name__)
@@ -614,6 +614,68 @@ def filter_by_num_endpoint(given_traces, num_endpoint):
                     ret_traces[region][load_bucket][tid] = single_trace
     return ret_traces
 
+##################################################################
+##################################################################
+
+def stitch_time_in_df_concurrent(given_df, ep_str_callgraph_table, max_workers=4):
+    ret_dfs = []
+    overhead = {}
+    ts = time.time()
+    
+    # Group by "trace_id"
+    grouped = given_df.groupby("trace_id")
+    if "groupby" not in overhead:
+        overhead["groupby"] = 0
+    overhead["groupby"] += time.time() - ts
+    
+    # Function to process each single trace
+    def process_single_trace(tid, single_trace):
+        local_overhead = {}
+        single_trace = single_trace.copy()  # Avoid modifying the original grouped DataFrame
+        if "single_trace.copy" not in local_overhead:
+            local_overhead["single_trace.copy"] = 0
+        ts = time.time()
+        local_overhead["single_trace.copy"] += time.time() - ts
+        
+        ret = stitch_trace_in_df(single_trace, local_overhead, ep_str_callgraph_table)
+        return tid, single_trace if ret else None, local_overhead
+
+    # Concurrent execution
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_trace = {
+            executor.submit(process_single_trace, tid, single_trace): tid
+            for tid, single_trace in grouped
+        }
+        
+        for future in as_completed(future_to_trace):
+            tid = future_to_trace[future]
+            try:
+                tid, result, local_overhead = future.result()
+                if result is not None:
+                    ret_dfs.append(result)
+                # Merge local overhead into the global overhead
+                for key, value in local_overhead.items():
+                    if key not in overhead:
+                        overhead[key] = 0
+                    overhead[key] += value
+            except Exception as e:
+                logger.error(f"Error processing trace {tid}: {e}")
+    
+    # Concatenate the resulting DataFrames
+    ts = time.time()
+    ret_df = pd.concat(ret_dfs, ignore_index=True) if ret_dfs else pd.DataFrame()
+    if "concat" not in overhead:
+        overhead["concat"] = 0
+    overhead["concat"] += time.time() - ts
+    
+    # Log overhead information
+    for key in overhead:
+        logger.info(f"stitch_time_in_df/{key} took {int(overhead[key])}s")
+    return ret_df
+
+##################################################################
+##################################################################
+
 
 def stitch_time_in_df(given_df, ep_str_callgraph_table):
     ret_dfs = []
@@ -667,15 +729,12 @@ def stitch_trace_in_df(single_trace, overhead, ep_str_callgraph_table):
     
     ts = time.time()
     relative_time_ret = change_to_relative_time_in_df(single_trace)
-    if "relativetime" not in overhead:
-        overhead["relativetime"] = 0
-    overhead["relativetime"] += time.time()-ts
+    overhead["relativetime"] = overhead.get("relativetime", 0) + time.time()-ts
     
     ts = time.time()
+    ## Bottleneck
     xt_ret = calc_exclusive_time_in_df(single_trace, ep_str_callgraph_table, overhead)
-    if "exclusivetime" not in overhead:
-        overhead["exclusivetime"] = 0
-    overhead["exclusivetime"] += time.time()-ts
+    overhead["exclusvietime"] = overhead.get("exclusivetime", 0) + time.time()-ts
     
     ct_ret = True
     if xt_ret == False:
@@ -690,15 +749,12 @@ def change_to_relative_time_in_df(single_trace):
     root_span = single_trace[single_trace["svc_name"] == "sslateingress"]
     if root_span.empty:
         return False
-    base_t = root_span["st"].values[0]
-    single_trace["st"] -= base_t
-    single_trace["et"] -= base_t
-    
+    # base_t = root_span["st"].values[0]
+    # single_trace["st"] -= base_t
+    # single_trace["et"] -= base_t
     invalid_times = (single_trace["st"] < 0) | (single_trace["et"] < single_trace["st"])
     if invalid_times.any():
         return False
-    # if (single_trace["st"] < 0).any() or (single_trace["et"] < single_trace["st"]).any():
-    #     return False
     return True
 
 # def calc_exclusive_time_in_df(single_trace):
@@ -733,9 +789,9 @@ def calculate_exclude_child_rt_in_df(child_spans):
     for i in range(len(child_spans)):
         sum_rt += child_spans.iloc[i]["rt"]
         max_rt = max(max_rt, child_spans.iloc[i]["rt"])
-        for j in range(i + 1, len(child_spans)):
-            temp = is_parallel_execution_in_df(child_spans.iloc[i], child_spans.iloc[j])
-            relationship = max(relationship, temp)  
+        # for j in range(i + 1, len(child_spans)):
+        #     temp = is_parallel_execution_in_df(child_spans.iloc[i], child_spans.iloc[j])
+        #     relationship = max(relationship, temp)  
     if relationship == 2:
         exclude_child_rt = max_rt        
     elif relationship == 1:
@@ -794,25 +850,32 @@ def calculate_exclude_child_rt_in_df(child_spans):
 #     return exclude_child_rt
 ############################################################
 
+def get_child_spans(single_trace, parent_span, ep_str_callgraph_table):
+    child_spans = []
+    for _, row in single_trace.iterrows():
+        if row["parent_span_id"] == parent_span["span_id"]:
+            child_spans.append(row)
+    return pd.DataFrame(child_spans)
 
 def calc_exclusive_time_in_df(single_trace, ep_str_callgraph_table, overhead):
     for _, parent_span in single_trace.iterrows():
         ts = time.time()
         child_spans = single_trace[single_trace["parent_span_id"] == parent_span["span_id"]]
-        if "child_spans" not in overhead:
-            overhead["child_spans"] = 0
-        overhead["child_spans"] += time.time()-ts
+        # child_spans = get_child_spans(single_trace, parent_span, ep_str_callgraph_table)
+        overhead["child_spans"] = overhead.get("child_spans", 0) + (time.time() - ts)
         if child_spans.empty:
             exclude_child_rt = 0
-        elif len(child_spans) == 1:
-            exclude_child_rt = child_spans["rt"].values[0]
         else:
             ts = time.time()
-            exclude_child_rt = calculate_exclude_child_rt_in_df(child_spans)
-            if "child_rt" not in overhead:
-                overhead["child_rt"] = 0
-            overhead["child_rt"] += time.time()-ts
-        parent_span["xt"] = parent_span["rt"] - exclude_child_rt
+            # exclude_child_rt = calculate_exclude_child_rt_in_df(child_spans)
+            row_with_max_rt = child_spans.loc[child_spans["rt"].idxmax()]
+            exclude_child_rt = row_with_max_rt["rt"]
+            overhead["child_rt"] = overhead.get("child_rt", 0) + (time.time() - ts)
+        #######################################################
+        # parent_span["xt"] = parent_span["rt"] - exclude_child_rt
+        parent_span["xt"] = parent_span["rt"]
+        #######################################################
+        # logger.info(f"parent,{parent_span['svc_name']}, parent_rt: {parent_span['rt']}, exclude_child_rt: {exclude_child_rt}, parent_xt: {parent_span['xt']}")
         if parent_span["xt"] < 0:
             return False
     return True
@@ -859,7 +922,7 @@ def is_parallel_execution_in_df(span_a, span_b):
 def stitch_time(given_traces):
     ret_traces = {}
     num_fail = {}
-    overhead = {"callgraph": 0, "findroot": 0, "relativetime": 0, "exclusivetime": 0, child_spans: 0}
+    overhead = {"callgraph": 0, "findroot": 0, "relativetime": 0, "exclusivetime": 0, "child_spans": 0}
     for region, loads in given_traces.items():
         region_traces = ret_traces.setdefault(region, {})
         for load_bucket, tids in loads.items():
