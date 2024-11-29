@@ -187,7 +187,8 @@ def run_optimizer(coef_dict, \
     compute_arc_var_name = opt_func.create_compute_arc_var_name(endpoint_level_rps)
     opt_func.check_compute_arc_var_name(compute_arc_var_name)
     # try:
-    logger.debug(f'compute_arc_var_name: {compute_arc_var_name}')
+    for key in compute_arc_var_name:
+        logger.debug(f'compute_arc_var_name: {key}')
     compute_df = opt_func.create_compute_df(compute_arc_var_name, ep_str_callgraph_table, coef_dict, max_capacity_per_service)
     # except Exception as e:
         # logger.error(f'Exception: {type(e).__name__}, {e}')
@@ -240,7 +241,13 @@ def run_optimizer(coef_dict, \
         if len(normalization_dict) > 0:
             if ep in normalization_dict:
                 for colocated_endpoint in normalization_dict[ep]:
-                    rh += compute_load[opt_func.get_compute_arc_var_name(colocated_endpoint, cid)] * normalization_dict[ep][colocated_endpoint]
+                    try:
+                        rh += compute_load[opt_func.get_compute_arc_var_name(colocated_endpoint, cid)] * normalization_dict[ep][colocated_endpoint]
+                    except Exception as e:
+                        logger.error(f'Exception: {type(e).__name__}, {e}')
+                        logger.error(f'compute_load[{opt_func.get_compute_arc_var_name(colocated_endpoint, cid)}]')
+                        logger.error(f'normalization_dict: {normalization_dict}')
+                        assert False
             gurobi_model.addConstr(normalized_compute_load[index] == rh, name=f'normalized_load_{index}')
             gurobi_model.update()
             constraint_file.write(f'normalized_compute_load[{index}] == {rh}\n')
@@ -258,6 +265,7 @@ def run_optimizer(coef_dict, \
     '''
     
     if len(normalization_dict) > 0:
+        logger.info(f"Normalizing RPS")
         normalized_total_rps = dict()
         for svc_name in compute_df['svc_name'].unique():
             if svc_name not in normalized_total_rps:
@@ -292,10 +300,11 @@ def run_optimizer(coef_dict, \
                     if len(normalization_dict) > 0:
                         rh = coefs[dependent_ep] * (normalized_compute_load[dependent_arc_name] ** 2)
                         rh += coefs['intercept']
-                        logger.info(f"Normalizing RPS")
+                        lh = compute_latency[index]
                     else:
                         rh = coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
                         rh += coefs['intercept']
+                        lh = compute_latency[index]
                 elif degree == 1:
                     rh = coefs[dependent_ep] * compute_load[dependent_arc_name]
                     rh += coefs['intercept']

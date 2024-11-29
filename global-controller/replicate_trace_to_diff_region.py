@@ -199,7 +199,7 @@ def train_latency_function_with_trace(model, traces, directory, degree):
 
 def trace_string_file_to_trace_data_structure(trace_string_file_path, required_num_endpoint, num_replica):
     logger = logging.getLogger(__name__)
-    col = ["cluster_id","svc_name","method","path","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size","inflight_dict","rps_dict"]
+    col = ["cluster_id","svc_name","method","url","trace_id","span_id","parent_span_id","st","et","rt","xt","ct","call_size","inflight_dict","rps_dict"]
     df = pd.read_csv(trace_string_file_path, names=col, header=None)
     logger.info(f"len(df): {len(df)}")
     df = df.loc[df['rt'] > 0]
@@ -232,7 +232,7 @@ def trace_string_file_to_trace_data_structure(trace_string_file_path, required_n
         if rps > 1200:
             num_filter_rps_datapoint += 1
             continue
-        span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], row["trace_id"], row["span_id"], row["parent_span_id"], st=float(row["st"]), et=float(row["et"]), callsize=int(row["call_size"]), rps_dict=rps_dict, num_inflight_dict=num_inflight_dict)
+        span = sp.Span(row["method"], row["url"], row["svc_name"], row["cluster_id"], row["trace_id"], row["span_id"], row["parent_span_id"], st=float(row["st"]), et=float(row["et"]), callsize=int(row["call_size"]), rps_dict=rps_dict, num_inflight_dict=num_inflight_dict)
         list_of_span.append(span)
     logger.debug(f"-- num_filter_rps_datapoint: {num_filter_rps_datapoint}")  
     all_traces = dict()
@@ -273,10 +273,10 @@ def trace_string_file_to_trace_data_structure_with_df(df, required_num_endpoint,
         if row["cluster_id"] == "SLATE_UNKNOWN_REGION" or row["svc_name"] == "consul":
             excluded_traces.add(row["trace_id"])  # Mark the trace_id for exclusion
             continue
-        if "ListProducts" in row["path"]:
+        if "ListProducts" in row["url"]:
             logger.debug(f"asdf asdf {row}")
         if "checkoutcart" in directory:
-            if "/hipstershop.CurrencyService/Convert" in row["path"] or "/hipstershop.ProductCatalogService/GetProduct" in row["path"]:
+            if "/hipstershop.CurrencyService/Convert" in row["url"] or "/hipstershop.ProductCatalogService/GetProduct" in row["url"]:
                 logger.debug(f"Skip this span, {row['svc_name']}, {row['method']}, {row['path']} row")
                 excluded_traces.add(row["trace_id"])  # Mark the trace_id for exclusion
                 continue
@@ -319,7 +319,7 @@ def trace_string_file_to_trace_data_structure_with_df(df, required_num_endpoint,
         if len(rps_dict) == 0:
             logger.error(row)
             assert False
-        span = sp.Span(row["method"], row["path"], row["svc_name"], row["cluster_id"], row["trace_id"], row["span_id"], row["parent_span_id"], st=float(row["st"]), et=float(row["et"]), callsize=int(row["call_size"]), rps_dict=rps_dict, num_inflight_dict=num_inflight_dict)
+        span = sp.Span(row["method"], row["url"], row["svc_name"], row["cluster_id"], row["trace_id"], row["span_id"], row["parent_span_id"], st=float(row["st"]), et=float(row["et"]), callsize=int(row["call_size"]), rps_dict=rps_dict, num_inflight_dict=num_inflight_dict)
         list_of_span.append(span)
     logger.debug(f"-- num_filter_rps_datapoint: {num_filter_rps_datapoint}")
     
