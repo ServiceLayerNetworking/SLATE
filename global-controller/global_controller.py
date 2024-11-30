@@ -82,17 +82,7 @@ use_optimizer_output = False
 jumping_towards_optimizer = False
 placement = {}
 coef_dict = {}
-normalization_dict = {
-    "sslateingress@POST@/cart/checkout": {
-        "sslateingress@POST@/cart": 1,
-    },
-    "frontend@POST@/cart/checkout": {
-        "frontend@POST@/cart": 1.45,
-    },
-    "cartservice@POST@/hipstershop.CartService/GetCart": {
-        "cartservice@POST@/hipstershop.CartService/AddItem": 1.423,
-    },
-}
+normalization_dict = {}
 model="poly"
 poly_coef_dict = {}
 mm1_coef_dict = {}
@@ -110,7 +100,7 @@ cur_convex_comb_value = 0 # between 0 and 1
 convex_comb_step = 1
 convex_comb_direction = 1 # 1 or -1
 jumping_ruleset_num_iterations = 0
-jumping_ruleset_convergence_iterations = 5
+jumping_ruleset_convergence_iterations = 10
 cur_jumping_ruleset = ("", "")
 completed_rulesets = set()
 historical_svc_latencies = dict() # svc -> list of latencies
@@ -388,6 +378,11 @@ def perform_jumping():
         jumping in the disjoint rulesets.
     """
 
+    # jumping is performed between parent_svc and child_svc
+    parent_svc = "sslateingress"
+    child_svc = "frontend"
+
+    logger.info(f"perform_jumping, jumping_feature_enabled: {jumping_feature_enabled}, jumping_towards_optimizer: {jumping_towards_optimizer}, currently_globally_oscillating: {currently_globally_oscillating}")
     # snapshot the current optimizer output and processing latencies
     cur_last_seen_opt_output = jumping_last_seen_opt_output.copy()
     jumping_last_seen_opt_output = percentage_df.copy()
@@ -411,7 +406,7 @@ def perform_jumping():
         # we haven't seen the optimizer output yet just return
         return
     jumping_ruleset_num_iterations += 1
-    logger.debug(f"loghill temp_counter {temp_counter} (current ruleset {cur_jumping_ruleset} prev_processing_latency: {prev_processing_latency}, cur_processing_latency: {cur_processing_latency}")
+    logger.info(f"loghill temp_counter {temp_counter} (current ruleset {cur_jumping_ruleset} prev_processing_latency: {prev_processing_latency}, cur_processing_latency: {cur_processing_latency}")
 
     ruleset_overperformance = calculate_ruleset_overperformance(jumping_df.copy(), cur_processing_latencies)
     prev_ruleset_overperformance = global_prev_ruleset_overperformance.copy()
@@ -458,7 +453,7 @@ def perform_jumping():
         logger.info(f"currently globally oscillating, exiting jumping iteration")
         return
     
-    if latency_is_oscillating("sslateingress", 5, thresh_ms=3) and jumping_ruleset_num_iterations > jumping_ruleset_convergence_iterations:
+    if latency_is_oscillating("sslateingress", 5, thresh_ms=3) and jumping_ruleset_num_iterations > jumping_ruleset_convergence_iterations and False:
         # change the ruleset or whether or not we jump towards the optimizer
         logger.info(f"loghill oscillation detected")
         if jumping_towards_optimizer:
@@ -496,7 +491,7 @@ def perform_jumping():
             jumping_towards_optimizer = False
             completed_rulesets.clear()
             cur_jumping_ruleset = pick_best_ruleset(ruleset_overperformance, completed_rulesets)
-            logger.debug(f"loghill picked new ruleset: {cur_jumping_ruleset}")
+            logger.info(f"loghill picked new ruleset: {cur_jumping_ruleset}")
             prev_processing_latencies.clear()
             prev_jumping_df = jumping_df.copy()
             return
@@ -551,7 +546,7 @@ def perform_jumping():
 
         if cur_jumping_ruleset == ("", ""):
             cur_jumping_ruleset = pick_best_ruleset(ruleset_overperformance, completed_rulesets)
-            logger.debug(f"loghill picked new ruleset: {cur_jumping_ruleset}")
+            logger.info(f"loghill picked new ruleset: {cur_jumping_ruleset}")
         # first adjust jumping_df based on the current and previous latencies (accept the rule from prev_jumping_df to jumping_df)
         # if the latency has improved. if not, roll back to prev_jumping_df. this is where we detect oscillation.
         # todo aditya
@@ -568,7 +563,7 @@ def perform_jumping():
                 global_prev_processing_latencies.clear()
                 return
             else:
-                logger.debug(f"loghill rolling back to prev_jumping_df")
+                logger.info(f"loghill rolling back to prev_jumping_df")
                 jumping_df = prev_jumping_df.copy()
         elif len(jumping_df) > 0:
             # the new rule is better than the previous rule, so we accept the new rule.
@@ -1220,7 +1215,7 @@ def calculate_avg_processing_latency(latencies: dict, svc: str, region="") -> tu
 
     return combined_mean, combined_num_reqs, stddev
 
-def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict) -> dict:
+def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict, parent_svc: str, child_svc: str) -> dict:
     """
     calculate_ruleset_overperformance will calculate the overperformance of all rulesets based on the current vs expected latencies.
     the only rulesets considered are between sslateingress and frontend, but for all traffic classes.
@@ -1253,7 +1248,7 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict) 
     logger.debug(f"calculate_ruleset_overperformance: rules:\n{rules.columns}")
     if "src_svc" not in rules.columns or "dst_svc" not in rules.columns or "src_cid" not in rules.columns or "dst_cid" not in rules.columns:
         return dict()
-    filtered_rules = rules[(rules["src_svc"] == "sslateingress") & (rules["dst_svc"] == bottleneck_service)]
+    filtered_rules = rules[(rules["src_svc"] == parent_svc) & (rules["dst_svc"] == child_svc)]
     dst_traffic_classes = filtered_rules["dst_endpoint"].unique()
     logger.info(f"calculate_ruleset_overperformance: traffic_classes: {dst_traffic_classes}")
     overperformance = dict()
@@ -1288,10 +1283,11 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict) 
                     overperformance[dst_traffic_class] = dict()
                 if src_region not in overperformance[dst_traffic_class]:
                     overperformance[dst_traffic_class][src_region] = dict()
-                overperformance[dst_traffic_class][src_region][dst_region] = (expected_latency_in_dst_region - actual_latency_in_dst_region) * ruleset_rps_in_dst_region
+                # overperformance[dst_traffic_class][src_region][dst_region] = (expected_latency_in_dst_region - actual_latency_in_dst_region) * ruleset_rps_in_dst_region
+                overperformance[dst_traffic_class][src_region][dst_region] = (expected_latency_in_dst_region - actual_latency_in_dst_region)
 
                 total_load_in_dst_region = aggregated_rps.get(dst_region, {}).get(bottleneck_service, {}).get(dst_traffic_class, 0)
-                logger.info(f"loghill calculate_ruleset_overperformance: src_region: {src_region}, traffic class {dst_traffic_class}, dst_region: {dst_region}, expected_latency ({total_load_in_dst_region} rps): {expected_latency_in_dst_region}, actual_latency: {actual_latency_in_dst_region}, load in {dst_region} for this ruleset: {ruleset_rps_in_dst_region}")
+                logger.info(f"loghill calculate_ruleset_overperformance: src_region: {src_region}, traffic class {dst_traffic_class}, dst_region: {dst_region}, expected_latency ({total_load_in_dst_region} rps): {expected_latency_in_dst_region}, actual_latency: {actual_latency_in_dst_region}, load in {dst_region} for this ruleset: {ruleset_rps_in_dst_region}, pct of ruleset: {src_rules[src_rules['dst_cid'] == dst_region]['weight'].values[0]}")
     return overperformance
 
 def get_expected_latency_for_traffic_class(region: str, svc: str, traffic_class: str) -> int:
@@ -1411,12 +1407,14 @@ def get_expected_latency_for_rule(load: int, svc: str, methodpath: str) -> int:
     """
     global e2e_coef_dict
     ep = svc + "@" + methodpath
-    if svc not in e2e_coef_dict:
+    if svc not in e2e_coef_dict["us-west-1"]:
+        logger.info(f"get_expected_latency_for_rule: svc {svc} not found in e2e_coef_dict ({e2e_coef_dict['us-west-1'].keys()})")
         return -1
-    if ep not in e2e_coef_dict[svc]:
+    if ep not in e2e_coef_dict["us-west-1"][svc]:
+        logger.info(f"get_expected_latency_for_rule: ep {ep} not found in e2e_coef_dict ({e2e_coef_dict['us-west-1'][svc].keys()})")
         return -1
-    a = e2e_coef_dict[svc][ep][ep]
-    c = e2e_coef_dict[svc][ep]["b"]
+    a = e2e_coef_dict["us-west-1"][svc][ep][ep]
+    c = e2e_coef_dict["us-west-1"][svc][ep]["intercept"]
     # in form ax^2 + c
     return a * load * load + c
 
@@ -1437,76 +1435,6 @@ def write_latency(svc: str, avg_processing_latency: int, latency_dict: dict):
         historical_svc_latencies[svc] = list()
     historical_svc_latencies[svc].append(avg_processing_latency)
 
-
-## This is distributed jumping. 
-# @app.post('/hillclimbingPolicy') # from wasm
-# def handleHillclimbPolicy():
-#     global cur_hillclimb_latency
-#     global prev_hillclimb_latency
-#     global next_hillclimb_latency
-#     global last_policy_request
-#     global hillclimb_latency_lock
-#     global hillclimb_interval
-#     global last_policy_request_mutex
-#     svc = request.headers.get('x-slate-servicename').split("-us-")[0]
-#     # svc_trunc: remove -us-west-1 or -us-east-1 from the end
-#     podname = request.headers.get('x-slate-podname')[-5:]
-#     if hillclimb_interval == -1:
-#         logger.debug(f"hillclimbingPolicy for (pod {podname}): hillclimb_interval is -1, doing nothing")
-#         return ""
-#     last_policy_request_mutex.acquire(blocking=True)
-#     if svc not in last_policy_request:
-#         last_policy_request[svc] = 0
-#     # logger.debug(f"hillclimbingPolicy for (pod {podname}): svc: {svc}")
-#     hillclimb_latency_lock.acquire(blocking=True)
-#     if time.time() - last_policy_request[svc] > (hillclimb_interval - 2):
-#         # this is the first request after the interval
-#         # next to cur, and cur to prev, and clear next for the next interval
-#         # this basically "freezes" the current state, so subsequent requests in the same interval will be compared to this state
-#         # the reason we're doing this is because we don't know how many replicas are there for each service, 
-#         #  so we can't just copy states on the last request
-#         logger.debug(f"hillclimbingPolicy for (pod {podname}, svc {svc}): INTERVAL EXPIRED (diff {time.time() - last_policy_request[svc]}), copying states, len(next_hillclimb_latency): {len(next_hillclimb_latency.get(svc, {})) or 0}, len(cur_hillclimb_latency): {len(cur_hillclimb_latency.get(svc, {})) or 0}")
-#         if svc in next_hillclimb_latency and svc in cur_hillclimb_latency and len(next_hillclimb_latency[svc]) >= 2 and len(cur_hillclimb_latency[svc]) >= 2:
-#             add_to_global_history(cur_hillclimb_latency, next_hillclimb_latency, svc)
-#         if svc in cur_hillclimb_latency:
-#             prev_hillclimb_latency[svc] = dict()
-#             prev_hillclimb_latency[svc] = copy.deepcopy(cur_hillclimb_latency[svc])
-#         if svc in next_hillclimb_latency:
-#             cur_hillclimb_latency[svc] = dict()
-#             cur_hillclimb_latency[svc] = copy.deepcopy(next_hillclimb_latency[svc])
-#         next_hillclimb_latency[svc] = dict()
-#         logger.debug(f"new len(prev_hillclimb_latency): {len(prev_hillclimb_latency)}, new len(cur_hillclimb_latency): {len(cur_hillclimb_latency)}")
-#     last_policy_request[svc] = time.time()
-#     last_policy_request_mutex.release()
-#     if svc not in cur_hillclimb_latency or svc not in prev_hillclimb_latency:
-#         hillclimb_latency_lock.release()
-#         logger.debug(f"hillclimbingPolicy for (pod {podname}): svc: {svc} not in one of cur or prev, SKIPPING (this could be the first iteration)")
-#         if svc in cur_hillclimb_latency:
-#             # svc is in cur, but not in prev
-#             logger.debug(f"svc {svc} is in cur, but not in prev (first iteration) -- returning false") 
-#             # this is aritrary
-#             return "false"
-#         return ""
-#     cur_r2p = cur_hillclimb_latency[svc]
-#     prev_r2p = prev_hillclimb_latency[svc]
-#     # sum up the latency and num_reqs for both current and previous, across all pods and regions
-#     cur_latency_total = sum([cur_r2p[region][pod]["latency_total"] for region in cur_r2p for pod in cur_r2p[region]])
-#     cur_num_reqs = sum([cur_r2p[region][pod]["num_reqs"] for region in cur_r2p for pod in cur_r2p[region]])
-#     prev_latency_total = sum([prev_r2p[region][pod]["latency_total"] for region in prev_r2p for pod in prev_r2p[region]])
-#     prev_num_reqs = sum([prev_r2p[region][pod]["num_reqs"] for region in prev_r2p for pod in prev_r2p[region]])
-#     hillclimb_latency_lock.release()
-#     # calculate the average latency for both current and previous
-#     if cur_num_reqs == 0 or prev_num_reqs == 0:
-#         logger.debug(f"hillclimbingPolicy for (pod {podname}, svc {svc}): cur_num_reqs: {cur_num_reqs}, prev_num_reqs: {prev_num_reqs}, dodging division by zero")
-#         return ""
-#     cur_avg_latency = cur_latency_total / cur_num_reqs
-#     prev_avg_latency = prev_latency_total / prev_num_reqs
-#     logger.debug(f"hillclimbingPolicy for (pod {podname}, svc {svc}): cur_avg_latency: {cur_avg_latency} (latency total {cur_latency_total}, reqs {cur_num_reqs}), prev_avg_latency: {prev_avg_latency} (latency total {prev_latency_total}, reqs {prev_num_reqs})")
-
-#     if cur_avg_latency < prev_avg_latency:
-#         return "true"
-#     else:
-#         return "false"
 
 
 @app.post('/hillclimbingReport') # from wasm
@@ -3990,7 +3918,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_load_conditions, trigger="interval", seconds=10)
-    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=15)
+    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=20)
     scheduler.add_job(func=state_check, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)
     # scheduler.add_job(func=write_global_hillclimb_history_to_file, trigger="interval", seconds=15)
