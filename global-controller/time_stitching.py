@@ -305,7 +305,7 @@ def static_hash(value):
 def trace_df_to_endpoint_callgraph_table(given_df):
     ep_str_callgraph_table = dict()
     for tid in given_df["trace_id"].unique():
-        logger.info(f"trace_id: {tid}")
+        # logger.info(f"trace_id: {tid}")
         single_trace = given_df[given_df["trace_id"] == tid]
         ep_str_cg = singlejson_trace_to_endpoint_str_callgraph(single_trace)
         cg_key = get_callgraph_key(ep_str_cg)
@@ -315,7 +315,7 @@ def trace_df_to_endpoint_callgraph_table(given_df):
             logger.info(f"new callgraph key: {hash_key}, callgraph str {cg_key} in trace {tid}")
             ep_str_callgraph_table[hash_key] = ep_str_cg
             ## NOTE: It will only get one request type. For multiple request type, uncomment it.
-            # break
+            break
     return ep_str_callgraph_table
 
 def singlejson_trace_to_endpoint_str_callgraph(single_trace):

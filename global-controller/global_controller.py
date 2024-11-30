@@ -83,15 +83,15 @@ jumping_towards_optimizer = False
 placement = {}
 coef_dict = {}
 normalization_dict = {
-    "sslateingress@POST@/cart/checkout": {
-        "sslateingress@POST@/cart": 1,
-    },
-    "frontend@POST@/cart/checkout": {
-        "frontend@POST@/cart": 1.45,
-    },
-    "cartservice@POST@/hipstershop.CartService/GetCart": {
-        "cartservice@POST@/hipstershop.CartService/AddItem": 1.423,
-    },
+    # "sslateingress@POST@/cart/checkout": {
+    #     "sslateingress@POST@/cart": 1,
+    # },
+    # "frontend@POST@/cart/checkout": {
+    #     "frontend@POST@/cart": 1.45,
+    # },
+    # "cartservice@POST@/hipstershop.CartService/GetCart": {
+    #     "cartservice@POST@/hipstershop.CartService/AddItem": 1.423,
+    # },
 }
 model="poly"
 poly_coef_dict = {}
@@ -2234,9 +2234,9 @@ def get_root_node_rps(ep_str_callgraph_table):
     root_node_rps = dict()
     for hashed_cg_key in ep_str_callgraph_table:
         root_ep[hashed_cg_key] = opt_func.find_root_node(ep_str_callgraph_table[hashed_cg_key])
-        logger.debug(f"root_ep[{hashed_cg_key}]: {root_ep}")
+        logger.info(f"root_ep[{hashed_cg_key}]: {root_ep}")
     if len(root_ep) != 0:
-        logger.debug('root_node_rps,hashed_cg_key,region,svc_name,endpoint,rps')
+        logger.info('root_node_rps,hashed_cg_key,region,svc_name,endpoint,rps')
         for hashed_cg_key in root_ep:
             for region in aggregated_rps:
                 for svc_name in aggregated_rps[region]:
@@ -2247,7 +2247,7 @@ def get_root_node_rps(ep_str_callgraph_table):
                             if svc_name not in root_node_rps[region]:
                                 root_node_rps[region][svc_name] = dict()
                             root_node_rps[region][svc_name][endpoint] = aggregated_rps[region][svc_name][endpoint]
-                            logger.debug(f'root_node_rps,{hashed_cg_key},{region},{svc_name},{endpoint},{root_node_rps[region][svc_name][endpoint]}')
+                            logger.info(f'root_node_rps,{hashed_cg_key},{region},{svc_name},{endpoint},{root_node_rps[region][svc_name][endpoint]}')
     return root_node_rps
 
 
@@ -2310,6 +2310,16 @@ def get_total_svc_level_rps(aggregated_rps):
             for endpoint in aggregated_rps[region][svc]:
                 total_svc_level_rps[svc] += aggregated_rps[region][svc][endpoint]
     return total_svc_level_rps
+
+def get_total_endpoint_level_rps(aggregated_rps):
+    total_endpoint_level_rps = dict()
+    for region in aggregated_rps:
+        for svc in aggregated_rps[region]:
+            for endpoint in aggregated_rps[region][svc]:
+                if endpoint not in total_endpoint_level_rps:
+                    total_endpoint_level_rps[endpoint] = 0
+                total_endpoint_level_rps[endpoint] += aggregated_rps[region][svc][endpoint]
+    return total_endpoint_level_rps
 
 def get_svc_level_rps(aggregated_rps):
     svc_level_rps = dict()
@@ -2525,44 +2535,18 @@ def optimizer_entrypoint():
         global DOLLAR_PER_MS
         state = f"{temp_counter}-Optimizer running"
         optimizer_start_ts = time.time()
-        
-        ############################################################################
-        ############################################################################
-        # def normalize(heavy_svc, heavy_endpoint, light_svc, light_endpoint, ratio):
-        #     global aggregated_rps
-        #     global norm_aggregated_rps
-        #     norm_aggregated_rps = copy.deepcopy(aggregated_rps)
-            
-        #     def total_load_per_region():
-        #         total_load = dict()
-        #         for region in norm_aggregated_rps:
-        #             total_load[region] = 0
-        #             for svc in norm_aggregated_rps[region]:
-        #                 for ep in norm_aggregated_rps[region][svc]:
-        #                     total_load += norm_aggregated_rps[region][svc][ep]
-        #         return total_load
-            
-        #     for region in norm_aggregated_rps:
-        #         norm_aggregated_rps[region][heavy_svc][heavy_endpoint] += norm_aggregated_rps[region][light_svc][light_endpoint]/ratio
-        #         norm_aggregated_rps[region][light_svc][light_endpoint] += norm_aggregated_rps[region][heavy_svc][light_endpoint]*ratio
-                
-        #     norm_total_load = total_load_per_region()
-        #     return norm_total_load
-
-        # norm_total_load = normalize()
-        # for region in aggregated_rps:
-        #     for svc in aggregated_rps[region]:
-        #         for ep in aggregated_rps[region][svc]:
-        #             logger.debug(f"aggregated_rps, {region}, {svc}, {ep}, {aggregated_rps[region][svc][ep]}")
-        #             logger.debug(f"norm_aggregated_rps, {region}, {svc}, {ep}, {norm_aggregated_rps[region][svc][ep]}")
-        # for region in norm_total_load:
-        #     logger.debug(f"norm_total_load, {region}, {norm_total_load[region]}")
-        ############################################################################
-        ############################################################################
+        total_endpoint_level_rps = get_total_endpoint_level_rps(aggregated_rps)
+        total_ep_str_callgraph_rps = dict()
+        for hashed_cg_key in ep_str_callgraph_table:
+            total_ep_str_callgraph_rps[hashed_cg_key] = dict()
+            for parent_ep_str in ep_str_callgraph_table[hashed_cg_key]:
+                total_ep_str_callgraph_rps[hashed_cg_key][parent_ep_str] = total_endpoint_level_rps[parent_ep_str]
+                logger.info(f"total_ep_str_callgraph_rps[{hashed_cg_key}][{parent_ep_str}]: {total_ep_str_callgraph_rps[hashed_cg_key][parent_ep_str]}")
         
         cur_percentage_df, desc = opt.run_optimizer(\
             coef_dict, \
             aggregated_rps, \
+            total_ep_str_callgraph_rps, \
             placement, \
             svc_to_placement, \
             endpoint_to_placement, \
@@ -2927,9 +2911,11 @@ def filter_incomplete_trace_for_multi_traffic_class_in_df(given_df):
     given_df['num_span'] = given_df.groupby('trace_id')['span_id'].transform('count')
     conditions = [
         given_df['endpoint'] == "frontend@POST@/cart",
-        given_df['endpoint'] == "frontend@POST@/cart/checkout"
+        given_df['endpoint'] == "frontend@POST@/cart/checkout",
+        given_df['endpoint'] == "sslateingress@POST@/singlecore",
+        given_df['endpoint'] == "sslateingress@POST@/multicore",
     ]
-    values = [4, 8]
+    values = [4, 8, 2, 2]
     given_df['required_total_num_services'] = np.select(conditions, values, default=0)
     trace_ids_with_complete_spans = given_df[
         given_df['num_span'] == given_df['required_total_num_services']
@@ -3375,6 +3361,10 @@ def training_phase():
     print_len_df_trace(df_incomplete_traces, "training_phase, df_incomplete_traces-2")
     logger.info(f"filter_incomplete_trace_in_df took {int(time.time()-ts)}s")
     
+    logger.info(f"df_new_complete_traces.columns: {df_new_complete_traces.columns}")
+    for index, row in df_new_complete_traces.iterrows():
+        logger.debug(f"df_new_complete_traces, {row['cluster_id']}, {row['svc_name']}, {row['endpoint']}, {row['trace_id']}, {row['span_id']}, {row['st']}, {row['et']}, {row['rt']}, {row['xt']}, {row['ct']}, {row['call_size']}, {row['rps']}, {row['load_bucket']}")
+    
     ts = time.time()
     assert len(global_stitched_df) == 0
     global_stitched_df = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
@@ -3718,9 +3708,9 @@ def aggregated_rps_routine():
 
     # root_node_rps[region][svc_name][endpoint]: rps
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table)
-    for region in agg_root_node_rps:
-        # NOTE: hardcoded
-        agg_root_node_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"] = aggregated_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"]
+    # for region in agg_root_node_rps:
+    #     # NOTE: hardcoded
+    #     agg_root_node_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"] = aggregated_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"]
     
     # if check_root_node_rps_condition(agg_root_node_rps) > 0:
     record_endpoint_rps(aggregated_rps, temp_counter)
