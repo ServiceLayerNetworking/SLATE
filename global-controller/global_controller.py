@@ -419,7 +419,8 @@ def perform_jumping():
     logger.debug(f"loghill ruleset_overperformance: {ruleset_overperformance}")
 
 
-    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0 and False:
+    # if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0 and False:
+    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0:
         logger.info(f"loghill rules are different, stepping towards optimizer output, old rules:\n{compute_traffic_matrix(cur_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
         # here, we want to start defensive jumping towards the optimizer output.
         # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
@@ -1779,28 +1780,19 @@ def MCLB_routing_rule(src_svc, src_cid):
 
 
 
-def parse_stats_into_spans(body, given_svc_name, given_region, podname):
+def parse_stats_into_spans(body, given_svc_name):
     lines = body.split("\n")
-    # requestStats = lines[3:]
-    # requestStats = lines[2:]
-    
     spans = []
     response_time_filtering = 0
     path_filtering = 0
     rps_filtering = 0
-    if given_svc_name == "productcatalogservice":
+    if given_svc_name == "productcatalogservice" or given_svc_name == "currencyservice":
         return []
     for line in lines:
         if line[:3] != "us-":
             logger.debug(f"Skip this span. line[:3] != 'us-', line: {line}")
             continue
-    # for span_stat in requestStats:
-        # span_stat: "us-west-1 metrics-fake-ingress-us-west-1 GET /start 70904b1c08f35622387a6bb5c9141596 387a6bb5c9141596  1709763447436 1709763447540 0 GET@/start,0,18446744073709530962|"
-        # ss = ["us-west-1", "metrics-fake-ingress-us-west-1", "GET", "/start", "70904b1c08f35622387a6bb5c9141596", "387a6bb5c9141596", "1709763447436", "1709763447540", "0", "GET@/start,0,18446744073709530962|"]
         ss = line.split(" ")
-        # if len(ss) != 11:
-        #     logger.debug(f"ERROR, len(ss) != 11, (len(ss):{len(ss)}, ss:{ss})")
-        #     continue
         region = ss[0]
         serviceName = ss[1]
         if serviceName.find("-us-") != -1:
@@ -1904,7 +1896,7 @@ def write_spans_to_file():
                 with open(profile_output_file, "w") as file:
                     for span in list_of_span:
                         file.write(str(span)+"\n")
-            logger.debug(f"write_trace_str_to_file happened.")
+            logger.info(f"write {profile_output_file} happened.")
 
 def verify_return_df(return_df, src_region):
     global aggregated_rps
@@ -2052,6 +2044,7 @@ def handleProxyLoad():
             #     logger.info(f"ERROR: Skip per_pod_ep_rps, {endpoint}. this endpoint is not in stitched trace.")
     
     if svc_level_rps > 0:
+        # if ROUTING_RULE == "SLATE-with-jumping-global-continuous-profiling" or mode == "profile":
         if ROUTING_RULE == "SLATE-with-jumping-global-continuous-profiling":
             with list_of_body_mutex: # option 4
                 # with open("body.csv", "a") as f: # to avoid duplicated traces
@@ -2060,18 +2053,12 @@ def handleProxyLoad():
                 list_of_body.append(body) 
         
     if mode == "profile":
-        """
-        At this point, spans should at least pass all the basic filtering condition (region, svc, path, response time, rps)
-        The next set of filtering will happen during stitching (relative time, exclusive time, valid call graph, num endpoints)
-        given_traces structure:
-        given_traces[region][load_bucket][trace_id]['span'] = [span1, span2, ...]
-        given_traces[region][load_bucket][trace_id]['time'] = [time1, time2, ...]
-        """
-        spans = parse_stats_into_spans(body, svc, region, podname)
+        spans = parse_stats_into_spans(body, svc)
         for span in spans:
             list_of_span.append(span) # part of continuous profiling
         _, csv_string = local_and_failover_routing_rule(svc, region) # response to wasm
         return csv_string
+    
     elif mode == "runtime":
         if ROUTING_RULE == "LOCAL":
             _, csv_string =  local_and_failover_routing_rule(svc, region)
@@ -2467,7 +2454,7 @@ def optimizer_entrypoint():
         logger.warning(f"run optimizer only in SLATE, SLATE-with-jumping, SLATE-without-jumping or WATERFALL ROUTING_RULE. current ROUTING_RULE: {ROUTING_RULE}.")
         return
     if train_done == False:
-        logger.debug(f"runtime True, {ROUTING_RULE}, BUT run optimizer only after training. train_done: {train_done}, still_training: {still_training}.")
+        logger.warning(f"runtime True, {ROUTING_RULE}, BUT run optimizer only after training. train_done: {train_done}, still_training: {still_training}.")
         return
     if len(ep_str_callgraph_table) == 0:
         logger.error(f"!!! ERROR !!!: ep_str_callgraph_table is empty.")
@@ -2804,14 +2791,9 @@ def optimizer_entrypoint():
 
 
 def load_coef(coef_file="coef.csv"):
-    """
-    Load coefficients from a CSV file and structure them into a nested dictionary format.
-    The format includes the additional 'region' column, which organizes coefficients further by region.
-    """
     loaded_coef = dict()
     check_file_exist(coef_file)
     try:
-        # Updated column names to include 'region'
         coef_csv_col = ['region', 'svc_name', 'endpoint', 'feature', 'value']
         df = pd.read_csv(coef_file, names=coef_csv_col, header=None)
         
@@ -3290,16 +3272,21 @@ def new_train_latency_function_with_trace(model, df, degree):
     coef_dict = {}
     local_counter = temp_counter
     overhead = {}
-    for (region, svc_name, ep_str), ep_df in df.groupby(['cluster_id', 'svc_name', 'endpoint']):
-        coef_dict.setdefault(region, {}).setdefault(svc_name, {})
-        latency_func.setdefault(svc_name, {})
-        if model == "poly":
-            coef_dict[region][svc_name][ep_str] = new_fit_polynomial_regression(local_counter, region, svc_name, ep_df, degree, ep_str, overhead)
-        elif model == "mm1":
-            coef_dict[region][svc_name][ep_str] = new_fit_mm1_model(local_counter, region, svc_name, ep_df, ep_str)
-        else:
-            logger.error(f"ERROR: Unsupported model type '{model}' specified")
-            raise ValueError(f"Invalid model: {model}")
+    try:
+        for (region, svc_name, ep_str), ep_df in df.groupby(['cluster_id', 'svc_name', 'endpoint']):
+            coef_dict.setdefault(region, {}).setdefault(svc_name, {})
+            latency_func.setdefault(svc_name, {})
+            if model == "poly":
+                coef_dict[region][svc_name][ep_str] = new_fit_polynomial_regression(local_counter, region, svc_name, ep_df, degree, ep_str, overhead)
+            elif model == "mm1":
+                coef_dict[region][svc_name][ep_str] = new_fit_mm1_model(local_counter, region, svc_name, ep_df, ep_str)
+            else:
+                logger.error(f"ERROR: Unsupported model type '{model}' specified")
+                raise ValueError(f"Invalid model: {model}")
+    except Exception as e:
+        logger.error(f"failed to train latency function with error: {e}")
+        logger.error(f"df: {df}")
+        assert False
     logger.info(f"overhead took: {overhead}")
     logger.info(f"new_train_latency_function_with_trace end")
     return coef_dict
@@ -3360,10 +3347,6 @@ def training_phase():
     print_len_df_trace(df_new_complete_traces, "training_phase, df_new_complete_traces")
     print_len_df_trace(df_incomplete_traces, "training_phase, df_incomplete_traces-2")
     logger.info(f"filter_incomplete_trace_in_df took {int(time.time()-ts)}s")
-    
-    logger.info(f"df_new_complete_traces.columns: {df_new_complete_traces.columns}")
-    for index, row in df_new_complete_traces.iterrows():
-        logger.debug(f"df_new_complete_traces, {row['cluster_id']}, {row['svc_name']}, {row['endpoint']}, {row['trace_id']}, {row['span_id']}, {row['st']}, {row['et']}, {row['rt']}, {row['xt']}, {row['ct']}, {row['call_size']}, {row['rps']}, {row['load_bucket']}")
     
     ts = time.time()
     assert len(global_stitched_df) == 0
@@ -3746,6 +3729,7 @@ def runtime_model_update():
     global frontend_coef_history
     global state
     global global_stitched_df
+    global mode
     ts = time.time()
     with coef_dict_mutex:
         ts1 = time.time()
@@ -3776,6 +3760,12 @@ def runtime_model_update():
         # logger.info(f"mm1_coef_dict: {mm1_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
         check_negative_coef(coef_dict)
         record_continuous_coef_dict(coef_dict)
+    if mode == "profile":
+        header = True
+        if os.path.isfile("global_stitched_df.csv"):
+            header = False
+        global_stitched_df.to_csv("global_stitched_df.csv", index=False, mode='a', header=header)
+        global_stitched_df = pd.DataFrame()
     logger.info(f"runtime_model_update took {int(time.time() - ts)}s")
         
         
@@ -3892,18 +3882,22 @@ def update_traces():
     global required_total_num_services
     global ep_str_callgraph_table
     global ROUTING_RULE
-    if ROUTING_RULE != "SLATE-with-jumping-global-continuous-profiling":
+    global mode
+    if init_done == False:
+        logger.info(f"Train has not been done yet. train_done: {train_done}, init_done: {init_done}. Skip update_traces()")
+        return
+    if mode == "runtime" and ROUTING_RULE != "SLATE-with-jumping-global-continuous-profiling":
+    # if ROUTING_RULE != "SLATE-with-jumping-global-continuous-profiling":
         logger.info(f"ROUTING_RULE({ROUTING_RULE}) is not SLATE-with-jumping-global-continuous-profiling. Skip update_traces()")
         return
+    if mode == "profile":
+        logger.info(f"Running update_traces for profile!")
     ts = time.time()
     with list_of_body_mutex: # option 4
         temp = list()
-        body_traces = dict()
         for body in list_of_body:
-            # logger.info(f"body: {body}")
             for line in body.split('\n'):
                 result = re.split(r'[ ,;:|]+', line)
-                # logger.info(f"result: {result}")
                 """
                 result 14: ['us-south-1', 'sslateingress-us-south-1', 'POST', '/cart/checkout', '6f11db9eb19ab79ce26efcba89c37d74', 'e26efcba89c37d74', ' ', '1731636869805', '1731636869831', '0', 'POST@/cart/checkout', '11', '0', '']
                 """
@@ -3929,38 +3923,26 @@ def update_traces():
             df_new_traces['rps'] = df_new_traces['rps'].astype(int)
             df_new_traces['rps'] = df_new_traces['rps']*num_pod_of_this_region
             df_new_traces['load_bucket'] = (df_new_traces['rps']//load_bucket_size + 1).clip(lower=1)
-            # df_new_traces['load_bucket'] = ((df_new_traces['rps'] - (load_bucket_size // 2)) // load_bucket_size + 1).clip(lower=1)
             df_new_traces['added_time'] = time.time()
-            
             for region in df_new_traces['cluster_id'].unique():
                 for load_bucket in df_new_traces['load_bucket'].unique():
                     temp = df_new_traces[(df_new_traces['load_bucket']==load_bucket) & (df_new_traces['cluster_id']==region)]
                     logger.info(f"df_new_traces, {region}, load_bucket: {load_bucket}, len: {len(temp['trace_id'].unique())}")
-                
             if len(df_incomplete_traces) == 0:
                 df_incomplete_traces = df_new_traces
             else:
                 df_incomplete_traces = pd.concat([df_incomplete_traces, df_new_traces])
-                
-        
-    if not train_done:
-        logger.info(f"Train has not been done yet. train_done: {train_done}")
-        return
-    if not init_done:
-        logger.info(f"Init has not been done yet. init_done: {init_done}")
+    if mode == "runtime" and (not train_done or not init_done):
+        logger.info(f"Train has not been done yet. train_done: {train_done}, init_done: {init_done}. Skip filtering and stitching in update_traces()")
         return
     df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_in_df(df_incomplete_traces)
     print_len_df_trace(df_incomplete_traces, "update_traces/df_new_complete_traces")
     
     df_new_stitched_tracess = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
-    # df_new_stitched_tracess = tst.stitch_time_in_df_concurrent(df_new_complete_traces, ep_str_callgraph_table, max_workers=8)
     print_len_df_trace(df_incomplete_traces, "update_traces/df_new_stitched_tracess")
     
     global_stitched_df = pd.concat([global_stitched_df, df_new_stitched_tracess], ignore_index=True)
     print_len_df_trace(df_incomplete_traces, "update_traces/global_stitched_df")
-    
-    # global_stitched_df = random_sampling_per_load_bucket_in_df(global_stitched_df, 0.9, max_num_trace)
-    print_len_df_trace(df_incomplete_traces, "update_traces/global_stitched_df-sampled")
     
     global_stitched_df = sliding_window(global_stitched_df, max_num_trace)
     print_len_df_trace(df_incomplete_traces, "update_traces/global_stitched_df-sliding_windowed")
