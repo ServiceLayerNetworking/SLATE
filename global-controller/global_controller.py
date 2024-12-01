@@ -420,7 +420,7 @@ def perform_jumping():
 
 
     # if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0 and False:
-    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0:
+    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1) and len(percentage_df) > 0:
         logger.info(f"loghill rules are different, stepping towards optimizer output, old rules:\n{compute_traffic_matrix(cur_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
         # here, we want to start defensive jumping towards the optimizer output.
         # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
@@ -2528,7 +2528,7 @@ def optimizer_entrypoint():
             total_ep_str_callgraph_rps[hashed_cg_key] = dict()
             for parent_ep_str in ep_str_callgraph_table[hashed_cg_key]:
                 total_ep_str_callgraph_rps[hashed_cg_key][parent_ep_str] = total_endpoint_level_rps[parent_ep_str]
-                logger.info(f"total_ep_str_callgraph_rps[{hashed_cg_key}][{parent_ep_str}]: {total_ep_str_callgraph_rps[hashed_cg_key][parent_ep_str]}")
+                logger.debug(f"total_ep_str_callgraph_rps[{hashed_cg_key}][{parent_ep_str}]: {total_ep_str_callgraph_rps[hashed_cg_key][parent_ep_str]}")
         
         cur_percentage_df, desc = opt.run_optimizer(\
             coef_dict, \
@@ -3114,21 +3114,26 @@ def initialize_global_datastructure():
                     
 def check_negative_coef(coef_dict):
     # NOTE: latency function should be strictly increasing function
-    for region in coef_dict: # svc_name: metrics-db
-        for svc_name in coef_dict[region]: # svc_name: metrics-db
-            for ep_str in coef_dict[region][svc_name]: # ep_str: metrics-db@GET@/dbcall
-                for feature_ep in coef_dict[region][svc_name][ep_str]: # feature_ep: 'metrics-db@GET@/dbcall' or 'intercept'
-                    if coef_dict[region][svc_name][ep_str][feature_ep] < 0:
-                        if feature_ep == "intercept":
-                            load_bucket_0_xt = calc_avg_exclusive_time_of_load_bucket(region, svc_name, ep_str, target_load_bucket=1)
-                            corrected_intercept = 1
-                            if load_bucket_0_xt > 0:
-                                corrected_intercept = load_bucket_0_xt
-                            logger.warning(f"fix negative {feature_ep},{region},{svc_name}. Set it to {corrected_intercept}.")
-                            coef_dict[region][svc_name][ep_str]['intercept'] = corrected_intercept
-                        else:
-                            coef_dict[region][svc_name][ep_str][feature_ep] = 0
-                            logger.warning(f"fix negative {feature_ep},{region},{svc_name}. Set it to 0.")
+    try:
+        for region in coef_dict: # svc_name: metrics-db
+            for svc_name in coef_dict[region]: # svc_name: metrics-db
+                for ep_str in coef_dict[region][svc_name]: # ep_str: metrics-db@GET@/dbcall
+                    for feature_ep in coef_dict[region][svc_name][ep_str]: # feature_ep: 'metrics-db@GET@/dbcall' or 'intercept'
+                        if coef_dict[region][svc_name][ep_str][feature_ep] < 0:
+                            if feature_ep == "intercept":
+                                load_bucket_0_xt = calc_avg_exclusive_time_of_load_bucket(region, svc_name, ep_str, target_load_bucket=1)
+                                corrected_intercept = 1
+                                if load_bucket_0_xt > 0:
+                                    corrected_intercept = load_bucket_0_xt
+                                logger.warning(f"fix negative {feature_ep},{region},{svc_name}. Set it to {corrected_intercept}.")
+                                coef_dict[region][svc_name][ep_str]['intercept'] = corrected_intercept
+                            else:
+                                coef_dict[region][svc_name][ep_str][feature_ep] = 0
+                                logger.warning(f"fix negative {feature_ep},{region},{svc_name}. Set it to 0.")
+    except Exception as e:
+        logger.error(f"!!! ERROR !!!: check_negative_coef failed with error: {e}")
+        logger.error(f"coef_dict: {coef_dict}")
+        assert False
                             
                             
 def set_zero_coef(coef_dict):
@@ -3350,7 +3355,13 @@ def training_phase():
     
     ts = time.time()
     assert len(global_stitched_df) == 0
-    global_stitched_df = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
+    
+    ## single-thread
+    # global_stitched_df = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
+    
+    ## multi-thread
+    global_stitched_df = tst.stitch_time_in_df_parallel(df_new_complete_traces, ep_str_callgraph_table, num_workers=8)
+    
     # global_stitched_df = tst.stitch_time_in_df_concurrent(df_new_complete_traces, ep_str_callgraph_table, max_workers=8)
     print_len_df_trace(global_stitched_df, "training_phase, global_stitched_df")
     logger.info(f"stitch_time_in_df took {int(time.time()-ts)}s")
@@ -3738,7 +3749,7 @@ def runtime_model_update():
         elif model == "poly":
             ts2 = time.time()
             coef_dict = new_train_latency_function_with_trace("poly", global_stitched_df, degree=degree)
-            print_coef_dict("runtime_model_update")
+            # print_coef_dict("runtime_model_update")
             
             logger.info(f"new_train_latency_function_with_trace, runtime {int(time.time() - ts2)}s")
         else:
@@ -3794,8 +3805,8 @@ def sliding_window(df, max_num_trace):
             load_bucket_range = [load_bucket_size * (load_bucket - 1), load_bucket_size * load_bucket - 1]
             logger.info(f"Sliding window applied: region {region},load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {count} -> {filtered_count}")
         else:
-            logger.debug(
-                f"No sliding window applied: region {region}, load_bucket[{load_bucket}]: {count}"
+            logger.info(
+                f"No sliding window applied: region {region}, load_bucket[{load_bucket}]: {count} < {max_num_trace}"
             )
     return filtered_df
 
@@ -3936,16 +3947,17 @@ def update_traces():
         logger.info(f"Train has not been done yet. train_done: {train_done}, init_done: {init_done}. Skip filtering and stitching in update_traces()")
         return
     df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_in_df(df_incomplete_traces)
-    print_len_df_trace(df_incomplete_traces, "update_traces/df_new_complete_traces")
+    print_len_df_trace(df_new_complete_traces, "update_traces/df_new_complete_traces")
+    print_len_df_trace(df_incomplete_traces, "update_traces/df_incomplete_traces")
     
     df_new_stitched_tracess = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
-    print_len_df_trace(df_incomplete_traces, "update_traces/df_new_stitched_tracess")
+    print_len_df_trace(df_new_stitched_tracess, "update_traces/df_new_stitched_traces")
     
     global_stitched_df = pd.concat([global_stitched_df, df_new_stitched_tracess], ignore_index=True)
-    print_len_df_trace(df_incomplete_traces, "update_traces/global_stitched_df")
+    print_len_df_trace(global_stitched_df, "update_traces/global_stitched_df")
     
     global_stitched_df = sliding_window(global_stitched_df, max_num_trace)
-    print_len_df_trace(df_incomplete_traces, "update_traces/global_stitched_df-sliding_windowed")
+    print_len_df_trace(global_stitched_df, "update_traces/global_stitched_df-sliding_windowed")
     
     runtime_model_update()
     logger.info(f"counter[{temp_counter}], update_traces ends, took {int(time.time() - ts)}s")
