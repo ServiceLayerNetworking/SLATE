@@ -381,7 +381,7 @@ func addInboundLatency(method, path string, latencyMs int64, retries int) {
 
 	shared.IncrementSharedData(inboundLatencyAvgKey, latencyMs)
 	shared.IncrementSharedData(inboundLatencyTotal, 1)
-	shared.AddToSharedDataList(shared.InboundLatencyListKey(method, path), fmt.Sprintf("%d", latencyMs))
+	//shared.AddToSharedDataList(shared.InboundLatencyListKey(method, path), fmt.Sprintf("%d", latencyMs))
 }
 
 // AddTracedRequest adds a traceId to the set of traceIds we are tracking (this is collected every Tick and sent
@@ -523,7 +523,7 @@ func (h *httpContext) TimestampListAdd(method string, path string) {
 		}
 		readPos := binary.LittleEndian.Uint64(readPosBytes)
 		if readPos == 0 {
-			// either (1) requests are coming in so fast that none have been evicted yet, or (2) another thread
+			// either (1) requests are coming in so fast that none have been evicted yet, or (2) another thread`1
 			// already rotated the list
 			return
 		}
