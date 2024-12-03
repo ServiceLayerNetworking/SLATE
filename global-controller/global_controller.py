@@ -62,6 +62,7 @@ pd.set_option('display.width', 1000)
 
 df_incomplete_traces = {}
 global_stitched_df = {} # it will be initialized as a dataframe
+new_global_stitched_df = {} # it will be initialized as a dataframe
 
 trace_locks = {}
 aggregated_rps = {} # dict of region -> svcname -> endpoint -> rps
@@ -915,7 +916,7 @@ def compute_traffic_matrix(df, src_service="sslateingress", dst_service=""):
     # Ensure necessary columns are present
     required_columns = {'src_svc', 'dst_svc', 'dst_cid', 'dst_endpoint', 'weight', 'src_cid'}
     if not required_columns.issubset(df.columns):
-        raise ValueError(f"DataFrame must contain the following columns: {required_columns}, but has columns: {df.columns}")
+        return pd.DataFrame()
 
     # Filter the DataFrame for the specified source and destination services
     filtered = df[
@@ -1407,17 +1408,21 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, traffic_class: str, overp
 
 
 def get_expected_latency_for_rule(load: int, svc: str, methodpath: str) -> int:
+    ## Should we do?
+    # return -1
+    
     """
     get_expected_latency_for_rule will calculate the expected e2e latency for a given rule based on the current load conditions.
     """
+    region = "us-west-1"
     global e2e_coef_dict
     ep = svc + "@" + methodpath
-    if svc not in e2e_coef_dict:
+    if svc not in e2e_coef_dict[region]:
         return -1
-    if ep not in e2e_coef_dict[svc]:
+    if ep not in e2e_coef_dict[region][svc]:
         return -1
-    a = e2e_coef_dict[svc][ep][ep]
-    c = e2e_coef_dict[svc][ep]["b"]
+    a = e2e_coef_dict[region][svc][ep][ep]
+    c = e2e_coef_dict[region][svc][ep]["intercept"]
     # in form ax^2 + c
     return a * load * load + c
 
@@ -2042,15 +2047,13 @@ def handleProxyLoad():
             # if endpoint in endpoint_to_placement: # BUG: endpoint_to_placement will be updated only after the initialize_global_datastructure. So, endpoint will not be initialized if we use this if condition before the initialize_global_datastructure. Hence, I commented it. But how did it work before!?
             # else:
             #     logger.info(f"ERROR: Skip per_pod_ep_rps, {endpoint}. this endpoint is not in stitched trace.")
-    
     if svc_level_rps > 0:
         # if ROUTING_RULE == "SLATE-with-jumping-global-continuous-profiling" or mode == "profile":
         if ROUTING_RULE == "SLATE-with-jumping-global-continuous-profiling":
             with list_of_body_mutex: # option 4
-                # with open("body.csv", "a") as f: # to avoid duplicated traces
-                #     f.write(body)
-                ## option 2
                 list_of_body.append(body) 
+                # with open("body.csv", "a") as f:
+                #     f.write(body)
         
     if mode == "profile":
         spans = parse_stats_into_spans(body, svc)
@@ -2407,8 +2410,8 @@ def write_optimizer_output(temp_counter, percentage_df, desc, fn):
         '''
         column of sim_percentage_df dataframe: ['counter', 'src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint', 'src_cid', 'dst_cid', 'flow', 'total', 'weight']
         '''
-        # logger.info(f"sim_percentage_df:\n{sim_percentage_df[sim_percentage_df['src_svc']=='sslateingress'].to_csv()}")
-        logger.info(f"sim_percentage_df:\n{sim_percentage_df.to_csv()}")
+        logger.info(f"sim_percentage_df:\n{sim_percentage_df[sim_percentage_df['src_svc']=='sslateingress'].to_csv()}")
+        # logger.info(f"sim_percentage_df:\n{sim_percentage_df.to_csv()}")
         
 
 
@@ -2549,7 +2552,7 @@ def optimizer_entrypoint():
             max_rps = 1000, \
             normalization_dict=normalization_dict)
         state = "empty"
-        logger.info(f"optimizer took {int(time.time()-optimizer_start_ts)}s")
+        logger.info(f"optimizer takes {int(time.time()-optimizer_start_ts)}s")
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
     elif ROUTING_RULE == "WATERFALL2":
@@ -2888,37 +2891,50 @@ def filter_incomplete_traces(given_traces):
     return ret_traces
 
 
+# def filter_incomplete_trace_for_multi_traffic_class_in_df(given_df):
+#     global required_total_num_services
+#     given_df['num_span'] = given_df.groupby('trace_id')['span_id'].transform('count')
+#     conditions = [
+#         given_df['endpoint'] == "frontend@POST@/cart",
+#         given_df['endpoint'] == "frontend@POST@/cart/checkout",
+#         given_df['endpoint'] == "sslateingress@POST@/singlecore",
+#         given_df['endpoint'] == "sslateingress@POST@/multicore",
+#     ]
+#     values = [4, 8, 2, 2]
+#     given_df['required_total_num_services'] = np.select(conditions, values, default=0)
+#     trace_ids_with_complete_spans = given_df[given_df['num_span'] == given_df['required_total_num_services']]['trace_id'].unique()
+#     df_complete_traces = given_df[given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+#     given_df = given_df[~given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+#     return df_complete_traces, given_df
+
 def filter_incomplete_trace_for_multi_traffic_class_in_df(given_df):
-    global required_total_num_services
-    given_df['num_span'] = given_df.groupby('trace_id')['span_id'].transform('count')
+    working_df = given_df.copy()
+    working_df['num_span'] = working_df.groupby('trace_id')['span_id'].transform('count')
     conditions = [
-        given_df['endpoint'] == "frontend@POST@/cart",
-        given_df['endpoint'] == "frontend@POST@/cart/checkout",
-        given_df['endpoint'] == "sslateingress@POST@/singlecore",
-        given_df['endpoint'] == "sslateingress@POST@/multicore",
+        working_df['endpoint'] == "frontend@POST@/cart",
+        working_df['endpoint'] == "frontend@POST@/cart/checkout",
+        working_df['endpoint'] == "sslateingress@POST@/singlecore",
+        working_df['endpoint'] == "sslateingress@POST@/multicore",
     ]
     values = [4, 8, 2, 2]
-    given_df['required_total_num_services'] = np.select(conditions, values, default=0)
-    trace_ids_with_complete_spans = given_df[
-        given_df['num_span'] == given_df['required_total_num_services']
-    ]['trace_id'].unique()
-    df_complete_traces = given_df[given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
-    given_df = given_df[~given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
-    return df_complete_traces, given_df
+    working_df['required_total_num_services'] = np.select(conditions, values, default=0)
+    trace_ids_with_complete_spans = working_df[working_df['num_span'] == working_df['required_total_num_services']]['trace_id'].unique()
+    df_complete = working_df[working_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+    df_incom = working_df[~working_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+    return df_complete, df_incom
 
 
+"""
+NOTE: This is a problem. Two traffic classes will have different number of spans for a complete trace.
+"""    
 def filter_incomplete_trace_in_df(given_df):
+    working_df = given_df.copy()
     global required_total_num_services
-    given_df['num_span'] = given_df.groupby('trace_id')['span_id'].transform('count')
-
-    """
-    NOTE: This is a problem. Two traffic classes will have different number of spans for a complete trace.
-    """    
-    trace_ids_with_complete_spans = given_df[given_df['num_span'] == required_total_num_services]['trace_id'].unique()
-    
-    df_complete_traces = given_df[given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
-    given_df = given_df[~given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
-    return df_complete_traces, given_df
+    working_df['num_span'] = working_df.groupby('trace_id')['span_id'].transform('count')
+    trace_ids_with_complete_spans = working_df[working_df['num_span'] == required_total_num_services]['trace_id'].unique()
+    df_complete_traces = working_df[working_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+    working_df = working_df[~working_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+    return df_complete_traces, working_df
 
 
 def init_max_capacity_per_service(capacity):
@@ -3018,6 +3034,332 @@ def get_placement_from_df(df):
             temp[region] = set()
         temp[region].add(svc)
     return temp
+                    
+def check_negative_coef(coef_dict):
+    # NOTE: latency function should be strictly increasing function
+    try:
+        for region in coef_dict: # svc_name: metrics-db
+            for svc_name in coef_dict[region]: # svc_name: metrics-db
+                for ep_str in coef_dict[region][svc_name]: # ep_str: metrics-db@GET@/dbcall
+                    for feature_ep in coef_dict[region][svc_name][ep_str]: # feature_ep: 'metrics-db@GET@/dbcall' or 'intercept'
+                        if coef_dict[region][svc_name][ep_str][feature_ep] < 0:
+                            if feature_ep == "intercept":
+                                load_bucket_0_xt = calc_avg_exclusive_time_of_load_bucket(global_stitched_df, region, svc_name, ep_str, target_load_bucket=1)
+                                corrected_intercept = 1
+                                if load_bucket_0_xt > 0:
+                                    corrected_intercept = load_bucket_0_xt
+                                logger.warning(f"fix negative {feature_ep},{region},{svc_name}. Set it to {corrected_intercept}.")
+                                coef_dict[region][svc_name][ep_str]['intercept'] = corrected_intercept
+                            else:
+                                coef_dict[region][svc_name][ep_str][feature_ep] = 0
+                                logger.warning(f"fix negative {feature_ep},{region},{svc_name}. Set it to 0.")
+    except Exception as e:
+        logger.error(f"!!! ERROR !!!: check_negative_coef failed with error: {e}")
+        logger.error(f"coef_dict: {coef_dict}")
+        assert False
+                            
+                            
+def set_zero_coef(coef_dict):
+    for region in coef_dict:
+        for svc_name in coef_dict[region]:
+            for ep_str in coef_dict[region][svc_name]:
+                for feature_ep in coef_dict[region][svc_name][ep_str]:
+                    if feature_ep == "b":
+                        coef_dict[region][svc_name][ep_str][feature_ep] = 0
+                    else:
+                        coef_dict[region][svc_name][ep_str][feature_ep] = 0
+                    
+                    
+def record_continuous_coef_dict(coef_dict):
+    global temp_counter
+    with open("continuous_coef_dict.csv", "a") as f:
+        for region in coef_dict:
+            for svc_name in coef_dict[region]:
+                for ep_str in coef_dict[region][svc_name]:
+                    f.write(f'{temp_counter},{region},{svc_name},{ep_str},{coef_dict[region][svc_name][ep_str]}\n')
+        f.write("-------------------------------\n")
+
+def new_read_trace_csv(trace_csv):
+    col = ['cluster_id','svc_name','method','url','trace_id','span_id','parent_span_id','st','et','rt','xt','ct','call_size','inflight_dict','rps_dict']
+    try:
+        df = pd.read_csv(trace_csv, names=col, header=None)
+        df['endpoint'] = df['svc_name'] + '@' + df['method'] + '@' + df['url']
+        df['inflight'] = df['inflight_dict'].apply(lambda x: int(x.split(':')[1].split('|')[0]))
+        df['rps'] = df['rps_dict'].apply(lambda x: int(x.split(':')[1].split('|')[0]))
+        df['added_time'] = np.random.random(len(df)) * 100
+        df['load_bucket'] = (df['rps'] // load_bucket_size + 1).clip(lower=1)
+        df['trace_id'] = df['cluster_id'].astype(str) + "-" + df['trace_id'].astype(str) # needed because replicate.py uses the same trace_id. make trace id in each region unique
+        df.drop(columns=['inflight_dict', 'rps_dict'], inplace=True)
+    except Exception as e:
+        logger.error(f"!!! ERROR !!!: failed to read {trace_csv} with error: {e}")
+        assert False
+    return df
+
+
+def new_fit_mm1_model(local_counter, region, svc_name, df, ep_str):
+    from scipy.optimize import curve_fit
+    exclusive_time_list = df["xt"].tolist()
+    max_rps = df["rps"].max()
+    constant = 1.05 * max_rps
+    def mm1_model(u, a, b):
+        return (a / (constant - u)) + b
+    popt, _ = curve_fit(mm1_model, df["rps"], exclusive_time_list, maxfev=10000)
+    return {ep_str: popt[0], 'intercept': popt[1]}
+
+
+def save_polynomial_plot(rps_list, exclusive_time_list, response_time_list, model, degree, region, svc_name, local_counter):
+    plt.figure()
+    plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt", marker='x')
+    plt.scatter(rps_list, response_time_list, color='green', alpha=0.5, label="rt")
+    
+    # Generate line plot
+    xplot = np.linspace(0, max(rps_list), 1000)
+    yplot = model.coef_[0] * xplot**degree + model.coef_[1]
+    plt.plot(xplot, yplot, color='blue', label=f"a: {model.coef_[0]:.8f}, b: {model.coef_[1]:.8f}")
+    
+    # Save the plot
+    if "poly" not in os.listdir():
+        os.mkdir("poly")
+    local_counter = str(local_counter).zfill(4)
+    fn = f"poly/poly-{region}-{svc_name}-{local_counter}.pdf"
+    plt.title(f"{fn}")
+    plt.xlabel("RPS")
+    plt.ylabel("Exclusive Time")
+    plt.legend(loc='upper left')
+    plt.xlim(left=0)
+    plt.ylim(0, 3000)
+    plt.savefig(fn, format='pdf', bbox_inches='tight')
+    logger.info(f"Saved the plot to {fn}")
+    plt.close()
+
+
+def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, ep_str, overhead):
+    ts = time.time()
+    rps_list = df["rps"].tolist()
+    exclusive_time_list = df["xt"].tolist()
+    response_time_list = df["rt"].tolist()
+    temp = np.array([x**degree for x in rps_list]).reshape(-1, 1)  # Reshape to 2D
+    X_transformed = np.hstack((temp, np.ones((len(rps_list), 1))))
+    model = LinearRegression(fit_intercept=False)
+    model.fit(X_transformed, exclusive_time_list)
+    overhead["curve_fit"] = overhead.get("curve_fit", 0) + time.time()-ts
+    
+    ts = time.time()
+    if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
+        plot_executor.submit(
+            save_polynomial_plot,
+            rps_list,
+            exclusive_time_list,
+            response_time_list,
+            copy.deepcopy(model),
+            degree,
+            region,
+            svc_name,
+            local_counter
+        )
+    overhead["plot"] = overhead.get("plot", 0) + time.time() - ts
+    
+    ##################################################################
+    ## Bottleneck!!!
+    # if svc_name in ["frontend"] and region in ["us-west-1"]:
+    # ts = time.time()
+    # if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
+    #     plt.figure()
+    #     plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt", marker='x')
+    #     plt.scatter(rps_list, response_time_list, color='green', alpha=0.5, label="rt")
+    #     # Line plot
+    #     xplot = np.linspace(0, max(rps_list), 1000)
+    #     yplot = model.coef_[0] * xplot**degree + model.coef_[1]
+    #     plt.plot(xplot, yplot, color='blue', label=f"a: {model.coef_[0]:.8f}, b: {model.coef_[1]:.8f}")
+    #     # Save the plot
+    #     if "poly" not in os.listdir():
+    #         os.mkdir("poly")
+    #     fn = f"poly/poly-{region}-{svc_name}-{local_counter}.pdf"
+    #     plt.title(f"{fn}")
+    #     plt.xlabel("RPS")
+    #     plt.ylabel("Exclusive Time")
+    #     plt.legend(loc='upper left')
+    #     plt.savefig(fn, format='pdf', bbox_inches='tight')
+    #     logger.info(f"Saved the plot to {fn}")
+    #     plt.close()
+    # overhead["plot"] = overhead.get("plot", 0) + time.time()-ts
+    #############################################################
+    return {ep_str: model.coef_[0], 'intercept': model.coef_[1]}
+
+def print_coef_dict(msg=""):
+    global coef_dict
+    for region in coef_dict:
+        for svc_name in coef_dict[region]:
+            for ep_str in coef_dict[region][svc_name]:
+                for feature in coef_dict[region][svc_name][ep_str]:
+                    logger.info(f"coef_dict,{msg},{region},{svc_name},{ep_str},{feature[:8]},{coef_dict[region][svc_name][ep_str][feature]:.8f}")
+
+def new_train_latency_function_with_trace(model, df, degree):
+    logger.info(f"new_train_latency_function_with_trace start, model: {model}, degree: {degree}")
+    coef_dict = {}
+    local_counter = temp_counter
+    overhead = {}
+    try:
+        for (region, svc_name, ep_str), ep_df in df.groupby(['cluster_id', 'svc_name', 'endpoint']):
+            coef_dict.setdefault(region, {}).setdefault(svc_name, {})
+            latency_func.setdefault(svc_name, {})
+            if model == "poly":
+                coef_dict[region][svc_name][ep_str] = new_fit_polynomial_regression(local_counter, region, svc_name, ep_df, degree, ep_str, overhead)
+            elif model == "mm1":
+                coef_dict[region][svc_name][ep_str] = new_fit_mm1_model(local_counter, region, svc_name, ep_df, ep_str)
+            else:
+                logger.error(f"ERROR: Unsupported model type '{model}' specified")
+                raise ValueError(f"Invalid model: {model}")
+    except Exception as e:
+        logger.error(f"failed to train latency function with error: {e}")
+        logger.error(f"df: {df}")
+        assert False
+    logger.info(f"overhead took: {overhead}")
+    logger.info(f"new_train_latency_function_with_trace end")
+    return coef_dict
+
+def print_len_df_trace(df, msg):
+    if "cluster_id" not in df.columns:
+        logger.error(f"{msg}, empty df_trace")
+        return
+    for region in df["cluster_id"].unique():
+        num_trace = len(df[df['cluster_id']==region]['trace_id'].unique())
+        logger.info(f"{msg}, region: {region}, len: {num_trace}")
+
+
+def training_phase():
+    global coef_dict
+    global poly_coef_dict
+    global mm1_coef_dict
+    global e2e_coef_dict
+    global placement
+    global all_endpoints
+    global svc_to_placement
+    global endpoint_to_placement
+    global endpoint_to_cg_key
+    global ep_str_callgraph_table
+    global mode
+    global temp_counter
+    global train_done
+    global train_start
+    global trainig_input_trace_file
+    global max_capacity_per_service
+    global degree
+    global init_done
+    global state
+    global still_training
+    global global_stitched_df
+    global df_incomplete_traces
+    if os.path.isfile(trainig_input_trace_file) == False: # trace.csv
+        logger.warning(f"{trainig_input_trace_file} does not exist.")
+        return
+    if still_training:
+        logger.warning(f"Still training. Skip training_phase()")
+        return
+    if init_done:
+        logger.debug(f"Return trianing_phase routine. reason: Training initialization is done.")
+        return
+    logger.warning("Training starts")
+    start_ts = time.time()
+    still_training = True
+    ts = time.time()
+    df_incomplete_traces = new_read_trace_csv(trainig_input_trace_file)
+    
+    print_len_df_trace(df_incomplete_traces, "training_phase, df_incomplete_traces-1")
+    logger.info(f"new_read_trace_csv took {int(time.time()-ts)}s")
+    
+    ts = time.time()
+    # df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_in_df(df_incomplete_traces)
+    df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_for_multi_traffic_class_in_df(df_incomplete_traces)
+    
+    print_len_df_trace(df_new_complete_traces, "training_phase, df_new_complete_traces")
+    print_len_df_trace(df_incomplete_traces, "training_phase, df_incomplete_traces-2")
+    logger.info(f"filter_incomplete_trace_in_df took {int(time.time()-ts)}s")
+    
+    ts = time.time()
+    assert len(global_stitched_df) == 0
+    
+    ## single-threaded
+    global_stitched_df = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
+    ## multi-threaded
+    # global_stitched_df = tst.stitch_time_in_df_parallel(df_new_complete_traces, ep_str_callgraph_table, num_workers=8)
+    
+    print_len_df_trace(global_stitched_df, "training_phase, global_stitched_df")
+    logger.info(f"stitch_time_in_df took {int(time.time()-ts)}s")
+    
+    for region in global_stitched_df['cluster_id'].unique():
+        for load_bucket in global_stitched_df['load_bucket'].unique():
+            temp = global_stitched_df[(global_stitched_df['load_bucket']==load_bucket) & (global_stitched_df['cluster_id']==region)]
+            logger.info(f"global_stitched_df, {region}, load_bucket: {load_bucket}, len: {len(temp['trace_id'].unique())}")
+    
+    ts = time.time()
+    initialize_global_datastructure()
+    logger.info(f"initialize_global_datastructure took {int(time.time()-ts)}s")
+    
+    init_done = True
+    if mode != "runtime":
+        logger.debug(f"It is not runtime mode. Skip training. current mode: {mode}")
+        return
+    if train_start:
+        logger.debug(f"Training is already started.")
+        return
+    if train_done:
+        logger.debug(f"Training was done. Training is required only once")
+        return
+    train_start = True
+    logger.info(f"data preprocessing took {int(time.time() - start_ts)}s")
+    if degree <= 0:
+        logger.error(f"ERROR: degree is not valid. degree: {degree}")
+        assert False
+    ## NOTE: No load_coef, fit the function from scratch
+    if load_coef_flag: # Load
+        try:
+            coef_dict = load_coef(coef_file="coef.csv")
+            if coef_dict != None:
+                check_negative_coef(coef_dict)
+            e2e_coef_dict = load_coef(coef_file="e2e-coef.csv")
+            if e2e_coef_dict != None:
+                check_negative_coef(e2e_coef_dict)
+        except Exception as e:
+            logger.error(f"!!! ERROR !!!: failed to load coef with error: {e}")
+            state = "[!!! PANIC !!!] load_coef() in training_phase()"
+            assert False
+        print_coef_dict("load_coef")
+    else: # Train
+        with coef_dict_mutex:
+            ts = time.time()
+            coef_dict = new_train_latency_function_with_trace("poly", global_stitched_df,   degree=2) # or "mm1"
+            # print_coef_dict("training_phase")
+            logger.info(f"new_train_latency_function_with_trace took {int(time.time()-ts)}s")
+            logger.info(f"coef_dict: {coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
+            for region in coef_dict:
+                if region not in frontend_coef_history:
+                    frontend_coef_history[region] = list()
+                frontend_coef_history[region].append([coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'], coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['intercept']])
+            check_negative_coef(coef_dict)
+            record_continuous_coef_dict(coef_dict)
+    if ROUTING_RULE == "WATERFALL" or ROUTING_RULE == "WATERFALL2":
+        set_zero_coef(coef_dict)
+    with open("coefficient.csv", "w") as f:
+        f.write("svc_name, endpoint, coef\n")
+        for region in coef_dict:
+            for svc_name in coef_dict[region]:
+                for ep_str in coef_dict[region][svc_name]:
+                    logger.debug(f'final coef_dict,{region},{svc_name},{coef_dict[region][svc_name][ep_str]}')
+                    f.write(f'{svc_name},{ep_str},{coef_dict[region][svc_name][ep_str]}\n')
+    with open("e2e-coefficient.csv", "w") as f:
+        f.write("svc_name, endpoint, coef\n")
+        for svc_name in e2e_coef_dict:
+            for ep_str in e2e_coef_dict[svc_name]:
+                logger.debug(f'final e2e_coef_dict,{svc_name},{e2e_coef_dict[svc_name][ep_str]}')
+                f.write(f'{svc_name},{ep_str},{e2e_coef_dict[svc_name][ep_str]}\n')
+    ''' It will be used as a constraint in the optimizer'''
+    train_done = True # train done!
+    logger.info(f"trainig_phase took {int(time.time() - start_ts)}s")
+    still_training = False
+    return
+
+
 
 def initialize_global_datastructure():
     global coef_dict
@@ -3111,332 +3453,6 @@ def initialize_global_datastructure():
                     aggregated_rps[region][svc][endpoint] = 0
                     logger.debug(f"Init aggregated_rps[{region}][{svc}][{endpoint}]: {aggregated_rps[region][svc][endpoint]}")
                     
-                    
-def check_negative_coef(coef_dict):
-    # NOTE: latency function should be strictly increasing function
-    try:
-        for region in coef_dict: # svc_name: metrics-db
-            for svc_name in coef_dict[region]: # svc_name: metrics-db
-                for ep_str in coef_dict[region][svc_name]: # ep_str: metrics-db@GET@/dbcall
-                    for feature_ep in coef_dict[region][svc_name][ep_str]: # feature_ep: 'metrics-db@GET@/dbcall' or 'intercept'
-                        if coef_dict[region][svc_name][ep_str][feature_ep] < 0:
-                            if feature_ep == "intercept":
-                                load_bucket_0_xt = calc_avg_exclusive_time_of_load_bucket(region, svc_name, ep_str, target_load_bucket=1)
-                                corrected_intercept = 1
-                                if load_bucket_0_xt > 0:
-                                    corrected_intercept = load_bucket_0_xt
-                                logger.warning(f"fix negative {feature_ep},{region},{svc_name}. Set it to {corrected_intercept}.")
-                                coef_dict[region][svc_name][ep_str]['intercept'] = corrected_intercept
-                            else:
-                                coef_dict[region][svc_name][ep_str][feature_ep] = 0
-                                logger.warning(f"fix negative {feature_ep},{region},{svc_name}. Set it to 0.")
-    except Exception as e:
-        logger.error(f"!!! ERROR !!!: check_negative_coef failed with error: {e}")
-        logger.error(f"coef_dict: {coef_dict}")
-        assert False
-                            
-                            
-def set_zero_coef(coef_dict):
-    for region in coef_dict:
-        for svc_name in coef_dict[region]:
-            for ep_str in coef_dict[region][svc_name]:
-                for feature_ep in coef_dict[region][svc_name][ep_str]:
-                    if feature_ep == "b":
-                        coef_dict[region][svc_name][ep_str][feature_ep] = 0
-                    else:
-                        coef_dict[region][svc_name][ep_str][feature_ep] = 0
-                    
-                    
-def record_continuous_coef_dict(coef_dict):
-    global temp_counter
-    with open("continuous_coef_dict.csv", "a") as f:
-        for region in coef_dict:
-            for svc_name in coef_dict[region]:
-                for ep_str in coef_dict[region][svc_name]:
-                    f.write(f'{temp_counter},{region},{svc_name},{ep_str},{coef_dict[region][svc_name][ep_str]}\n')
-        f.write("-------------------------------\n")
-
-def new_read_trace_csv(trace_csv):
-    col = ['cluster_id','svc_name','method','url','trace_id','span_id','parent_span_id','st','et','rt','xt','ct','call_size','inflight_dict','rps_dict']
-    try:
-        df = pd.read_csv(trace_csv, names=col, header=None)
-        df['endpoint'] = df['svc_name'] + '@' + df['method'] + '@' + df['url']
-        df['inflight'] = df['inflight_dict'].apply(lambda x: int(x.split(':')[1].split('|')[0]))
-        df['rps'] = df['rps_dict'].apply(lambda x: int(x.split(':')[1].split('|')[0]))
-        df['added_time'] = random.random() # between 0 and 1
-        df['load_bucket'] = (df['rps'] // load_bucket_size + 1).clip(lower=1)
-        df['trace_id'] = df['cluster_id'].astype(str) + "-" + df['trace_id'].astype(str) # needed because replicate.py uses the same trace_id. make trace id in each region unique
-        df.drop(columns=['inflight_dict', 'rps_dict'], inplace=True)
-    except Exception as e:
-        logger.error(f"!!! ERROR !!!: failed to read {trace_csv} with error: {e}")
-        assert False
-    return df
-
-
-def new_fit_mm1_model(local_counter, region, svc_name, df, ep_str):
-    from scipy.optimize import curve_fit
-    exclusive_time_list = df["xt"].tolist()
-    max_rps = df["rps"].max()
-    constant = 1.05 * max_rps
-    def mm1_model(u, a, b):
-        return (a / (constant - u)) + b
-    popt, _ = curve_fit(mm1_model, df["rps"], exclusive_time_list, maxfev=10000)
-    return {ep_str: popt[0], 'intercept': popt[1]}
-
-
-def save_polynomial_plot(
-    rps_list, exclusive_time_list, response_time_list, model, degree, region, svc_name, local_counter
-):
-    plt.figure()
-    plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt", marker='x')
-    plt.scatter(rps_list, response_time_list, color='green', alpha=0.5, label="rt")
-    
-    # Generate line plot
-    xplot = np.linspace(0, max(rps_list), 1000)
-    yplot = model.coef_[0] * xplot**degree + model.coef_[1]
-    plt.plot(xplot, yplot, color='blue', label=f"a: {model.coef_[0]:.8f}, b: {model.coef_[1]:.8f}")
-    
-    # Save the plot
-    if "poly" not in os.listdir():
-        os.mkdir("poly")
-    fn = f"poly/poly-{region}-{svc_name}-{local_counter}.pdf"
-    plt.title(f"{fn}")
-    plt.xlabel("RPS")
-    plt.ylabel("Exclusive Time")
-    plt.legend(loc='upper left')
-    plt.xlim(left=0)
-    plt.ylim(0, 1000)
-    plt.savefig(fn, format='pdf', bbox_inches='tight')
-    logger.info(f"Saved the plot to {fn}")
-    plt.close()
-
-
-def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, ep_str, overhead):
-    ts = time.time()
-    rps_list = df["rps"].tolist()
-    exclusive_time_list = df["xt"].tolist()
-    response_time_list = df["rt"].tolist()
-    temp = np.array([x**degree for x in rps_list]).reshape(-1, 1)  # Reshape to 2D
-    X_transformed = np.hstack((temp, np.ones((len(rps_list), 1))))
-    model = LinearRegression(fit_intercept=False)
-    model.fit(X_transformed, exclusive_time_list)
-    overhead["curve_fit"] = overhead.get("curve_fit", 0) + time.time()-ts
-    
-    ts = time.time()
-    if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
-        plot_executor.submit(
-            save_polynomial_plot,
-            rps_list,
-            exclusive_time_list,
-            response_time_list,
-            copy.deepcopy(model),
-            degree,
-            region,
-            svc_name,
-            local_counter
-        )
-    overhead["plot"] = overhead.get("plot", 0) + time.time() - ts
-    
-    ##################################################################
-    ## Bottleneck!!!
-    # if svc_name in ["frontend"] and region in ["us-west-1"]:
-    # ts = time.time()
-    # if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
-    #     plt.figure()
-    #     plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt", marker='x')
-    #     plt.scatter(rps_list, response_time_list, color='green', alpha=0.5, label="rt")
-    #     # Line plot
-    #     xplot = np.linspace(0, max(rps_list), 1000)
-    #     yplot = model.coef_[0] * xplot**degree + model.coef_[1]
-    #     plt.plot(xplot, yplot, color='blue', label=f"a: {model.coef_[0]:.8f}, b: {model.coef_[1]:.8f}")
-    #     # Save the plot
-    #     if "poly" not in os.listdir():
-    #         os.mkdir("poly")
-    #     fn = f"poly/poly-{region}-{svc_name}-{local_counter}.pdf"
-    #     plt.title(f"{fn}")
-    #     plt.xlabel("RPS")
-    #     plt.ylabel("Exclusive Time")
-    #     plt.legend(loc='upper left')
-    #     plt.savefig(fn, format='pdf', bbox_inches='tight')
-    #     logger.info(f"Saved the plot to {fn}")
-    #     plt.close()
-    # overhead["plot"] = overhead.get("plot", 0) + time.time()-ts
-    #############################################################
-    return {ep_str: model.coef_[0], 'intercept': model.coef_[1]}
-
-def print_coef_dict(msg=""):
-    global coef_dict
-    for region in coef_dict:
-        for svc_name in coef_dict[region]:
-            for ep_str in coef_dict[region][svc_name]:
-                for feature in coef_dict[region][svc_name][ep_str]:
-                    logger.info(f"coef_dict,{msg},{region},{svc_name},{ep_str},{feature[:8]},{coef_dict[region][svc_name][ep_str][feature]:.8f}")
-
-def new_train_latency_function_with_trace(model, df, degree):
-    logger.info(f"new_train_latency_function_with_trace start, model: {model}, degree: {degree}")
-    coef_dict = {}
-    local_counter = temp_counter
-    overhead = {}
-    try:
-        for (region, svc_name, ep_str), ep_df in df.groupby(['cluster_id', 'svc_name', 'endpoint']):
-            coef_dict.setdefault(region, {}).setdefault(svc_name, {})
-            latency_func.setdefault(svc_name, {})
-            if model == "poly":
-                coef_dict[region][svc_name][ep_str] = new_fit_polynomial_regression(local_counter, region, svc_name, ep_df, degree, ep_str, overhead)
-            elif model == "mm1":
-                coef_dict[region][svc_name][ep_str] = new_fit_mm1_model(local_counter, region, svc_name, ep_df, ep_str)
-            else:
-                logger.error(f"ERROR: Unsupported model type '{model}' specified")
-                raise ValueError(f"Invalid model: {model}")
-    except Exception as e:
-        logger.error(f"failed to train latency function with error: {e}")
-        logger.error(f"df: {df}")
-        assert False
-    logger.info(f"overhead took: {overhead}")
-    logger.info(f"new_train_latency_function_with_trace end")
-    return coef_dict
-
-def print_len_df_trace(df, msg):
-    for region in df["cluster_id"].unique():
-        num_trace = len(df[df['cluster_id']==region]['trace_id'].unique())
-        logger.info(f"{msg}, region: {region}, len: {num_trace}")
-
-
-def fill_load_bucket_column(df):
-    pass
-
-def training_phase():
-    global coef_dict
-    global poly_coef_dict
-    global mm1_coef_dict
-    global e2e_coef_dict
-    global placement
-    global all_endpoints
-    global svc_to_placement
-    global endpoint_to_placement
-    global endpoint_to_cg_key
-    global ep_str_callgraph_table
-    global mode
-    global temp_counter
-    global train_done
-    global train_start
-    global trainig_input_trace_file
-    global max_capacity_per_service
-    global degree
-    global init_done
-    global state
-    global still_training
-    global global_stitched_df
-    if os.path.isfile(trainig_input_trace_file) == False: # trace.csv
-        logger.warning(f"{trainig_input_trace_file} does not exist.")
-        return
-    if still_training:
-        logger.warning(f"Still training. Skip training_phase()")
-        return
-    if init_done:
-        logger.debug(f"Return trianing_phase routine. reason: Training initialization is done.")
-        return
-    logger.warning("Training starts")
-    start_ts = time.time()
-    still_training = True
-    ts = time.time()
-    df_incomplete_traces = new_read_trace_csv(trainig_input_trace_file)
-    
-    print_len_df_trace(df_incomplete_traces, "training_phase, df_incomplete_traces-1")
-    logger.info(f"new_read_trace_csv took {int(time.time()-ts)}s")
-    
-    ts = time.time()
-    # df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_in_df(df_incomplete_traces)
-    df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_for_multi_traffic_class_in_df(df_incomplete_traces)
-    
-    print_len_df_trace(df_new_complete_traces, "training_phase, df_new_complete_traces")
-    print_len_df_trace(df_incomplete_traces, "training_phase, df_incomplete_traces-2")
-    logger.info(f"filter_incomplete_trace_in_df took {int(time.time()-ts)}s")
-    
-    ts = time.time()
-    assert len(global_stitched_df) == 0
-    
-    ## single-thread
-    # global_stitched_df = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
-    
-    ## multi-thread
-    global_stitched_df = tst.stitch_time_in_df_parallel(df_new_complete_traces, ep_str_callgraph_table, num_workers=8)
-    
-    # global_stitched_df = tst.stitch_time_in_df_concurrent(df_new_complete_traces, ep_str_callgraph_table, max_workers=8)
-    print_len_df_trace(global_stitched_df, "training_phase, global_stitched_df")
-    logger.info(f"stitch_time_in_df took {int(time.time()-ts)}s")
-    
-    for region in global_stitched_df['cluster_id'].unique():
-        for load_bucket in global_stitched_df['load_bucket'].unique():
-            temp = global_stitched_df[(global_stitched_df['load_bucket']==load_bucket) & (global_stitched_df['cluster_id']==region)]
-            logger.info(f"global_stitched_df, {region}, load_bucket: {load_bucket}, len: {len(temp['trace_id'].unique())}")
-    
-    ts = time.time()
-    initialize_global_datastructure()
-    logger.info(f"initialize_global_datastructure took {int(time.time()-ts)}s")
-    
-    init_done = True
-    if mode != "runtime":
-        logger.debug(f"It is not runtime mode. Skip training. current mode: {mode}")
-        return
-    if train_start:
-        logger.debug(f"Training is already started.")
-        return
-    if train_done:
-        logger.debug(f"Training was done. Training is required only once")
-        return
-    train_start = True
-    logger.info(f"data preprocessing took {int(time.time() - start_ts)}s")
-    if degree <= 0:
-        logger.error(f"ERROR: degree is not valid. degree: {degree}")
-        assert False
-    ## NOTE: No load_coef, fit the function from scratch
-    if load_coef_flag: # Load
-        try:
-            coef_dict = load_coef(coef_file="coef.csv")
-            if coef_dict != None:
-                check_negative_coef(coef_dict)
-            e2e_coef_dict = load_coef(coef_file="e2e-coef.csv")
-            if e2e_coef_dict != None:
-                check_negative_coef(e2e_coef_dict)
-        except Exception as e:
-            logger.error(f"!!! ERROR !!!: failed to load coef with error: {e}")
-            state = "[!!! PANIC !!!] load_coef() in training_phase()"
-            assert False
-        print_coef_dict("load_coef")
-    else: # Train
-        with coef_dict_mutex:
-            ts = time.time()
-            coef_dict = new_train_latency_function_with_trace("poly", global_stitched_df,   degree=2) # or "mm1"
-            print_coef_dict("training_phase")
-            logger.info(f"new_train_latency_function_with_trace took {int(time.time()-ts)}s")
-            logger.info(f"coef_dict: {coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
-            for region in coef_dict:
-                if region not in frontend_coef_history:
-                    frontend_coef_history[region] = list()
-                frontend_coef_history[region].append([coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'], coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['intercept']])
-            check_negative_coef(coef_dict)
-            record_continuous_coef_dict(coef_dict)
-    if ROUTING_RULE == "WATERFALL" or ROUTING_RULE == "WATERFALL2":
-        set_zero_coef(coef_dict)
-    with open("coefficient.csv", "w") as f:
-        f.write("svc_name, endpoint, coef\n")
-        for region in coef_dict:
-            for svc_name in coef_dict[region]:
-                for ep_str in coef_dict[region][svc_name]:
-                    logger.debug(f'final coef_dict,{region},{svc_name},{coef_dict[region][svc_name][ep_str]}')
-                    f.write(f'{svc_name},{ep_str},{coef_dict[region][svc_name][ep_str]}\n')
-    with open("e2e-coefficient.csv", "w") as f:
-        f.write("svc_name, endpoint, coef\n")
-        for svc_name in e2e_coef_dict:
-            for ep_str in e2e_coef_dict[svc_name]:
-                logger.debug(f'final e2e_coef_dict,{svc_name},{e2e_coef_dict[svc_name][ep_str]}')
-                f.write(f'{svc_name},{ep_str},{e2e_coef_dict[svc_name][ep_str]}\n')
-    ''' It will be used as a constraint in the optimizer'''
-    train_done = True # train done!
-    logger.info(f"trainig_phase took {int(time.time() - start_ts)}s")
-    still_training = False
-    return
 
 
 def read_config_file():
@@ -3708,13 +3724,15 @@ def aggregated_rps_routine():
     
     # if check_root_node_rps_condition(agg_root_node_rps) > 0:
     record_endpoint_rps(aggregated_rps, temp_counter)
-    logger.info("-"*80)
-    logger.info(f"aggregated_rps_routine, temp_counter-{temp_counter}")
+    
+    logger.debug("-"*80)
+    logger.debug(f"aggregated_rps_routine, temp_counter-{temp_counter}")
     for region in agg_root_node_rps:
         for svc in agg_root_node_rps[region]:
             for endpoint in agg_root_node_rps[region][svc]:
-                logger.info(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
-    logger.info("-"*80)
+                logger.debug(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
+    logger.debug("-"*80)
+    
     temp_counter += 1
 
 
@@ -3724,9 +3742,8 @@ def state_check():
         logger.info(f"state: {state}")
 
 ## TODO
-def calc_avg_exclusive_time_of_load_bucket(region, svc_name, ep_str, target_load_bucket):
-    global global_stitched_df
-    df = global_stitched_df[(global_stitched_df['cluster_id']==region) & (global_stitched_df['svc_name']==svc_name) & (global_stitched_df['endpoint']==ep_str)]
+def calc_avg_exclusive_time_of_load_bucket(given_df, region, svc_name, ep_str, target_load_bucket):
+    df = given_df[(given_df['cluster_id']==region) & (given_df['svc_name']==svc_name) & (given_df['endpoint']==ep_str)]
     df = df[df['load_bucket']==target_load_bucket]
     if len(df["xt"]) == 0:
         return 1
@@ -3764,8 +3781,8 @@ def runtime_model_update():
             frontend_coef_history[region].append([coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['frontend@POST@/cart/checkout'], coef_dict[region]['frontend']['frontend@POST@/cart/checkout']['intercept']])
         
         for region in frontend_coef_history:
-            if region == "us-west-1":
-                for coef in frontend_coef_history[region]:
+            for coef in frontend_coef_history[region]:
+                if region  == "us-west-1" or region == "us-east-1":
                     logger.info(f"frontend_coef_history,{region},[a:{coef[0]:.2e}, intercetp:{coef[1]:.2e}]")
         # logger.info(f"poly_coef_dict: {poly_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
         # logger.info(f"mm1_coef_dict: {mm1_coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
@@ -3792,12 +3809,19 @@ def random_sampling_per_load_bucket_in_df(df, sampling_ratio, max_num_trace):
         df = df[df['trace_id'].isin(sampled_tid)]
     return df
 
-def sliding_window(df, max_num_trace):
+def sliding_window(given_df, max_num_trace):
     global load_bucket_size
-    df['rank'] = df.groupby(['cluster_id', 'load_bucket', 'trace_id'])['added_time'].transform('max')
-    df['rank'] = df.groupby(['cluster_id', 'load_bucket'])['rank'].rank(method='first', ascending=False)
-    filtered_df = df[df['rank'] <= max_num_trace].drop(columns=['rank'])
-    grouped_counts = df.groupby(['cluster_id', 'load_bucket'])['trace_id'].nunique()
+    given_df['rank'] = given_df.groupby(['cluster_id', 'load_bucket', 'trace_id'])['added_time'].transform('max')
+    given_df['rank'] = given_df.groupby(['cluster_id', 'load_bucket'])['rank'].rank(method='first', ascending=False)
+    
+    ## 1    
+    # filtered_df = given_df[given_df['rank'] <= max_num_trace].drop(columns=['rank'])
+    ## 2
+    # filtered_given_df = given_df.groupby(['cluster_id', 'load_bucket']).apply(lambda group: group.nlargest(max_num_trace, 'rank')).reset_index(drop=True).drop(columns=['rank'])
+    ## 3
+    filtered_df = (given_df.groupby(['cluster_id', 'load_bucket']).apply(lambda group: group.nlargest(max_num_trace, 'added_time')).reset_index(drop=True))
+    
+    grouped_counts = given_df.groupby(['cluster_id', 'load_bucket'])['trace_id'].nunique()
     filtered_counts = filtered_df.groupby(['cluster_id', 'load_bucket'])['trace_id'].nunique()
     for (region, load_bucket), count in grouped_counts.items():
         filtered_count = filtered_counts.get((region, load_bucket), 0)
@@ -3811,76 +3835,28 @@ def sliding_window(df, max_num_trace):
     return filtered_df
 
 
-# def sliding_window(df, max_num_trace):
-#     global load_bucket_size
-#     """
-#     Enforce a sliding window on the DataFrame by removing older traces
-#     (grouped by `trace_id`) when the number of traces exceeds num_max_traces
-#     for each load_bucket.
-
-#     Parameters:
-#     - df (pd.DataFrame): The DataFrame containing span data.
-#     - num_max_traces (int): Maximum number of traces to retain per load_bucket.
-#     - load_bucket_size (int): The size of each load bucket.
-
-#     Returns:
-#     - pd.DataFrame: Updated DataFrame with excess traces removed.
-#     """
-#     updated_df = pd.DataFrame()  # To collect filtered spans
-#     for region, region_group in df.groupby('cluster_id'):
-#         for endpoint, endpoint_group in region_group.groupby('endpoint'):
-#             for load_bucket, bucket_group in endpoint_group.groupby('load_bucket'):
-#                 # Group by trace_id and find the most recent added_time per trace
-#                 trace_times = (
-#                     bucket_group.groupby('trace_id')['added_time']
-#                     .max()
-#                     .reset_index()
-#                     .sort_values(by='added_time', ascending=True)
-#                 )
-#                 previous_count = len(trace_times)
-#                 if previous_count > max_num_trace:
-#                     trace_ids_to_keep = trace_times.iloc[-max_num_trace:]['trace_id']
-#                     bucket_group_to_keep = bucket_group[bucket_group['trace_id'].isin(trace_ids_to_keep)]
-#                     bucket_group_to_remove = bucket_group[~bucket_group['trace_id'].isin(trace_ids_to_keep)]
-#                     load_bucket_range = [load_bucket_size * (load_bucket - 1), load_bucket_size * load_bucket - 1]
-#                     logger.info(
-#                         f"Sliding window applied: region {region}, endpoint{endpoint}, load_bucket[{load_bucket}], "
-#                         f"{load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {len(trace_ids_to_keep)}"
-#                     )
-#                 else:
-#                     bucket_group_to_keep = bucket_group
-#                     bucket_group_to_remove = pd.DataFrame()  # No traces to remove
-#                     logger.debug(
-#                         f"No sliding window applied: region {region}, load_bucket[{load_bucket}]: {previous_count}"
-#                     )
-#                 updated_df = pd.concat([updated_df, bucket_group_to_keep], ignore_index=True)
-#     return updated_df
-
-
-
-# def enforce_trace_limit(max_num_trace):
-#     with stitched_complete_traces_mutex:
-#         for region in stitched_complete_traces:
-#             for load_bucket in stitched_complete_traces[region]:
-#                 load_bucket_range = [load_bucket_size*(load_bucket-1), load_bucket_size*load_bucket-1]
-#                 previous_count = len(stitched_complete_traces[region][load_bucket])
-#                 if previous_count > max_num_trace:
-#                     # Collect trace IDs with their most recent time
-#                     trace_times = [
-#                         (trace_id, max(trace_data["time"])) 
-#                         for trace_id, trace_data in stitched_complete_traces[region][load_bucket].items()
-#                     ]
-#                     # Find the traces to remove using heapq.nsmallest for efficiency
-#                     traces_to_remove = heapq.nsmallest(previous_count - max_num_trace, trace_times, key=lambda x: x[1])
-#                     trace_ids_to_delete = [trace_id for trace_id, _ in traces_to_remove]
-#                     # Delete the oldest traces
-#                     for trace_id in trace_ids_to_delete:
-#                         del stitched_complete_traces[region][load_bucket][trace_id]
-#                     # Log the results
-#                     current_count = len(stitched_complete_traces[region][load_bucket])
-#                     logger.info(f"sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {current_count}")
-#                 else:
-#                     logger.debug(f"sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count}")
+# def sliding_window(given_df, max_num_trace):
+    # for region in given_df:
+    #     for load_bucket in given_df[region]:
+    #         load_bucket_range = [load_bucket_size*(load_bucket-1), load_bucket_size*load_bucket-1]
+    #         previous_count = len(given_df[region][load_bucket])
+    #         if previous_count > max_num_trace:
+    #             # Collect trace IDs with their most recent time
+    #             trace_times = [
+    #                 (trace_id, max(trace_data["time"])) 
+    #                 for trace_id, trace_data in given_df[region][load_bucket].items()
+    #             ]
+    #             # Find the traces to remove using heapq.nsmallest for efficiency
+    #             traces_to_remove = heapq.nsmallest(previous_count - max_num_trace, trace_times, key=lambda x: x[1])
+    #             trace_ids_to_delete = [trace_id for trace_id, _ in traces_to_remove]
+    #             # Delete the oldest traces
+    #             for trace_id in trace_ids_to_delete:
+    #                 del given_df[region][load_bucket][trace_id]
+    #             # Log the results
+    #             current_count = len(given_df[region][load_bucket])
+    #             logger.info(f"sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {current_count}")
+    #         else:
+    #             logger.debug(f"sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count}")
 
 
 def update_traces():
@@ -3890,6 +3866,7 @@ def update_traces():
     global list_of_body
     global df_incomplete_traces
     global global_stitched_df
+    global new_global_stitched_df
     global required_total_num_services
     global ep_str_callgraph_table
     global ROUTING_RULE
@@ -3917,7 +3894,10 @@ def update_traces():
                 if len(result) == 14:
                     logger.debug(f"result 14: {result}")
                     temp.append(result)
-        list_of_body = [] # empty list_of_body    
+        # with open("temp.csv", "a") as f:
+        #     for t in temp:
+        #         f.write(','.join(t) + '\n')
+        list_of_body = [] # empty list_of_body
         if len(temp) > 0:
             df_new_traces = pd.DataFrame(temp, columns=['cluster_id', 'svc_name', 'method', 'url', 'trace_id', 'span_id', 'parent_span_id', 'st', 'et', 'call_size', 'endpoint', 'rps', 'inflight', "dummy"])
             df_new_traces.drop(columns=['dummy'], inplace=True)
@@ -3927,41 +3907,78 @@ def update_traces():
             df_new_traces['st'] = df_new_traces['st'].astype(int)
             df_new_traces['et'] = df_new_traces['et'].astype(int)
             df_new_traces['rt'] = df_new_traces['et'] - df_new_traces['st']
-            df_new_traces['xt'] = -1
+            df_new_traces['xt'] = df_new_traces['et'] - df_new_traces['st']
             df_new_traces['ct'] = -1
             df_new_traces['call_size'] = df_new_traces['call_size'].astype(int)
             num_pod_of_this_region = 4 # NOTE: hardcoded
             df_new_traces['rps'] = df_new_traces['rps'].astype(int)
             df_new_traces['rps'] = df_new_traces['rps']*num_pod_of_this_region
             df_new_traces['load_bucket'] = (df_new_traces['rps']//load_bucket_size + 1).clip(lower=1)
-            df_new_traces['added_time'] = time.time()
-            for region in df_new_traces['cluster_id'].unique():
-                for load_bucket in df_new_traces['load_bucket'].unique():
-                    temp = df_new_traces[(df_new_traces['load_bucket']==load_bucket) & (df_new_traces['cluster_id']==region)]
-                    logger.info(f"df_new_traces, {region}, load_bucket: {load_bucket}, len: {len(temp['trace_id'].unique())}")
+            df_new_traces['added_time'] = time.time() * np.random.random(len(df_new_traces))
+            # if os.path.exists("df_new_traces.csv"):
+            #     df_new_traces.to_csv("df_new_traces.csv", mode='a', header=False, index=False)
+            # else:
+            #     df_new_traces.to_csv("df_new_traces.csv", mode='w', header=True, index=False)
             if len(df_incomplete_traces) == 0:
+                logger.info(f"df_incomplete_traces is empty. df_incomplete_traces = df_new_traces")
                 df_incomplete_traces = df_new_traces
             else:
                 df_incomplete_traces = pd.concat([df_incomplete_traces, df_new_traces])
     if mode == "runtime" and (not train_done or not init_done):
         logger.info(f"Train has not been done yet. train_done: {train_done}, init_done: {init_done}. Skip filtering and stitching in update_traces()")
         return
-    df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_in_df(df_incomplete_traces)
+    print_len_df_trace(df_incomplete_traces, "update_traces/df_incomplete_traces,before_filtering")
+    # df_incomplete_traces.to_csv("df_incomplete_traces-1.csv", index=False)
+    # df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_in_df(df_incomplete_traces)
+    df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_for_multi_traffic_class_in_df(df_incomplete_traces)
     print_len_df_trace(df_new_complete_traces, "update_traces/df_new_complete_traces")
-    print_len_df_trace(df_incomplete_traces, "update_traces/df_incomplete_traces")
-    
-    df_new_stitched_tracess = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
-    print_len_df_trace(df_new_stitched_tracess, "update_traces/df_new_stitched_traces")
-    
-    global_stitched_df = pd.concat([global_stitched_df, df_new_stitched_tracess], ignore_index=True)
-    print_len_df_trace(global_stitched_df, "update_traces/global_stitched_df")
-    
-    global_stitched_df = sliding_window(global_stitched_df, max_num_trace)
-    print_len_df_trace(global_stitched_df, "update_traces/global_stitched_df-sliding_windowed")
-    
-    runtime_model_update()
+    print_len_df_trace(df_incomplete_traces, "update_traces/df_incomplete_traces,after_filtering")
+    # df_incomplete_traces.to_csv("df_incomplete_traces-2.csv", index=False)
+    ## single-threaded
+    # df_new_stitched_traces = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
+    ## multi-threaded
+    df_new_stitched_traces = tst.stitch_time_in_df_parallel(df_new_complete_traces, ep_str_callgraph_table)
+    if len(new_global_stitched_df) == 0:
+        new_global_stitched_df = df_new_stitched_traces
+    else:
+        new_global_stitched_df = pd.concat([new_global_stitched_df, df_new_stitched_traces], ignore_index=True)
+    new_global_stitched_df = sliding_window(new_global_stitched_df, max_num_trace)
+    for region in new_global_stitched_df['cluster_id'].unique():
+        # NOTE: Hardcoded
+        if region == "us-west-1":
+            temp_df = new_global_stitched_df[new_global_stitched_df['cluster_id'] == region]
+            if has_enough_data(temp_df):
+                global_stitched_df = global_stitched_df[global_stitched_df['cluster_id'] != region]
+                global_stitched_df = pd.concat([global_stitched_df, temp_df], ignore_index=True)
+                runtime_model_update()
+                new_global_stitched_df = pd.DataFrame()
+                logger.info(f"Empty new_global_stitched_df")
+        
     logger.info(f"counter[{temp_counter}], update_traces ends, took {int(time.time() - ts)}s")
-    
+    ##################################################################################################
+
+
+def has_enough_data(given_df):
+    load_bucket_ranges = [(0, 5), (6, 10), (11, 15), (16, 20)]
+    if given_df.empty:
+        return False
+    trace_counts = given_df.groupby('load_bucket')['trace_id'].nunique()
+    range_counts = {f"{start}-{end}": 0 for start, end in load_bucket_ranges}
+    for start, end in load_bucket_ranges:
+        for bucket in range(start, end + 1):
+            range_counts[f"{start}-{end}"] += trace_counts.get(bucket, 0)
+    for key in range_counts:
+        logger.info(f"load_bucket range {key}: {range_counts[key]} traces")        
+    for key in range_counts:
+        num_required_trace = 100
+        if key == "16-20":
+            num_required_trace = 100
+        if range_counts[key] < num_required_trace:
+            logger.info(f"Insufficient data in load bucket range {key}: {range_counts[key]} traces")
+            return False
+    logger.info(f"Enough data in all load bucket ranges!!!")
+    return True
+
     
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
@@ -3969,12 +3986,11 @@ if __name__ == "__main__":
     scheduler.add_job(func=write_spans_to_file, trigger="interval", seconds=5)
     time.sleep(3)
     scheduler.add_job(func=update_traces, trigger="interval", seconds=10)
-    # scheduler.add_job(func=runtime_model_update, trigger="interval", seconds=1)
     scheduler.add_job(func=training_phase, trigger="interval", seconds=1)
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_load_conditions, trigger="interval", seconds=10)
-    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=15)
+    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=10)
     scheduler.add_job(func=state_check, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)
     # scheduler.add_job(func=write_global_hillclimb_history_to_file, trigger="interval", seconds=15)
