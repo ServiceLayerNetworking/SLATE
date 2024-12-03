@@ -649,12 +649,8 @@ def stitch_time_in_df_parallel(given_df, ep_str_callgraph_table, num_workers=4):
     """
     overhead = {"groupby": 0, "concat": 0}
     ts = time.time()
-
-    # Group by trace_id
     grouped = given_df.groupby("trace_id")
     overhead["groupby"] = time.time() - ts
-
-    # Prepare tasks for parallel processing
     tasks = []
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         for tid, single_trace in grouped:
@@ -666,23 +662,16 @@ def stitch_time_in_df_parallel(given_df, ep_str_callgraph_table, num_workers=4):
                     ep_str_callgraph_table
                 )
             )
-
-        # Collect results
         ret_dfs = []
         for future in as_completed(tasks):
             result = future.result()
             if result is not None:
                 ret_dfs.append(result)
-
-    # Concatenate results
     ts = time.time()
     ret_df = pd.concat(ret_dfs, ignore_index=True, sort=False) if ret_dfs else pd.DataFrame()
     overhead["concat"] = time.time() - ts
-
-    # Log overhead times
     for key, value in overhead.items():
         logging.info(f"stitch_time_in_df_parallel/{key} took {value:.2f}s")
-
     return ret_df
 
 
@@ -706,6 +695,41 @@ def process_single_trace(tid, single_trace, ep_str_callgraph_table):
         return None
 
 
+def stitch_trace_in_df(single_trace, overhead, ep_str_callgraph_table):
+    ts = time.time()
+    single_trace = single_trace.sort_values(by=["st"])
+    single_trace = single_trace.reset_index(drop=True)
+    if "sort" not in overhead:
+        overhead["sort"] = 0
+    overhead["sort"] += time.time()-ts
+    
+    ts = time.time()
+    root_ep_str = None
+    for _, row in single_trace.iterrows():
+        if row["svc_name"] == "sslateingress":
+            root_ep_str = row['endpoint']
+            break
+    if not root_ep_str:
+        logger.error(f"Cannot find root endpoint in callgraph")
+        # logger.error(f"single_trace: {single_trace}")
+        return False
+    if "findroot" not in overhead:
+        overhead["findroot"] = 0
+    overhead["findroot"] += time.time()-ts
+    
+    # ts = time.time()
+    # relative_time_ret = change_to_relative_time_in_df(single_trace)
+    # overhead["relativetime"] = overhead.get("relativetime", 0) + time.time()-ts
+    
+    # ts = time.time()
+    # xt_ret = calc_exclusive_time_in_df(single_trace, overhead)
+    # if xt_ret == False:
+    #     return False
+    # overhead["exclusvietime"] = overhead.get("exclusivetime", 0) + time.time()-ts
+    
+    return True
+
+
 ##################################################################
 ## Single threaded version
 ##################################################################
@@ -719,7 +743,7 @@ def stitch_time_in_df(given_df, ep_str_callgraph_table):
     overhead["groupby"] += time.time()-ts
     for tid, single_trace in grouped:
         ts = time.time()
-        # single_trace = single_trace.copy()  # Avoid modifying the original grouped DataFrame
+        single_trace = single_trace.copy()  # Avoid modifying the original grouped DataFrame
         if "single_trace.copy" not in overhead:
             overhead["single_trace.copy"] = 0
         overhead["single_trace.copy"] += time.time()-ts
@@ -729,7 +753,7 @@ def stitch_time_in_df(given_df, ep_str_callgraph_table):
         else:
             logger.debug(f"stitch_trace failed for trace {tid}")
     ts = time.time()
-    ret_df = pd.concat(ret_dfs, ignore_index=True, sort=False) if ret_dfs else pd.DataFrame()
+    ret_df = pd.concat(ret_dfs, ignore_index=True) if ret_dfs else pd.DataFrame()
     if "concat" not in overhead:
         overhead["concat"] = 0
     overhead["concat"] += time.time()-ts
@@ -737,53 +761,14 @@ def stitch_time_in_df(given_df, ep_str_callgraph_table):
         logger.info(f"stitch_time_in_df/{key} took {int(overhead[key])}s")
     return ret_df
 
-def stitch_trace_in_df(single_trace, overhead, ep_str_callgraph_table):
-    ts = time.time()
-    # single_trace = single_trace.sort_values(by=["st"])
-    # single_trace = single_trace.reset_index(drop=True)
-    # if "sort" not in overhead:
-    #     overhead["sort"] = 0
-    # overhead["sort"] += time.time()-ts
-    
-    ts = time.time()
-    root_ep_str = None
-    for _, row in single_trace.iterrows():
-        if row["svc_name"] == "sslateingress":
-            root_ep_str = row['endpoint']
-            break
-    if not root_ep_str:
-        logger.error(f"Cannot find root endpoint in callgraph")
-        logger.error(f"single_trace: {single_trace}")
-        return False
-    if "findroot" not in overhead:
-        overhead["findroot"] = 0
-    overhead["findroot"] += time.time()-ts
-    
-    ts = time.time()
-    relative_time_ret = change_to_relative_time_in_df(single_trace)
-    overhead["relativetime"] = overhead.get("relativetime", 0) + time.time()-ts
-    
-    ts = time.time()
-    ## Bottleneck
-    xt_ret = calc_exclusive_time_in_df(single_trace, ep_str_callgraph_table, overhead)
-    overhead["exclusvietime"] = overhead.get("exclusivetime", 0) + time.time()-ts
-    
-    ct_ret = True
-    if xt_ret == False:
-        return False
-    if ct_ret == False:
-        return False
-    if relative_time_ret == False:
-        return False
-    return True
 
 def change_to_relative_time_in_df(single_trace):
     root_span = single_trace[single_trace["svc_name"] == "sslateingress"]
     if root_span.empty:
         return False
-    # base_t = root_span["st"].values[0]
-    # single_trace["st"] -= base_t
-    # single_trace["et"] -= base_t
+    base_t = root_span["st"].values[0]
+    single_trace["st"] -= base_t
+    single_trace["et"] -= base_t
     invalid_times = (single_trace["st"] < 0) | (single_trace["et"] < single_trace["st"])
     if invalid_times.any():
         return False
@@ -817,30 +802,47 @@ def get_child_spans(single_trace, parent_span, ep_str_callgraph_table):
             child_spans.append(row)
     return pd.DataFrame(child_spans)
 
-def calc_exclusive_time_in_df(single_trace, ep_str_callgraph_table, overhead):
-    for _, parent_span in single_trace.iterrows():
-        ts = time.time()
-        child_spans = single_trace[single_trace["parent_span_id"] == parent_span["span_id"]]
-        # child_spans = get_child_spans(single_trace, parent_span, ep_str_callgraph_table)
-        overhead["child_spans"] = overhead.get("child_spans", 0) + (time.time() - ts)
-        if child_spans.empty:
-            exclude_child_rt = 0
-        else:
-            ts = time.time()
-            # exclude_child_rt = calculate_exclude_child_rt_in_df(child_spans)
-            row_with_max_rt = child_spans.loc[child_spans["rt"].idxmax()]
-            exclude_child_rt = row_with_max_rt["rt"]
-            overhead["child_rt"] = overhead.get("child_rt", 0) + (time.time() - ts)
-        #######################################################
-        parent_span["xt"] = parent_span["rt"] - exclude_child_rt
-        # parent_span["xt"] = parent_span["rt"]
-        #######################################################
-        # logger.info(f"parent,{parent_span['svc_name']}, parent_rt: {parent_span['rt']}, exclude_child_rt: {exclude_child_rt}, parent_xt: {parent_span['xt']}")
-        if parent_span["xt"] < 0:
+def calc_exclusive_time_in_df(single_trace, overhead):
+    rt_dict = {}
+    for _, span in single_trace.iterrows():
+        rt_dict[span["svc_name"]] = span["rt"]
+        
+    for _, span in single_trace.iterrows():
+        try:
+            if span["svc_name"] == "sslateingress":
+                span["xt"] = span["rt"] - rt_dict["frontend"]
+            elif span["svc_name"] == "frontend":
+                span["xt"] = span["rt"] - rt_dict["checkoutservice"]
+            else:
+                span["xt"] = span["rt"]
+        except KeyError:
+            logger.error(f"KeyError: {span['svc_name']}")
+            logger.error(f"rt_dict: {rt_dict}")
+            return False
+        if span["xt"] < 0:
             return False
     return True
+    #     ts = time.time()
+    #     child_spans = single_trace[single_trace["parent_span_id"] == parent_span["span_id"]]
+    #     # child_spans = get_child_spans(single_trace, parent_span, ep_str_callgraph_table)
+    #     overhead["child_spans"] = overhead.get("child_spans", 0) + (time.time() - ts)
+    #     if child_spans.empty:
+    #         exclude_child_rt = 0
+    #     else:
+    #         ts = time.time()
+    #         # exclude_child_rt = calculate_exclude_child_rt_in_df(child_spans)
+    #         row_with_max_rt = child_spans.loc[child_spans["rt"].idxmax()]
+    #         exclude_child_rt = row_with_max_rt["rt"]
+    #         overhead["child_rt"] = overhead.get("child_rt", 0) + (time.time() - ts)
+    #     #######################################################
+    #     parent_span["xt"] = parent_span["rt"] - exclude_child_rt
+    #     # parent_span["xt"] = parent_span["rt"]
+    #     #######################################################
+    #     # logger.info(f"parent,{parent_span['svc_name']}, parent_rt: {parent_span['rt']}, exclude_child_rt: {exclude_child_rt}, parent_xt: {parent_span['xt']}")
+    #     if parent_span["xt"] < 0:
+    #         return False
+    # return True
 
-## 2
 def is_parallel_execution_in_df(span_a, span_b):
     if span_a["et"] > span_b["st"] and span_b["et"] > span_a["st"] or span_b["et"] > span_a["st"] and span_a["et"] > span_b["st"]:
         if (span_a["st"] < span_b["st"] and span_a["et"] > span_b["et"]) or (span_b["st"] < span_a["st"] and span_b["et"] > span_a["et"]):
