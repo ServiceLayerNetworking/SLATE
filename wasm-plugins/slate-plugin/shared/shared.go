@@ -174,17 +174,12 @@ func AddToSharedDataList(key string, value string) {
 		proxywasm.LogCriticalf("Couldn't get shared data: %v", err)
 		return
 	}
-	if len(listBytes) == 0 {
-		listBytes = []byte(value)
-	} else {
-		list := string(listBytes)
-		if list[len(list)-1] != ',' {
-			list += ","
-		}
-		list += value
-		listBytes = []byte(list)
+	list := string(listBytes)
+	if list[len(list)-1] != ',' {
+		list += ","
 	}
-	if err := proxywasm.SetSharedData(key, listBytes, cas); err != nil {
+	list += value
+	if err := proxywasm.SetSharedData(key, []byte(list), cas); err != nil {
 		proxywasm.LogCriticalf("unable to set shared data: %v", err)
 		return
 	}

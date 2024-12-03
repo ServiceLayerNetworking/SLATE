@@ -94,8 +94,7 @@ type pluginContext struct {
 	serviceName      string
 	svcWithoutRegion string
 
-	tickPeriod                 int64
-	hillclimbLatencyTickPeriod int64
+	tickPeriod int64
 
 	region string
 
@@ -111,13 +110,6 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 		tps = int64(tmp)
 	}
 	p.tickPeriod = tps
-	htps := int64(2)
-	hillclimbLatencyTickPeriod := os.Getenv("HILLCLIMB_LATENCY_PERIOD_SECONDS")
-	if hillclimbLatencyTickPeriod != "" {
-		tmp, _ := strconv.Atoi(hillclimbLatencyTickPeriod)
-		htps = int64(tmp)
-	}
-	p.hillclimbLatencyTickPeriod = htps
 	if err := proxywasm.SetTickPeriodMilliSeconds(1000); err != nil {
 		proxywasm.LogCriticalf("unable to set tick period: %v", err)
 		return types.OnPluginStartStatusFailed
@@ -145,8 +137,12 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 // OnTick reports load to the controller every TICK_PERIOD milliseconds.
 func (p *pluginContext) OnTick() {
 
-	if time.Now().Unix()%p.hillclimbLatencyTickPeriod == 0 {
+	if time.Now().Unix()%5 == 0 {
 		p.ReportHillclimbingLatency()
+	}
+
+	if time.Now().Unix()%p.tickPeriod != 0 {
+		return
 	}
 
 	totalRps := shared.GetUint64SharedDataOrZero(shared.KEY_REQUEST_COUNT)
@@ -169,14 +165,11 @@ func (p *pluginContext) OnTick() {
 		inflightStats += "|"
 	}
 
-	var requestStats []shared.TracedRequestStats
-	var skipped int
-	if time.Now().Unix()%p.tickPeriod == 0 {
-		requestStats, skipped, err = GetTracedRequestStats()
-		if err != nil {
-			proxywasm.LogCriticalf("Couldn't get traced request stats: %v", err)
-			return
-		}
+	// get the per-request load conditions and latencies
+	requestStats, skipped, err := GetTracedRequestStats()
+	if err != nil {
+		proxywasm.LogCriticalf("Couldn't get traced request stats: %v", err)
+		return
 	}
 	requestStatsStr := ""
 	for _, stat := range requestStats {
@@ -197,13 +190,10 @@ func (p *pluginContext) OnTick() {
 	if err := proxywasm.SetSharedData(shared.KEY_NO_TRACEID, make([]byte, 8), 0); err != nil {
 		proxywasm.LogCriticalf("Couldn't reset no traceid: %v", err)
 	}
-
-	if time.Now().Unix()%p.tickPeriod == 0 {
-		if err := proxywasm.SetSharedData(shared.KEY_TRACED_REQUESTS, make([]byte, 8), 0); err != nil {
-			proxywasm.LogCriticalf("Couldn't reset traced requests: %v", err)
-		}
-		ResetEndpointCounts()
+	if err := proxywasm.SetSharedData(shared.KEY_TRACED_REQUESTS, make([]byte, 8), 0); err != nil {
+		proxywasm.LogCriticalf("Couldn't reset traced requests: %v", err)
 	}
+	ResetEndpointCounts()
 	if err := proxywasm.SetSharedData(shared.KEY_ENDPOINT_RPS_LIST, make([]byte, 8), 0); err != nil {
 		proxywasm.LogCriticalf("Couldn't reset endpoint rps list: %v", err)
 	}
@@ -326,27 +316,24 @@ func (p *pluginContext) ReportHillclimbingLatency() {
 			}
 			reqBody += fmt.Sprintf("%s %s %d %d %s\n", method, path, avgLatency, totalReqs, totalM2)
 		}
-		reqBody += "inboundLatencies\n\n"
-		//for _, endpoint := range inboundEndpoints {
-		//	if shared.EmptyBytes([]byte(endpoint)) {
-		//		continue
-		//	}
-		//	mp := strings.Split(endpoint, "@")
-		//	if len(mp) != 2 {
-		//		continue
-		//	}
-		//	method, path := mp[0], mp[1]
-		//	latencyListBytes, _, err := proxywasm.GetSharedData(shared.InboundLatencyListKey(method, path))
-		//	if err != nil {
-		//		proxywasm.LogCriticalf("Couldn't get shared data for inbound latency list: %v", err)
-		//		continue
-		//	}
-		//	if err := proxywasm.SetSharedData(shared.InboundLatencyListKey(method, path), make([]byte, 8), 0); err != nil {
-		//		proxywasm.LogCriticalf("Couldn't reset inbound latency list: %v", err)
-		//	}
-		//	latencyList := strings.TrimSpace(string(latencyListBytes))
-		//	reqBody += fmt.Sprintf("%s %s %s\n", method, path, latencyList)
-		//}
+		reqBody += "inboundLatencies\n"
+		for _, endpoint := range inboundEndpoints {
+			if shared.EmptyBytes([]byte(endpoint)) {
+				continue
+			}
+			mp := strings.Split(endpoint, "@")
+			if len(mp) != 2 {
+				continue
+			}
+			method, path := mp[0], mp[1]
+			latencyListBytes, _, err := proxywasm.GetSharedData(shared.InboundLatencyListKey(method, path))
+			if err != nil {
+				proxywasm.LogCriticalf("Couldn't get shared data for inbound latency list: %v", err)
+				continue
+			}
+			latencyList := strings.TrimSpace(string(latencyListBytes))
+			reqBody += fmt.Sprintf("%s %s %s\n", method, path, latencyList)
+		}
 	}
 
 	proxywasm.DispatchHttpCall("outbound|8000||slate-controller.default.svc.cluster.local", controllerHeaders,
