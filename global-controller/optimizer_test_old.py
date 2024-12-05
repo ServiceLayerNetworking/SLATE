@@ -77,10 +77,8 @@ inter_cluster_latency['us-west']['us-central'] = 10
 '''
 
 # def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_capacity_per_service, degree, inter_cluster_latency):
-def run_optimizer(\
-        coef_dict, \
+def run_optimizer(coef_dict, \
         endpoint_level_rps, \
-        total_ep_str_callgraph_rps, \
         placement, \
         svc_to_placement, \
         endpoint_to_placement, \
@@ -96,10 +94,32 @@ def run_optimizer(\
         max_rps=1000, \
         normalization_dict=dict()):
         # 'max_rps' will be used in MM1 model as a representation of 1 utilization.
+        
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
         logger.debug(f"{cfg.log_prefix} mkdir {cfg.OUTPUT_DIR}")
+
+    def collapse_cid_in_endpoint_level_rps(endpoint_level_rps):
+        collapsed_endpoint_level_rps = dict()
+        for cid in endpoint_level_rps:
+            for svc_name in endpoint_level_rps[cid]:
+                for ep in endpoint_level_rps[cid][svc_name]:
+                    if svc_name not in collapsed_endpoint_level_rps:
+                        collapsed_endpoint_level_rps[svc_name] = dict()
+                    if ep not in collapsed_endpoint_level_rps[svc_name]:
+                        collapsed_endpoint_level_rps[svc_name][ep] = 0
+                    # try:
+                    collapsed_endpoint_level_rps[svc_name][ep] += endpoint_level_rps[cid][svc_name][ep]
+                    # except Exception as e:
+                        # logger.info(f'collapsed_endpoint_level_rps[{svc_name}][{ep}]: {type(collapsed_endpoint_level_rps[svc_name][ep])}')
+                        
+                        # logger.info(f'endpoint_level_rps[{cid}][{svc_name}][{ep}]: {type(endpoint_level_rps[cid][svc_name][ep])}')
+                        # logger.error(f'Exception: {e}')
+        return collapsed_endpoint_level_rps
+    
+    collapsed_endpoint_level_rps = collapse_cid_in_endpoint_level_rps(endpoint_level_rps)
+    logger.debug(f'collapsed_endpoint_level_rps: {collapsed_endpoint_level_rps}')
     # This is used in flow_conservation-nonleaf_endnode constraint
     request_in_out_weight = dict()
     for cg_key in ep_str_callgraph_table:
@@ -113,14 +133,15 @@ def run_optimizer(\
                     request_in_out_weight[cg_key][parent_ep][child_ep] = dict()
                 parent_svc_name = parent_ep.split(cfg.ep_del)[0]
                 child_svc_name = child_ep.split(cfg.ep_del)[0]
+                # TODO: request_in_out_weight[cg_key][parent_ep][child_ep] = in_/out_
+                # logger.debug(f'parent_svc_name: {parent_svc_name}, parent_ep: {parent_ep}, {collapsed_endpoint_level_rps[parent_svc_name]}')
+                # logger.debug(f'child_svc_name: {child_svc_name}, child_ep: {child_ep}, {collapsed_endpoint_level_rps[child_svc_name]}')                
+                # in_ = collapsed_endpoint_level_rps[parent_svc_name][parent_ep]
+                # out_ = collapsed_endpoint_level_rps[child_svc_name][child_ep]
+                # logger.debug(f'request_in_out_weight: {request_in_out_weight[cg_key][parent_ep][child_ep]}, parent_ep: {parent_ep}, child_ep: {child_ep}, in_: {in_}, out_: {out_}')
+                
                 request_in_out_weight[cg_key][parent_ep][child_ep] = 1
-    cg_root_endpoint_rps = dict()
-    for cg_key in total_ep_str_callgraph_rps:
-        for endpoint in total_ep_str_callgraph_rps[cg_key]:
-            if "sslateingress" in endpoint:
-                cg_root_endpoint_rps[cg_key] = total_ep_str_callgraph_rps[cg_key][endpoint]
-    logger.info(f'cg_root_endpoint_rps: {cg_root_endpoint_rps}')
-    
+                
     ##############################################
     # TODO: Problem: how should we the endpoint to each call graph? Otherwise, by simply using the endpoint, we are not able to find root endpoint of the call graph.
     # norm_inout_weight = dict()
@@ -129,6 +150,34 @@ def run_optimizer(\
     # merged_in_out_weight = opt_func.merge(request_in_out_weight, norm_inout_weight, MAX_LOAD)
     # norm_merged_in_out_weight = opt_func.norm(merged_in_out_weight, root_endpoint[cg_key].svc_name)
     ##############################################
+    
+    if traffic_segmentation == False:
+        logger.error(f'further implementation is required for traffic_segmentation False')
+        assert False
+        original_NUM_REQUESTS = NUM_REQUESTS.copy()
+        original_MAX_LOAD = MAX_LOAD.copy()
+        original_callgraph = callgraph.copy()
+        original_request_in_out_weight = request_in_out_weight.copy()
+        merged_cg_key = "M"
+        merged_callgraph = opt_func.merge_callgraph(callgraph)
+        callgraph = dict()
+        callgraph[merged_cg_key] = merged_callgraph
+        request_in_out_weight = dict()
+        request_in_out_weight[merged_cg_key] = merged_in_out_weight
+        norm_inout_weight = dict()
+        norm_inout_weight[merged_cg_key] = norm_merged_in_out_weight
+        merged_NUM_REQUESTS = list()
+        for num_req in NUM_REQUESTS:
+            merged_NUM_REQUESTS.append({merged_cg_key: sum(num_req.values())})
+        NUM_REQUESTS = list()
+        NUM_REQUESTS = merged_NUM_REQUESTS
+        MAX_LOAD = opt_func.get_max_load(NUM_REQUESTS)
+
+    ## depth_dict
+    ## key: cg key, value: dict of {svc: depth}
+    depth_dict = dict()
+    for cg_key in ep_str_callgraph_table:
+        depth_dict[cg_key] = opt_func.get_depth_in_graph(ep_str_callgraph_table[cg_key])
         
     callsize_dict = dict()
     for cg_key in ep_str_callgraph_table:
@@ -293,11 +342,11 @@ def run_optimizer(\
                             network_arc_var_name.append(var_name)
 
     for cg_key in ep_str_callgraph_table:
-        root_endpoint = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
-        for dst_cid in endpoint_to_placement[root_endpoint]:
-            logger.debug(f'root_endpoint: {root_endpoint}')
+        root_node = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
+        for dst_cid in endpoint_to_placement[root_node]:
+            logger.debug(f'root_node: {root_node}')
             logger.debug(f'dst_cid, {dst_cid}')
-            var_name = opt_func.get_network_arc_var_name(opt_func.source_node_name, root_endpoint, opt_func.NONE_CID, dst_cid)
+            var_name = opt_func.get_network_arc_var_name(opt_func.source_node_name, root_node, opt_func.NONE_CID, dst_cid)
             network_arc_var_name.append(var_name)
     
     columns=["src_endpoint", "src_cid", "dst_endpoint", "dst_cid", "min_network_time", "max_network_time", "max_load", "min_load", "min_egress_cost", "max_egress_cost"]
@@ -528,35 +577,55 @@ def run_optimizer(\
 
     temp = dict()
     temp = pd.concat([network_load, compute_load], axis=0)
+    # concat_df = pd.concat(temp, axis=0)
+    # logger.debug("type(concat_df): ", type(concat_df))
+    # logger.debug("concat_df.to_dict()")
+    # concat_dict = concat_df.to_dict()
+    # for k, v in concat_dict.items():
+        # logger.debug(f"key: {k}\nvalue: {v}")
     arcs = dict()
     aggregated_load = dict()
     arcs, aggregated_load = gp.multidict(temp.to_dict())
-    # for k, v in aggregated_load.items():
-    #     logger.info(f"key: {k}\nvalue: {v}")
+    # if cfg.DISPLAY:
+    #     logger.debug("arcs")
+    #     logger.debug(f'{arcs}\n')
+    #     logger.debug("aggregated_load")
+    #     logger.debug(f'{aggregated_load}\n')
+    #     logger.debug("aggregated_load")
+    #     logger.debug(type(aggregated_load))
+    #     for k, v in aggregated_load.items():
+    #         logger.debug(f"key: {k}\nvalue: {v}")
     opt_func.log_timestamp("gurobi add_vars and set objective")
+
     for cid in endpoint_level_rps:
         for svc_name in endpoint_level_rps[cid]:
             for ep in endpoint_level_rps[cid][svc_name]:
                 logger.debug(f'endpoint_level_rps: {cid}, {svc_name}, {ep}, {endpoint_level_rps[cid][svc_name][ep]}')
-                
     ## Constraint 1: SOURCE
     if cfg.LOAD_IN:
         total_coming = 0
         for cg_key in ep_str_callgraph_table:
             root_ep = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
             root_ep_svc_name = root_ep.split(cfg.ep_del)[0]
+            # logger.debug(f'cg_key: {cg_key}')
             for cid in placement:
                 if root_ep_svc_name in placement[cid]:
+                    # logger.debug(f'endpoint_level_rps[{cid}][{root_ep_svc_name}]')
+                    # logger.debug(f'[{root_ep}]: {endpoint_level_rps[cid][root_ep_svc_name][root_ep]}')
                     logger.debug(f"endpoint_level_rps[{cid}]: {endpoint_level_rps[cid]}")
                     try:
                         incoming = endpoint_level_rps[cid][root_ep_svc_name][root_ep]
-                        logger.info(f"root endpoint_level_rps[{cid}][{root_ep_svc_name}][{root_ep}]: {incoming}")
                     except Exception as e:
                         logger.error(f'endpoint_level_rps,{cid},{root_ep_svc_name},{root_ep}')
                         logger.error(f'Exception: {type(e).__name__}, {e}')
+                        logger.error(f"endpoint_level_rps: {endpoint_level_rps}")
                         assert False
+                    # incoming += endpoint_level_inflight_req[cid][root_ep_svc_name][root_ep]
+                    # logger.debug(f"incoming: {incoming}")
                     total_coming += incoming
+                    # ingress_gw_start_node = f'{svc}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
                     node_name = f'{root_ep}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
+                    # logger.debug(f'node_name: {node_name}')
                     lh = gp.quicksum(aggregated_load.select('*', node_name))
                     rh = incoming
                     gurobi_model.addConstr((lh == rh), name="cluster_"+str(cid)+"_load_in_"+str(root_ep))
@@ -565,15 +634,39 @@ def run_optimizer(\
                     constraint_file.write(f'{rh}\n')
                     constraint_file.write("-"*80)
                     constraint_file.write("\n")
+                    # logger.debug(lh)
+                    # logger.debug("==")
+                    # logger.debug(rh)
+                    # logger.debug("-"*80)
+        # logger.debug("*"*80)
+        # logger.debug(aggregated_load.select(opt_func.source_node_fullname, '*'))
+        # logger.debug("==")
+        # logger.debug(total_coming)
         gurobi_model.addConstr((gp.quicksum(aggregated_load.select(opt_func.source_node_fullname, '*')) == total_coming), name="source")
         gurobi_model.update()
-        
-    ## All the edges in aggregated_load should be less than cg_root_endpoint_rps[cg_key]
 
-    # Start node in-out
+    ## Constraint 2: destination
+    # destination = dict()
+    # destination[opt_func.destination_node_fullname] = MAX_LOAD
+    # dest_keys = destination.keys()
+    # leaf_services = list()
+    # for parent_svc, children in callgraph.items():
+    #     if len(children) == 0: # leaf service
+    #         leaf_services.append(parent_svc)
+    # num_leaf_services = len(leaf_services)
+    # logger.debug(f"{cfg.log_prefix} num_leaf_services: {num_leaf_services}")
+    # logger.debug(f"{cfg.log_prefix} leaf_services: {leaf_services}")
+    # dst_flow = gurobi_model.addConstrs((gp.quicksum(aggregated_load.select('*', dst)) == destination[dst]*num_leaf_services for dst in dest_keys), name="destination")
+    # for dst in dest_keys:
+    #     logger.debug(aggregated_load.select('*', dst))
+    # gurobi_model.update()
+
+    ## Constraint 3: flow conservation
+    # Start node in-out flow conservation
     for cid in endpoint_level_rps:
         for svc_name in endpoint_level_rps[cid]:
             for ep_str in endpoint_level_rps[cid][svc_name]:
+                # start_node = f'{ep_str}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
                 start_node = opt_func.get_start_node_name(ep_str, cid)
                 lh = gp.quicksum(aggregated_load.select('*', start_node))
                 rh = gp.quicksum(aggregated_load.select(start_node, '*'))
@@ -583,104 +676,87 @@ def run_optimizer(\
                 constraint_file.write(f'{rh}\n')
                 constraint_file.write("-"*80)
                 constraint_file.write("\n")
+                # logger.debug(lh)
+                # logger.debug("==")
+                # logger.debug(rh)
+                # logger.debug("-"*50)
     gurobi_model.update()
-    
-    # End node in-out
-    # for cid in endpoint_level_rps:
-    #     for svc_name in endpoint_level_rps[cid]:
-    #         for ep_str in endpoint_level_rps[cid][svc_name]:
-    #             end_node = opt_func.get_end_node_name(ep_str, cid)
-    #             lh = gp.quicksum(aggregated_load.select('*', end_node))
-    #             rh = gp.quicksum(aggregated_load.select(end_node, '*'))
-    #             gurobi_model.addConstr((lh == rh), name="flow_conservation-end_node-"+ep_str)
-    #             constraint_file.write(f'{lh}\n')
-    #             constraint_file.write("==\n")
-    #             constraint_file.write(f'{rh}\n')
-    #             constraint_file.write("-"*80)
-    #             constraint_file.write("\n")
-    # gurobi_model.update()
 
-    # sum going into end node == sum outgoing from end node
-    # for cg_key in ep_str_callgraph_table:
-    #     for parent_ep in ep_str_callgraph_table[cg_key]:
-    #         children_ep = ep_str_callgraph_table[cg_key][parent_ep]
-    #         for parent_cid in endpoint_to_placement[parent_ep]:
-    #             for child_ep in children_ep:
-    #                 logger.debug(f'child_ep: {child_ep}')
-    #                 end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
-    #                 logger.debug(f'non-leaf end_node: {end_node}')
-    #                 outgoing_sum = 0
-    #                 for child_cid in endpoint_to_placement[child_ep]:
-    #                     child_start_node = opt_func.get_start_node_name(child_ep, child_cid)
-    #                     outgoing_sum += aggregated_load.sum(end_node, child_start_node)
-    #                 # if traffic_segmentation:
-    #                     # lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_svc][child_svc]
-    #                 # else:
-    #                 #     lh = gp.quicksum(aggregated_load.select('*', end_node))*merged_in_out_weight[parent_svc][child_svc]
-    #                 logger.debug(f'request_in_out_weight: {request_in_out_weight}')
-    #                 lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
-    #                 rh = outgoing_sum
-    #                 gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
-    #                 constraint_file.write(f'{lh}\n')
-    #                 constraint_file.write("==\n")
-    #                 constraint_file.write(f'{rh}\n')
-    #                 constraint_file.write("-"*80)
-    #                 constraint_file.write("\n")
-    # gurobi_model.update()
-    
+    # End node in-out flow conservation
+    # case 1 (leaf node to destination): incoming num requests == outgoing num request for all nodes
+    # for parent_svc, children in callgraph.items():
+    #     for cid in range(len(NUM_REQUESTS)):
+    #         if len(children) == 0: # leaf_services:
+    #             end_node = parent_svc + cfg.DELIMITER + str(cid) + cfg.DELIMITER + "end"
+    #             node_flow = gurobi_model.addConstr((gp.quicksum(aggregated_load.select('*', end_node)) == gp.quicksum(aggregated_load.select(end_node, '*'))), name="flow_conservation["+end_node+"]-leaf_endnode")
+    #             logger.debug("*"*50)
+    #             logger.debug(aggregated_load.select('*', end_node))
+    #             logger.debug('==')
+    #             logger.debug(aggregated_load.select(end_node, '*'))
+    #             logger.debug("-"*50)
+    #             logger.debug("*"*50)
+
+    # case 2 
+    # For non-leaf node and end node, incoming to end node == sum of outgoing
+    for cg_key in ep_str_callgraph_table:
+        for parent_ep in ep_str_callgraph_table[cg_key]:
+            children_ep = ep_str_callgraph_table[cg_key][parent_ep]
+            # non-leaf node will only have child
+            for parent_cid in endpoint_to_placement[parent_ep]:
+                for child_ep in children_ep:
+                    logger.debug(f'child_ep: {child_ep}')
+                    end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
+                    logger.debug(f'non-leaf end_node: {end_node}')
+                    outgoing_sum = 0
+                    for child_cid in endpoint_to_placement[child_ep]:
+                        child_start_node = opt_func.get_start_node_name(child_ep, child_cid)
+                        outgoing_sum += aggregated_load.sum(end_node, child_start_node)
+                    # if traffic_segmentation:
+                        # lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_svc][child_svc]
+                    # else:
+                    #     lh = gp.quicksum(aggregated_load.select('*', end_node))*merged_in_out_weight[parent_svc][child_svc]
+                    
+                    # try:
+                    logger.debug(f'request_in_out_weight: {request_in_out_weight}')
+                    lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
+                    rh = outgoing_sum
+                    gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
+                    constraint_file.write(f'{lh}\n')
+                    constraint_file.write("==\n")
+                    constraint_file.write(f'{rh}\n')
+                    constraint_file.write("-"*80)
+                    constraint_file.write("\n")
+                    # logger.debug(lh)
+                    # logger.debug('==')
+                    # logger.debug(rh)
+                    # logger.debug("-"*80)
+                    # except Exception as e:
+                    #     logger.error(f'Error: {e}')
+                    #     assert False
+    gurobi_model.update()
 
     '''
     This constraint also seems redundant.
     The optimizer output varies with and without this constraint. The reason is assumed that there are multiple optimal solutions and how it searches the optimal solution (e.g., order of search exploration) changes with and without this constraint.
     It will be commented out anyway since it it not necessary constraint.
     '''
-    
-    ## Max throughput of each traffic class in a service
-    for cg_key in ep_str_callgraph_table:
-        for parent_ep in ep_str_callgraph_table[cg_key]:
-            children_ep = ep_str_callgraph_table[cg_key][parent_ep]
-            for parent_cid in endpoint_to_placement[parent_ep]:
-                for child_ep in children_ep:
-                    end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
-                    outgoing_sum = 0
-                    for child_cid in endpoint_to_placement[child_ep]:
-                        child_start_node = opt_func.get_start_node_name(child_ep, child_cid)
-                        outgoing_sum += aggregated_load.sum(end_node, child_start_node)
-                    lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
-                    rh = outgoing_sum
-                    gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
-                    
-                    constraint_file.write(f'{lh}\n')
-                    constraint_file.write("==\n")
-                    constraint_file.write(f'{rh}\n')
-                    constraint_file.write("-"*80)
-                    constraint_file.write("\n")
-    gurobi_model.update()
-    
-    
-    # Add a constraint to bound all Gurobi variables in aggregated_load
-    for cg_key in ep_str_callgraph_table:
-        for parent_ep in ep_str_callgraph_table[cg_key]:
-            for parent_cid in endpoint_to_placement[parent_ep]:
-                end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
-                children_ep = ep_str_callgraph_table[cg_key][parent_ep]
-                for child_ep in children_ep:
-                    for child_cid in endpoint_to_placement[child_ep]:
-                        child_start_node = opt_func.get_start_node_name(child_ep, child_cid)
-                        gurobi_model.addConstr(aggregated_load[end_node, child_start_node] <= cg_root_endpoint_rps[cg_key], name=f"bounded_aggregated_load_{cg_key}_{parent_ep}_{child_ep}")
-                        gurobi_model.addConstr(aggregated_load[end_node, child_start_node] >= 0, name=f"non_negative_aggregated_load_{cg_key}_{parent_ep}_{child_ep}")
-    gurobi_model.update()
-
-    # Add constraints for aggregated_load variables representing (its own ep start_node, its own ep end_node)
-    for cg_key in ep_str_callgraph_table:
-        for parent_ep in ep_str_callgraph_table[cg_key]:
-            for parent_cid in endpoint_to_placement[parent_ep]:
-                start_node = opt_func.get_start_node_name(parent_ep, parent_cid)
-                end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
-                gurobi_model.addConstr(aggregated_load[start_node, end_node] <= cg_root_endpoint_rps[cg_key], name=f"bounded_own_aggregated_load_{cg_key}_{parent_ep}")
-                gurobi_model.addConstr(aggregated_load[start_node, end_node] >= 0, name=f"non_negative_own_aggregated_load_{cg_key}_{parent_ep}")
-    gurobi_model.update()
-
+    ## Constraint 4: Tree topology
+    # svc_to_cid = opt_func.svc_to_cid(placement)
+    # logger.debug("svc_to_cid: ", svc_to_cid)
+    # for key in callgraph:
+    #     for svc_name in svc_to_cid:
+    #         if svc_name != cfg.ENTRANCE and svc_name in callgraph[key]:
+    #             incoming_sum = 0
+    #             for cid in svc_to_cid[svc_name]:
+    #                 start_node = opt_func.start_node_name(svc_name, cid)
+    #                 incoming_sum += aggregated_load[key].sum('*', start_node)
+    #             node_flow = gurobi_model.addConstr(incoming_sum == MAX_LOAD[key], name="tree_topo_conservation_"+key)
+    #             if cfg.DISPLAY:
+    #                 logger.debug(incoming_sum)
+    #                 logger.debug('==')
+    #                 logger.debug(MAX_LOAD[key])
+    #                 logger.debug("-"*50)
+    # gurobi_model.update()
 
 
     # # Constraint 5: max throughput of service
@@ -699,20 +775,6 @@ def run_optimizer(\
     # opt_func.print_gurobi_var(gurobi_model)
     # opt_func.print_gurobi_constraint(gurobi_model)
     gurobi_model.setParam('NonConvex', 2)
-    gurobi_model.setParam('MIPGap', 0.05)  # 5% optimality gap
-    gurobi_model.setParam('SolutionLimit', 10)  # Stop after finding 10 feasible solutions
-    gurobi_model.setParam('Heuristics', 0.8)  # Allocate 80% of time to heuristics
-    gurobi_model.setParam('Aggregate', 1)  # Enable variable aggregation
-    gurobi_model.setParam('Presolve', 2)  # Aggressive presolve
-    gurobi_model.setParam('Cuts', 0)  # Disable cutting planes
-    
-    # gurobi_model.setParam('TimeLimit', 60)  # Stop after 60 seconds
-    
-    # gurobi_model.setParam('NodeLimit', 1000)  # Limit the branching tree
-    # gurobi_model.setParam('FeasibilityTol', 1e-5)
-    # gurobi_model.setParam('IntegralityFocus', 1)  # Relax integer constraints
-
-    
     ts = time.time()
     gurobi_model.optimize()
     solver_runtime = time.time() - ts
