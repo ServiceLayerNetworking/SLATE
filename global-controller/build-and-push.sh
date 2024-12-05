@@ -15,7 +15,7 @@
 
 # docker_file="Dockerfile-continuous"
 docker_file="Dockerfile"
-ghcr_account="gangmuk"
+ghcr_account="adiprerepa"
 
 echo "It is pushing to the '${ghcr_account}' repository..."
 docker build -f ${docker_file} -t ghcr.io/${ghcr_account}/slate-controller:latest .
