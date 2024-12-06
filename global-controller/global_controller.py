@@ -101,7 +101,7 @@ convex_comb_step = 1
 convex_comb_direction = 1 # 1 or -1
 jumping_ruleset_num_iterations = 0
 jumping_ruleset_convergence_iterations = 5
-cur_jumping_ruleset = ("", "")
+cur_jumping_ruleset = ("", "", "")
 completed_rulesets = set()
 historical_svc_latencies = dict() # svc -> list of latencies
 # optimizer_cnt = 0
@@ -575,7 +575,7 @@ def perform_jumping():
             # apply this overperformance to jumping_df, and then apply the jumping_df to the actual routing rules.
             if cur_jumping_ruleset != ("", "", ""):
                 rs_overperformance = ruleset_overperformance.get(cur_jumping_ruleset[1], {}).get(cur_jumping_ruleset[2], {}).get(cur_jumping_ruleset[0], {})
-                adjusted_df, did_adjust = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset[0], cur_jumping_ruleset[1], cur_jumping_ruleset[2], rs_overperformance, step_size=0.05)
+                adjusted_df, did_adjust = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset[0], cur_jumping_ruleset[1], cur_jumping_ruleset[2], rs_overperformance, step_size=0.1)
                 if not did_adjust:
                     # add this to completed rulesets
                     logger.info(f"loghill ruleset did not adjust, adding ruleset {cur_jumping_ruleset} to completed rulesets")
@@ -2522,7 +2522,7 @@ def optimizer_entrypoint():
         logger.info(f"optimizer took {int(time.time()-optimizer_start_ts)}s")
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
-            if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.1) and len(percentage_df) > 0:
+            if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.15) and len(percentage_df) > 0:
                 logger.info(f"(loghill optimizer_entrypoint) rules are different, changing base rules")
                 jumping_ruleset_num_iterations = 0
                 currently_globally_oscillating = False
@@ -2531,6 +2531,7 @@ def optimizer_entrypoint():
                 jumping_last_seen_opt_output = percentage_df.copy()
                 global_prev_processing_latencies.clear()
                 global_processing_latencies.clear()
+                completed_rulesets.clear()
     elif ROUTING_RULE == "WATERFALL2":
         waterfall_load_balance = dict()
         remaining_src_region_src_svc_rps = dict()
@@ -3940,7 +3941,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_load_conditions, trigger="interval", seconds=10)
-    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=15)
+    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=20)
     scheduler.add_job(func=state_check, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)
     # scheduler.add_job(func=write_global_hillclimb_history_to_file, trigger="interval", seconds=15)
