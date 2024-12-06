@@ -414,7 +414,7 @@ def perform_jumping():
     logger.info(f"loghill ruleset_overperformance: {ruleset_overperformance}")
 
 
-    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1) and len(percentage_df) > 0:
+    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.15) and len(percentage_df) > 0:
         logger.info(f"loghill rules are different, stepping towards optimizer output, old rules:\n{compute_traffic_matrix(cur_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
         # here, we want to start defensive jumping towards the optimizer output.
         # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
@@ -574,7 +574,7 @@ def perform_jumping():
             # apply this overperformance to jumping_df, and then apply the jumping_df to the actual routing rules.
             if cur_jumping_ruleset != ("", "", ""):
                 rs_overperformance = ruleset_overperformance.get(cur_jumping_ruleset[1], {}).get(cur_jumping_ruleset[2], {}).get(cur_jumping_ruleset[0], {})
-                adjusted_df, did_adjust = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset[0], cur_jumping_ruleset[1], cur_jumping_ruleset[2], rs_overperformance, step_size=0.05)
+                adjusted_df, did_adjust = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset[0], cur_jumping_ruleset[1], cur_jumping_ruleset[2], rs_overperformance, step_size=0.1)
                 if not did_adjust:
                     # add this to completed rulesets
                     logger.info(f"loghill ruleset did not adjust, adding ruleset {cur_jumping_ruleset} to completed rulesets")
@@ -2391,6 +2391,7 @@ def optimizer_entrypoint():
     global prev_jumping_df
     global currently_globally_oscillating
     global global_processing_latencies
+    global completed_rulesets
     
     if mode != "runtime":
         logger.warning(f"run optimizer only in runtime mode. current mode: {mode}.")
@@ -2497,7 +2498,7 @@ def optimizer_entrypoint():
         logger.info(f"optimizer took {int(time.time()-optimizer_start_ts)}s")
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
-            if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.1) and len(percentage_df) > 0:
+            if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.15) and len(percentage_df) > 0:
                 logger.info(f"(loghill optimizer_entrypoint) rules are different, changing base rules")
                 jumping_ruleset_num_iterations = 0
                 currently_globally_oscillating = False
@@ -2506,6 +2507,7 @@ def optimizer_entrypoint():
                 jumping_last_seen_opt_output = percentage_df.copy()
                 global_prev_processing_latencies.clear()
                 global_processing_latencies.clear()
+                completed_rulesets.clear()
     elif ROUTING_RULE == "WATERFALL2":
         waterfall_load_balance = dict()
         remaining_src_region_src_svc_rps = dict()
