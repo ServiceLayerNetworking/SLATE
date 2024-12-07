@@ -64,7 +64,7 @@ model_updated_before = False
 new_global_stitched_df = {} # it will be initialized as a dataframe
 df_incomplete_traces = {}
 global_stitched_df = {} # it will be initialized as a dataframe
-
+cur_gap=0
 trace_locks = {}
 aggregated_rps = {} # dict of region -> svcname -> endpoint -> rps
 norm_aggregated_rps = {}
@@ -78,6 +78,7 @@ endpoint_to_cg_key = {}
 ep_str_callgraph_table = {}
 all_endpoints = {}
 temp_counter = 0
+temp_counter_flag = True
 load_coef_flag = False
 init_done = False
 use_optimizer_output = False
@@ -577,7 +578,7 @@ def perform_jumping():
             # apply this overperformance to jumping_df, and then apply the jumping_df to the actual routing rules.
             if cur_jumping_ruleset != ("", "", ""):
                 rs_overperformance = ruleset_overperformance.get(cur_jumping_ruleset[1], {}).get(cur_jumping_ruleset[2], {}).get(cur_jumping_ruleset[0], {})
-                adjusted_df, did_adjust = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset[0], cur_jumping_ruleset[1], cur_jumping_ruleset[2], rs_overperformance, step_size=0.1)
+                adjusted_df, did_adjust = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset[0], cur_jumping_ruleset[1], cur_jumping_ruleset[2], rs_overperformance, step_size=0.05)
                 if not did_adjust:
                     # add this to completed rulesets
                     logger.info(f"loghill ruleset did not adjust, adding ruleset {cur_jumping_ruleset} to completed rulesets")
@@ -2469,40 +2470,6 @@ def optimizer_entrypoint():
         state = f"{temp_counter}-Optimizer running"
         optimizer_start_ts = time.time()
         
-        ############################################################################
-        ############################################################################
-        # def normalize(heavy_svc, heavy_endpoint, light_svc, light_endpoint, ratio):
-        #     global aggregated_rps
-        #     global norm_aggregated_rps
-        #     norm_aggregated_rps = copy.deepcopy(aggregated_rps)
-            
-        #     def total_load_per_region():
-        #         total_load = dict()
-        #         for region in norm_aggregated_rps:
-        #             total_load[region] = 0
-        #             for svc in norm_aggregated_rps[region]:
-        #                 for ep in norm_aggregated_rps[region][svc]:
-        #                     total_load += norm_aggregated_rps[region][svc][ep]
-        #         return total_load
-            
-        #     for region in norm_aggregated_rps:
-        #         norm_aggregated_rps[region][heavy_svc][heavy_endpoint] += norm_aggregated_rps[region][light_svc][light_endpoint]/ratio
-        #         norm_aggregated_rps[region][light_svc][light_endpoint] += norm_aggregated_rps[region][heavy_svc][light_endpoint]*ratio
-                
-        #     norm_total_load = total_load_per_region()
-        #     return norm_total_load
-
-        # norm_total_load = normalize()
-        # for region in aggregated_rps:
-        #     for svc in aggregated_rps[region]:
-        #         for ep in aggregated_rps[region][svc]:
-        #             logger.debug(f"aggregated_rps, {region}, {svc}, {ep}, {aggregated_rps[region][svc][ep]}")
-        #             logger.debug(f"norm_aggregated_rps, {region}, {svc}, {ep}, {norm_aggregated_rps[region][svc][ep]}")
-        # for region in norm_total_load:
-        #     logger.debug(f"norm_total_load, {region}, {norm_total_load[region]}")
-        ############################################################################
-        ############################################################################
-        
         cur_percentage_df, desc = opt.run_optimizer(\
             coef_dict, \
             aggregated_rps, \
@@ -3179,7 +3146,7 @@ def save_polynomial_plot(rps_list, critical_time_list, exclusive_time_list, resp
     plt.xlabel("RPS")
     plt.ylabel("Exclusive Time")
     plt.legend(loc='upper left')
-    plt.xlim(left=0)
+    plt.xlim(left=0, right=2300)
     plt.ylim(0, 5000)
     plt.savefig(fn, format='pdf', bbox_inches='tight')
     logger.info(f"Saved the plot to {fn}")
@@ -3199,7 +3166,8 @@ def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, e
     overhead["curve_fit"] = overhead.get("curve_fit", 0) + time.time()-ts
     
     ts = time.time()
-    if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
+    # if svc_name in ["frontend", "checkoutservice"] and region in ["us-west-1"]:
+    if region in ["us-west-1"]:
         plot_executor.submit(
             save_polynomial_plot,
             rps_list,
@@ -3655,6 +3623,7 @@ def aggregated_rps_routine():
     global aggregated_rps
     global agg_root_node_rps
     global temp_counter
+    global temp_counter_flag
     ## initializing all_endpoint can take time
     for region in per_pod_ep_rps:
         if region not in aggregated_rps:
@@ -3678,6 +3647,9 @@ def aggregated_rps_routine():
         for svc_name in per_pod_ep_rps[region]:
             for endpoint in per_pod_ep_rps[region][svc_name]:
                 for podname in per_pod_ep_rps[region][svc_name][endpoint]:
+                    if temp_counter_flag and per_pod_ep_rps[region][svc_name][endpoint][podname] > 0:
+                        temp_counter = 0
+                        temp_counter_flag = False
                     aggregated_rps[region][svc_name][endpoint] += per_pod_ep_rps[region][svc_name][endpoint][podname]
 
     # root_node_rps[region][svc_name][endpoint]: rps
@@ -3790,6 +3762,39 @@ def sliding_window(given_df, max_num_trace):
     return filtered_df
 
 
+def shift_model(new_df, old_df, region, svc_name):
+    global cur_gap
+    global temp_counter
+    def find_the_max_gap(new_df, old_df, region, svc_name):
+        global cur_gap
+        max_gap = 0
+        for load_bucket in new_df["load_bucket"].unique():
+            old_avg_latency = old_df[(old_df['load_bucket'] == load_bucket)]['rt'].mean()
+            new_avg_latency = new_df[(new_df['load_bucket'] == load_bucket)]['rt'].mean()
+            avg_latency_diff = new_avg_latency - old_avg_latency
+            max_gap = max(max_gap, avg_latency_diff)
+            logger.info(f"shift_model, {region}, {svc_name}, load_bucket[{load_bucket}], avg_latency_diff, {int(avg_latency_diff)}, max_gap, {int(max_gap)}, new_avg_latency: {int(new_avg_latency)}, old_avg_latency: {int(old_avg_latency)}")
+        return max_gap
+    
+    old_cur_gap = cur_gap
+    new_gap = find_the_max_gap(new_df, old_df, region, svc_name)
+    max_gap = max(cur_gap, new_gap)
+    shifting = max_gap - cur_gap
+    cur_gap = max_gap
+    for ep_str in coef_dict[region][svc_name]:
+        try:
+            old_intercept = coef_dict[region][svc_name][ep_str]["intercept"]
+            coef_dict[region][svc_name][ep_str]["intercept"] += shifting
+            new_intercept = coef_dict[region][svc_name][ep_str]['intercept']
+            logger.info(f"counter,{temp_counter},shift_model, new_cur_gap,{int(cur_gap)}, old_cur_gap,{int(old_cur_gap)},new_gap,{int(new_gap)},max_gap,{int(max_gap)},shifting: {shifting}")
+            logger.info(f"shift_model, {region}, {svc_name}, intercept: {old_intercept}->{new_intercept}")
+        except Exception as e:
+            logger.error(f"coef_dict[{region}][{svc_name}][{ep_str}]: {coef_dict[region][svc_name][ep_str]}")
+            logger.error(f"max_gap: {max_gap}")
+            logger.error(f"!!! ERROR !!!: shift_model, {e}")
+            assert False
+
+
 def update_traces():
     global train_done
     global init_done
@@ -3803,6 +3808,7 @@ def update_traces():
     global ROUTING_RULE
     global mode
     global model_updated_before
+    global cur_gap
     if init_done == False:
         logger.info(f"Train has not been done yet. train_done: {train_done}, init_done: {init_done}. Skip update_traces()")
         return
@@ -3875,18 +3881,30 @@ def update_traces():
     else:
         new_global_stitched_df = pd.concat([new_global_stitched_df, df_new_stitched_traces], ignore_index=True)
     if not model_updated_before:
-        for region in new_global_stitched_df['cluster_id'].unique():
-            # NOTE: Hardcoded
-            if region == "us-west-1":
-                temp_df = new_global_stitched_df[new_global_stitched_df['cluster_id'] == region]
-                if has_enough_data(temp_df):
-                    global_stitched_df = global_stitched_df[global_stitched_df['cluster_id'] != region]
-                    global_stitched_df = pd.concat([global_stitched_df, temp_df], ignore_index=True)
-                    global_stitched_df = sliding_window(global_stitched_df, max_num_trace)
-                    runtime_model_update()
-                    model_updated_before = True
-                    new_global_stitched_df = pd.DataFrame()
-                    logger.info(f"Empty new_global_stitched_df")
+        target_regions = ["us-west-1"]
+        target_regions = ["us-west-1", "us-east-1", "us-central-1", "us-south-1"]
+        target_svc_name = "frontend"
+        temp_df = new_global_stitched_df[
+            (new_global_stitched_df['cluster_id'].isin(target_regions)) &
+            (new_global_stitched_df['svc_name'] == target_svc_name)
+        ]
+        if has_enough_data(temp_df):
+            global_stitched_df = global_stitched_df[
+                ~(
+                    (global_stitched_df['cluster_id'].isin(target_regions)) |
+                    (global_stitched_df['svc_name'] == target_svc_name)
+                )
+            ]
+            global_stitched_df = pd.concat([global_stitched_df, temp_df], ignore_index=True)
+            global_stitched_df = sliding_window(global_stitched_df, max_num_trace)
+            runtime_model_update()
+            model_updated_before = True
+            new_global_stitched_df = pd.DataFrame()
+            logger.info(f"Empty new_global_stitched_df")
+        else:
+            for region in target_regions:
+                shift_model(new_df=temp_df, old_df=global_stitched_df, regions=region, svc_name=target_svc_name)
+            
     else:
         logger.info(f"Do not update the data from now own. The model has been updated with new data once. That was the last one.")
         # global_stitched_df = pd.concat([global_stitched_df, new_global_stitched_df], ignore_index=True)
@@ -3898,10 +3916,13 @@ def update_traces():
 
 def has_enough_data(given_df):
     # load_bucket_ranges = [(0, 5), (6, 10), (11, 15), (16, 20)]
-    load_bucket_ranges = [(0, 10), (11, 20)]
+    load_bucket_ranges = [(0, 10), (11, 15), (16, 20)]
     if given_df.empty:
         logger.info(f"Empty given_df")
         return False
+    for lb in given_df['load_bucket'].unique():
+        num_trace_in_lb = len(given_df[given_df['load_bucket'] == lb]['trace_id'].unique())
+        logger.info(f"load_bucket[{lb}]: {num_trace_in_lb} traces")
     trace_counts = given_df.groupby('load_bucket')['trace_id'].nunique()
     range_counts = {f"{start}-{end}": 0 for start, end in load_bucket_ranges}
     for start, end in load_bucket_ranges:
@@ -3911,8 +3932,6 @@ def has_enough_data(given_df):
         logger.info(f"load_bucket range {key}: {range_counts[key]} traces")        
     for key in range_counts:
         num_required_trace = 100
-        if key == "16-20":
-            num_required_trace = 100
         if range_counts[key] < num_required_trace:
             logger.info(f"Insufficient data in load bucket range {key}: {range_counts[key]} traces")
             return False
