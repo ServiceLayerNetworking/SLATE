@@ -60,6 +60,8 @@ pd.set_option('display.width', 1000)
 '''runtime (optimizer)'''
 # endpoint_level_rps = {}
 
+model_updated_before = False
+new_global_stitched_df = {} # it will be initialized as a dataframe
 df_incomplete_traces = {}
 global_stitched_df = {} # it will be initialized as a dataframe
 
@@ -2874,20 +2876,20 @@ def filter_incomplete_traces(given_traces):
 
 
 def filter_incomplete_trace_for_multi_traffic_class_in_df(given_df):
-    global required_total_num_services
-    given_df['num_span'] = given_df.groupby('trace_id')['span_id'].transform('count')
+    working_df = given_df.copy()
+    working_df['num_span'] = working_df.groupby('trace_id')['span_id'].transform('count')
     conditions = [
-        given_df['endpoint'] == "frontend@POST@/cart",
-        given_df['endpoint'] == "frontend@POST@/cart/checkout"
+        working_df['endpoint'] == "frontend@POST@/cart",
+        working_df['endpoint'] == "frontend@POST@/cart/checkout",
+        working_df['endpoint'] == "sslateingress@POST@/singlecore",
+        working_df['endpoint'] == "sslateingress@POST@/multicore",
     ]
-    values = [4, 8]
-    given_df['required_total_num_services'] = np.select(conditions, values, default=0)
-    trace_ids_with_complete_spans = given_df[
-        given_df['num_span'] == given_df['required_total_num_services']
-    ]['trace_id'].unique()
-    df_complete_traces = given_df[given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
-    given_df = given_df[~given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
-    return df_complete_traces, given_df
+    values = [4, 8, 2, 2]
+    working_df['required_total_num_services'] = np.select(conditions, values, default=0)
+    trace_ids_with_complete_spans = working_df[working_df['num_span'] == working_df['required_total_num_services']]['trace_id'].unique()
+    df_complete = working_df[working_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+    df_incom = working_df[~working_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+    return df_complete, df_incom
 
 
 def filter_incomplete_trace_in_df(given_df):
@@ -3162,19 +3164,14 @@ def new_fit_mm1_model(local_counter, region, svc_name, df, ep_str):
     return {ep_str: popt[0], 'intercept': popt[1]}
 
 
-def save_polynomial_plot(
-    rps_list, exclusive_time_list, response_time_list, model, degree, region, svc_name, local_counter
-):
+def save_polynomial_plot(rps_list, critical_time_list, exclusive_time_list, response_time_list, model, degree, region, svc_name, local_counter):
     plt.figure()
+    plt.scatter(rps_list, critical_time_list, color='blue', alpha=0.5, label="ct", marker='^')
     plt.scatter(rps_list, exclusive_time_list, color='red', alpha=0.5, label="xt", marker='x')
     plt.scatter(rps_list, response_time_list, color='green', alpha=0.5, label="rt")
-    
-    # Generate line plot
     xplot = np.linspace(0, max(rps_list), 1000)
     yplot = model.coef_[0] * xplot**degree + model.coef_[1]
     plt.plot(xplot, yplot, color='blue', label=f"a: {model.coef_[0]:.8f}, b: {model.coef_[1]:.8f}")
-    
-    # Save the plot
     if "poly" not in os.listdir():
         os.mkdir("poly")
     fn = f"poly/poly-{region}-{svc_name}-{local_counter}.pdf"
@@ -3183,7 +3180,7 @@ def save_polynomial_plot(
     plt.ylabel("Exclusive Time")
     plt.legend(loc='upper left')
     plt.xlim(left=0)
-    plt.ylim(0, 1000)
+    plt.ylim(0, 5000)
     plt.savefig(fn, format='pdf', bbox_inches='tight')
     logger.info(f"Saved the plot to {fn}")
     plt.close()
@@ -3194,6 +3191,7 @@ def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, e
     rps_list = df["rps"].tolist()
     exclusive_time_list = df["xt"].tolist()
     response_time_list = df["rt"].tolist()
+    critical_time_list = df["ct"].tolist()
     temp = np.array([x**degree for x in rps_list]).reshape(-1, 1)  # Reshape to 2D
     X_transformed = np.hstack((temp, np.ones((len(rps_list), 1))))
     model = LinearRegression(fit_intercept=False)
@@ -3205,6 +3203,7 @@ def new_fit_polynomial_regression(local_counter, region, svc_name, df, degree, e
         plot_executor.submit(
             save_polynomial_plot,
             rps_list,
+            critical_time_list,
             exclusive_time_list,
             response_time_list,
             copy.deepcopy(model),
@@ -3255,28 +3254,34 @@ def new_train_latency_function_with_trace(model, df, degree):
     coef_dict = {}
     local_counter = temp_counter
     overhead = {}
-    for (region, svc_name, ep_str), ep_df in df.groupby(['cluster_id', 'svc_name', 'endpoint']):
-        coef_dict.setdefault(region, {}).setdefault(svc_name, {})
-        latency_func.setdefault(svc_name, {})
-        if model == "poly":
-            coef_dict[region][svc_name][ep_str] = new_fit_polynomial_regression(local_counter, region, svc_name, ep_df, degree, ep_str, overhead)
-        elif model == "mm1":
-            coef_dict[region][svc_name][ep_str] = new_fit_mm1_model(local_counter, region, svc_name, ep_df, ep_str)
-        else:
-            logger.error(f"ERROR: Unsupported model type '{model}' specified")
-            raise ValueError(f"Invalid model: {model}")
+    try:
+        for (region, svc_name, ep_str), ep_df in df.groupby(['cluster_id', 'svc_name', 'endpoint']):
+            coef_dict.setdefault(region, {}).setdefault(svc_name, {})
+            latency_func.setdefault(svc_name, {})
+            if model == "poly":
+                coef_dict[region][svc_name][ep_str] = new_fit_polynomial_regression(local_counter, region, svc_name, ep_df, degree, ep_str, overhead)
+            elif model == "mm1":
+                coef_dict[region][svc_name][ep_str] = new_fit_mm1_model(local_counter, region, svc_name, ep_df, ep_str)
+            else:
+                logger.error(f"ERROR: Unsupported model type '{model}' specified")
+                raise ValueError(f"Invalid model: {model}")
+    except Exception as e:
+        logger.error(f"failed to train latency function with error: {e}")
+        logger.error(f"df: {df}")
+        assert False
     logger.info(f"overhead took: {overhead}")
     logger.info(f"new_train_latency_function_with_trace end")
     return coef_dict
 
+
 def print_len_df_trace(df, msg):
+    if "cluster_id" not in df.columns:
+        logger.error(f"{msg}, empty df_trace")
+        return
     for region in df["cluster_id"].unique():
         num_trace = len(df[df['cluster_id']==region]['trace_id'].unique())
         logger.info(f"{msg}, region: {region}, len: {num_trace}")
 
-
-def fill_load_bucket_column(df):
-    pass
 
 def training_phase():
     global coef_dict
@@ -3300,6 +3305,7 @@ def training_phase():
     global state
     global still_training
     global global_stitched_df
+    global df_incomplete_traces
     if os.path.isfile(trainig_input_trace_file) == False: # trace.csv
         logger.warning(f"{trainig_input_trace_file} does not exist.")
         return
@@ -3328,8 +3334,12 @@ def training_phase():
     
     ts = time.time()
     assert len(global_stitched_df) == 0
+    
+    ## single-threaded
     global_stitched_df = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
-    # global_stitched_df = tst.stitch_time_in_df_concurrent(df_new_complete_traces, ep_str_callgraph_table, max_workers=8)
+    ## multi-threaded
+    # global_stitched_df = tst.stitch_time_in_df_parallel(df_new_complete_traces, ep_str_callgraph_table, num_workers=8)
+    
     print_len_df_trace(global_stitched_df, "training_phase, global_stitched_df")
     logger.info(f"stitch_time_in_df took {int(time.time()-ts)}s")
     
@@ -3357,15 +3367,18 @@ def training_phase():
     if degree <= 0:
         logger.error(f"ERROR: degree is not valid. degree: {degree}")
         assert False
+    
+    ## e2e should be loaded all the time for jumping
+    e2e_coef_dict = load_coef(coef_file="e2e-coef.csv")
+    if e2e_coef_dict != None:
+        check_negative_coef(e2e_coef_dict)
+        
     ## NOTE: No load_coef, fit the function from scratch
     if load_coef_flag: # Load
         try:
             coef_dict = load_coef(coef_file="coef.csv")
             if coef_dict != None:
                 check_negative_coef(coef_dict)
-            e2e_coef_dict = load_coef(coef_file="e2e-coef.csv")
-            if e2e_coef_dict != None:
-                check_negative_coef(e2e_coef_dict)
         except Exception as e:
             logger.error(f"!!! ERROR !!!: failed to load coef with error: {e}")
             state = "[!!! PANIC !!!] load_coef() in training_phase()"
@@ -3375,7 +3388,7 @@ def training_phase():
         with coef_dict_mutex:
             ts = time.time()
             coef_dict = new_train_latency_function_with_trace("poly", global_stitched_df,   degree=2) # or "mm1"
-            print_coef_dict("training_phase")
+            # print_coef_dict("training_phase")
             logger.info(f"new_train_latency_function_with_trace took {int(time.time()-ts)}s")
             logger.info(f"coef_dict: {coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
             for region in coef_dict:
@@ -3716,7 +3729,6 @@ def runtime_model_update():
             ts2 = time.time()
             coef_dict = new_train_latency_function_with_trace("poly", global_stitched_df, degree=degree)
             print_coef_dict("runtime_model_update")
-            
             logger.info(f"new_train_latency_function_with_trace, runtime {int(time.time() - ts2)}s")
         else:
             logger.error(f"!!! ERROR !!!: unknown model: {model}")
@@ -3752,12 +3764,19 @@ def random_sampling_per_load_bucket_in_df(df, sampling_ratio, max_num_trace):
         df = df[df['trace_id'].isin(sampled_tid)]
     return df
 
-def sliding_window(df, max_num_trace):
+def sliding_window(given_df, max_num_trace):
     global load_bucket_size
-    df['rank'] = df.groupby(['cluster_id', 'load_bucket', 'trace_id'])['added_time'].transform('max')
-    df['rank'] = df.groupby(['cluster_id', 'load_bucket'])['rank'].rank(method='first', ascending=False)
-    filtered_df = df[df['rank'] <= max_num_trace].drop(columns=['rank'])
-    grouped_counts = df.groupby(['cluster_id', 'load_bucket'])['trace_id'].nunique()
+    given_df['rank'] = given_df.groupby(['cluster_id', 'load_bucket', 'trace_id'])['added_time'].transform('max')
+    given_df['rank'] = given_df.groupby(['cluster_id', 'load_bucket'])['rank'].rank(method='first', ascending=False)
+    
+    ## 1    
+    # filtered_df = given_df[given_df['rank'] <= max_num_trace].drop(columns=['rank'])
+    ## 2
+    # filtered_given_df = given_df.groupby(['cluster_id', 'load_bucket']).apply(lambda group: group.nlargest(max_num_trace, 'rank')).reset_index(drop=True).drop(columns=['rank'])
+    ## 3
+    filtered_df = (given_df.groupby(['cluster_id', 'load_bucket']).apply(lambda group: group.nlargest(max_num_trace, 'added_time')).reset_index(drop=True))
+    
+    grouped_counts = given_df.groupby(['cluster_id', 'load_bucket'])['trace_id'].nunique()
     filtered_counts = filtered_df.groupby(['cluster_id', 'load_bucket'])['trace_id'].nunique()
     for (region, load_bucket), count in grouped_counts.items():
         filtered_count = filtered_counts.get((region, load_bucket), 0)
@@ -3766,81 +3785,9 @@ def sliding_window(df, max_num_trace):
             logger.info(f"Sliding window applied: region {region},load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {count} -> {filtered_count}")
         else:
             logger.debug(
-                f"No sliding window applied: region {region}, load_bucket[{load_bucket}]: {count}"
+                f"No sliding window applied: region {region}, load_bucket[{load_bucket}]: {count} < {max_num_trace}"
             )
     return filtered_df
-
-
-# def sliding_window(df, max_num_trace):
-#     global load_bucket_size
-#     """
-#     Enforce a sliding window on the DataFrame by removing older traces
-#     (grouped by `trace_id`) when the number of traces exceeds num_max_traces
-#     for each load_bucket.
-
-#     Parameters:
-#     - df (pd.DataFrame): The DataFrame containing span data.
-#     - num_max_traces (int): Maximum number of traces to retain per load_bucket.
-#     - load_bucket_size (int): The size of each load bucket.
-
-#     Returns:
-#     - pd.DataFrame: Updated DataFrame with excess traces removed.
-#     """
-#     updated_df = pd.DataFrame()  # To collect filtered spans
-#     for region, region_group in df.groupby('cluster_id'):
-#         for endpoint, endpoint_group in region_group.groupby('endpoint'):
-#             for load_bucket, bucket_group in endpoint_group.groupby('load_bucket'):
-#                 # Group by trace_id and find the most recent added_time per trace
-#                 trace_times = (
-#                     bucket_group.groupby('trace_id')['added_time']
-#                     .max()
-#                     .reset_index()
-#                     .sort_values(by='added_time', ascending=True)
-#                 )
-#                 previous_count = len(trace_times)
-#                 if previous_count > max_num_trace:
-#                     trace_ids_to_keep = trace_times.iloc[-max_num_trace:]['trace_id']
-#                     bucket_group_to_keep = bucket_group[bucket_group['trace_id'].isin(trace_ids_to_keep)]
-#                     bucket_group_to_remove = bucket_group[~bucket_group['trace_id'].isin(trace_ids_to_keep)]
-#                     load_bucket_range = [load_bucket_size * (load_bucket - 1), load_bucket_size * load_bucket - 1]
-#                     logger.info(
-#                         f"Sliding window applied: region {region}, endpoint{endpoint}, load_bucket[{load_bucket}], "
-#                         f"{load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {len(trace_ids_to_keep)}"
-#                     )
-#                 else:
-#                     bucket_group_to_keep = bucket_group
-#                     bucket_group_to_remove = pd.DataFrame()  # No traces to remove
-#                     logger.debug(
-#                         f"No sliding window applied: region {region}, load_bucket[{load_bucket}]: {previous_count}"
-#                     )
-#                 updated_df = pd.concat([updated_df, bucket_group_to_keep], ignore_index=True)
-#     return updated_df
-
-
-
-# def enforce_trace_limit(max_num_trace):
-#     with stitched_complete_traces_mutex:
-#         for region in stitched_complete_traces:
-#             for load_bucket in stitched_complete_traces[region]:
-#                 load_bucket_range = [load_bucket_size*(load_bucket-1), load_bucket_size*load_bucket-1]
-#                 previous_count = len(stitched_complete_traces[region][load_bucket])
-#                 if previous_count > max_num_trace:
-#                     # Collect trace IDs with their most recent time
-#                     trace_times = [
-#                         (trace_id, max(trace_data["time"])) 
-#                         for trace_id, trace_data in stitched_complete_traces[region][load_bucket].items()
-#                     ]
-#                     # Find the traces to remove using heapq.nsmallest for efficiency
-#                     traces_to_remove = heapq.nsmallest(previous_count - max_num_trace, trace_times, key=lambda x: x[1])
-#                     trace_ids_to_delete = [trace_id for trace_id, _ in traces_to_remove]
-#                     # Delete the oldest traces
-#                     for trace_id in trace_ids_to_delete:
-#                         del stitched_complete_traces[region][load_bucket][trace_id]
-#                     # Log the results
-#                     current_count = len(stitched_complete_traces[region][load_bucket])
-#                     logger.info(f"sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count} -> {current_count}")
-#                 else:
-#                     logger.debug(f"sliding window, region {region}, load_bucket[{load_bucket}], {load_bucket_range[0]}-{load_bucket_range[1]}: {previous_count}")
 
 
 def update_traces():
@@ -3850,21 +3797,27 @@ def update_traces():
     global list_of_body
     global df_incomplete_traces
     global global_stitched_df
+    global new_global_stitched_df
     global required_total_num_services
     global ep_str_callgraph_table
     global ROUTING_RULE
-    if ROUTING_RULE != "SLATE-with-jumping-global-continuous-profiling":
+    global mode
+    global model_updated_before
+    if init_done == False:
+        logger.info(f"Train has not been done yet. train_done: {train_done}, init_done: {init_done}. Skip update_traces()")
+        return
+    if mode == "runtime" and ROUTING_RULE != "SLATE-with-jumping-global-continuous-profiling":
+    # if ROUTING_RULE != "SLATE-with-jumping-global-continuous-profiling":
         logger.info(f"ROUTING_RULE({ROUTING_RULE}) is not SLATE-with-jumping-global-continuous-profiling. Skip update_traces()")
         return
+    if mode == "profile":
+        logger.info(f"Running update_traces for profile!")
     ts = time.time()
     with list_of_body_mutex: # option 4
         temp = list()
-        body_traces = dict()
         for body in list_of_body:
-            # logger.info(f"body: {body}")
             for line in body.split('\n'):
                 result = re.split(r'[ ,;:|]+', line)
-                # logger.info(f"result: {result}")
                 """
                 result 14: ['us-south-1', 'sslateingress-us-south-1', 'POST', '/cart/checkout', '6f11db9eb19ab79ce26efcba89c37d74', 'e26efcba89c37d74', ' ', '1731636869805', '1731636869831', '0', 'POST@/cart/checkout', '11', '0', '']
                 """
@@ -3873,7 +3826,10 @@ def update_traces():
                 if len(result) == 14:
                     logger.debug(f"result 14: {result}")
                     temp.append(result)
-        list_of_body = [] # empty list_of_body    
+        # with open("temp.csv", "a") as f:
+        #     for t in temp:
+        #         f.write(','.join(t) + '\n')
+        list_of_body = [] # empty list_of_body
         if len(temp) > 0:
             df_new_traces = pd.DataFrame(temp, columns=['cluster_id', 'svc_name', 'method', 'url', 'trace_id', 'span_id', 'parent_span_id', 'st', 'et', 'call_size', 'endpoint', 'rps', 'inflight', "dummy"])
             df_new_traces.drop(columns=['dummy'], inplace=True)
@@ -3883,53 +3839,86 @@ def update_traces():
             df_new_traces['st'] = df_new_traces['st'].astype(int)
             df_new_traces['et'] = df_new_traces['et'].astype(int)
             df_new_traces['rt'] = df_new_traces['et'] - df_new_traces['st']
-            df_new_traces['xt'] = -1
+            df_new_traces['xt'] = df_new_traces['et'] - df_new_traces['st']
             df_new_traces['ct'] = -1
             df_new_traces['call_size'] = df_new_traces['call_size'].astype(int)
             num_pod_of_this_region = 4 # NOTE: hardcoded
             df_new_traces['rps'] = df_new_traces['rps'].astype(int)
             df_new_traces['rps'] = df_new_traces['rps']*num_pod_of_this_region
             df_new_traces['load_bucket'] = (df_new_traces['rps']//load_bucket_size + 1).clip(lower=1)
-            # df_new_traces['load_bucket'] = ((df_new_traces['rps'] - (load_bucket_size // 2)) // load_bucket_size + 1).clip(lower=1)
-            df_new_traces['added_time'] = time.time()
-            
-            for region in df_new_traces['cluster_id'].unique():
-                for load_bucket in df_new_traces['load_bucket'].unique():
-                    temp = df_new_traces[(df_new_traces['load_bucket']==load_bucket) & (df_new_traces['cluster_id']==region)]
-                    logger.info(f"df_new_traces, {region}, load_bucket: {load_bucket}, len: {len(temp['trace_id'].unique())}")
-                
+            df_new_traces['added_time'] = time.time() * np.random.random(len(df_new_traces))
+            # if os.path.exists("df_new_traces.csv"):
+            #     df_new_traces.to_csv("df_new_traces.csv", mode='a', header=False, index=False)
+            # else:
+            #     df_new_traces.to_csv("df_new_traces.csv", mode='w', header=True, index=False)
             if len(df_incomplete_traces) == 0:
+                logger.info(f"df_incomplete_traces is empty. df_incomplete_traces = df_new_traces")
                 df_incomplete_traces = df_new_traces
             else:
                 df_incomplete_traces = pd.concat([df_incomplete_traces, df_new_traces])
-                
+    if mode == "runtime" and (not train_done or not init_done):
+        logger.info(f"Train has not been done yet. train_done: {train_done}, init_done: {init_done}. Skip filtering and stitching in update_traces()")
+        return
+    print_len_df_trace(df_incomplete_traces, "update_traces/df_incomplete_traces,before_filtering")
+    # df_incomplete_traces.to_csv("df_incomplete_traces-1.csv", index=False)
+    # df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_in_df(df_incomplete_traces)
+    df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_for_multi_traffic_class_in_df(df_incomplete_traces)
+    print_len_df_trace(df_new_complete_traces, "update_traces/df_new_complete_traces")
+    print_len_df_trace(df_incomplete_traces, "update_traces/df_incomplete_traces,after_filtering")
+    # df_incomplete_traces.to_csv("df_incomplete_traces-2.csv", index=False)
+    ## single-threaded
+    # df_new_stitched_traces = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
+    ## multi-threaded
+    df_new_stitched_traces = tst.stitch_time_in_df_parallel(df_new_complete_traces, ep_str_callgraph_table)
+    if len(new_global_stitched_df) == 0:
+        new_global_stitched_df = df_new_stitched_traces
+    else:
+        new_global_stitched_df = pd.concat([new_global_stitched_df, df_new_stitched_traces], ignore_index=True)
+    if not model_updated_before:
+        for region in new_global_stitched_df['cluster_id'].unique():
+            # NOTE: Hardcoded
+            if region == "us-west-1":
+                temp_df = new_global_stitched_df[new_global_stitched_df['cluster_id'] == region]
+                if has_enough_data(temp_df):
+                    global_stitched_df = global_stitched_df[global_stitched_df['cluster_id'] != region]
+                    global_stitched_df = pd.concat([global_stitched_df, temp_df], ignore_index=True)
+                    global_stitched_df = sliding_window(global_stitched_df, max_num_trace)
+                    runtime_model_update()
+                    model_updated_before = True
+                    new_global_stitched_df = pd.DataFrame()
+                    logger.info(f"Empty new_global_stitched_df")
+    else:
+        logger.info(f"Do not update the data from now own. The model has been updated with new data once. That was the last one.")
+        # global_stitched_df = pd.concat([global_stitched_df, new_global_stitched_df], ignore_index=True)
+        # new_global_stitched_df = pd.DataFrame()
         
-    if not train_done:
-        logger.info(f"Train has not been done yet. train_done: {train_done}")
-        return
-    if not init_done:
-        logger.info(f"Init has not been done yet. init_done: {init_done}")
-        return
-    df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_in_df(df_incomplete_traces)
-    print_len_df_trace(df_incomplete_traces, "update_traces/df_new_complete_traces")
-    
-    df_new_stitched_tracess = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
-    # df_new_stitched_tracess = tst.stitch_time_in_df_concurrent(df_new_complete_traces, ep_str_callgraph_table, max_workers=8)
-    print_len_df_trace(df_incomplete_traces, "update_traces/df_new_stitched_tracess")
-    
-    global_stitched_df = pd.concat([global_stitched_df, df_new_stitched_tracess], ignore_index=True)
-    print_len_df_trace(df_incomplete_traces, "update_traces/global_stitched_df")
-    
-    # global_stitched_df = random_sampling_per_load_bucket_in_df(global_stitched_df, 0.9, max_num_trace)
-    print_len_df_trace(df_incomplete_traces, "update_traces/global_stitched_df-sampled")
-    
     global_stitched_df = sliding_window(global_stitched_df, max_num_trace)
-    print_len_df_trace(df_incomplete_traces, "update_traces/global_stitched_df-sliding_windowed")
-    
-    runtime_model_update()
     logger.info(f"counter[{temp_counter}], update_traces ends, took {int(time.time() - ts)}s")
-    
-    
+
+
+def has_enough_data(given_df):
+    # load_bucket_ranges = [(0, 5), (6, 10), (11, 15), (16, 20)]
+    load_bucket_ranges = [(0, 10), (11, 20)]
+    if given_df.empty:
+        logger.info(f"Empty given_df")
+        return False
+    trace_counts = given_df.groupby('load_bucket')['trace_id'].nunique()
+    range_counts = {f"{start}-{end}": 0 for start, end in load_bucket_ranges}
+    for start, end in load_bucket_ranges:
+        for bucket in range(start, end + 1):
+            range_counts[f"{start}-{end}"] += trace_counts.get(bucket, 0)
+    for key in range_counts:
+        logger.info(f"load_bucket range {key}: {range_counts[key]} traces")        
+    for key in range_counts:
+        num_required_trace = 100
+        if key == "16-20":
+            num_required_trace = 100
+        if range_counts[key] < num_required_trace:
+            logger.info(f"Insufficient data in load bucket range {key}: {range_counts[key]} traces")
+            return False
+    logger.info(f"Enough data in all load bucket ranges!!!")
+    return True
+
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
     scheduler.add_job(func=read_config_file, trigger="interval", seconds=1)
