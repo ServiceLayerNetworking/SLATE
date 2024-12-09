@@ -749,15 +749,17 @@ def get_child_spans(single_trace, parent_span, ep_str_callgraph_table):
 def calc_exclusive_time_in_df(single_trace, overhead):
     rt_dict = {}
     for _, span in single_trace.iterrows():
-        rt_dict[span["svc_name"]] = span["rt"]
+        rt_dict[span['svc_name']] = span['rt']
+        if span["cluster_id"] in ["us-west-1", "us-east-1"]:
+            logger.debug(f"{span['cluster_id']}, {span['svc_name']}, rt, {rt_dict[span['svc_name']]}, {span['rt']}") # TODO
         
     for _, span in single_trace.iterrows():
         try:
             if span["svc_name"] == "sslateingress":
                 span["ct"] = span["rt"] - rt_dict["frontend"]
-                logger.info(f"parent_svc: {span['svc_name']}, parent_rt: {span['rt']}, child_rt: {rt_dict['frontend']}, parent_xt: {span['ct']}")
             elif span["svc_name"] == "frontend":
                 span["ct"] = span["rt"] - rt_dict["checkoutservice"]
+                logger.debug(f"parent_svc: {span['svc_name']}, parent_rt: {span['rt']}, child_rt: {rt_dict['checkoutservice']}, parent_xt: {span['ct']}")
             else:
                 span["ct"] = span["rt"]
         except KeyError:
