@@ -38,7 +38,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 plot_executor = ThreadPoolExecutor(max_workers=1)
 
-# Filter specific FutureWarning related to pandas concatenation.
 
 # import logging.config
 
@@ -821,7 +820,7 @@ def processing_latencies_delta_are_different(
             delta_prev = abs(expected_latency_prev - actual_prev)
             delta_cur = abs(expected_latency_cur - actual_cur)
 
-            if True:
+            if True: # this is for debugging
                 # check if within 30ms
                 if abs(delta_prev - delta_cur) > 30:
                     logger.info(
@@ -3597,52 +3596,6 @@ def record_endpoint_rps(aggregated_rps, counter):
                         f.write(temp + "\n")
                         
 
-# def aggregated_rps_routine():
-#     global per_pod_ep_rps
-#     global aggregated_rps
-#     global agg_root_node_rps
-#     global temp_counter
-#     global prev_ts
-#     # aggregate_rps_by_region_or_zero(per_pod_ep_rps)
-#     aggregate_rps_by_region_or_zero()
-#     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table, aggregated_rps)
-#     if check_root_node_rps_condition(agg_root_node_rps) or temp_counter > 0:
-#         record_endpoint_rps(aggregated_rps, temp_counter)
-#         logger.info("-"*80)
-#         logger.info(f"aggregated_rps_routine, temp_counter-{temp_counter}, gap: {time.time()-prev_ts}")
-#         prev_ts = time.time()
-#         for region in agg_root_node_rps:
-#             for svc in agg_root_node_rps[region]:
-#                 for endpoint in agg_root_node_rps[region][svc]:
-#                     logger.warning(f"agg_root_node_rps,{region},{svc},{endpoint},{agg_root_node_rps[region][svc][endpoint]}")
-#         logger.warning("-"*80)
-    
-#     # also print per_pod_ep_rps AND aggregated_rps for all services in us-west-1.
-#     # after that, print per_pod_ep_rps AND aggregated_rps for regions for the frontend service.
-#     # logger.info("logadi-aggregate rps")
-#     # logger.info("-"*80)
-#     # region = "us-west-1"
-#     # svc = "sslateingress"
-    
-    
-#     # for endpoint in per_pod_ep_rps[region][svc]:
-#     #     for podname in per_pod_ep_rps["us-west-1"][svc][endpoint]:
-#     #         logger.info(f"{temp_counter},per_pod_ep_rps,us-west-1,{svc},{endpoint},{podname},{per_pod_ep_rps['us-west-1'][svc][endpoint][podname]}")
-#     # for svc in aggregated_rps["us-west-1"]:
-#     #     for endpoint in aggregated_rps["us-west-1"][svc]:
-#     #         logger.info(f"{temp_counter},aggregated_rps,us-west-1,{svc},{endpoint},{aggregated_rps['us-west-1'][svc][endpoint]}")
-#     # for region in per_pod_ep_rps:
-#     #     for endpoint in per_pod_ep_rps[region]["frontend"]:
-#     #         for podname in per_pod_ep_rps[region]["frontend"][endpoint]:
-#     #             logger.info(f"{temp_counter},per_pod_ep_rps,{region},frontend,{endpoint},{podname},{per_pod_ep_rps[region]['frontend'][endpoint][podname]}")
-#     # for region in aggregated_rps:
-#     #     for endpoint in aggregated_rps[region]["frontend"]:
-#     #         logger.info(f"{temp_counter},aggregated_rps,{region},frontend,{endpoint},{aggregated_rps[region]['frontend'][endpoint]}")
-#     # logger.info("-"*80)
-#     temp_counter += 1
-
-
-## from global_controller-continuous.py
 def aggregated_rps_routine():
     global per_pod_ep_rps
     global aggregated_rps
