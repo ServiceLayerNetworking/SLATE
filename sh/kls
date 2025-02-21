@@ -1,0 +1,3 @@
+#!/bin/bash
+
+kubectl logs -l app=slate-controller --all-containers=true -f 

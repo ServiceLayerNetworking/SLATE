@@ -90,7 +90,7 @@ def run_optimizer(coef_dict, \
         degree, \
         inter_cluster_latency, \
         endpoint_sizes, \
-        DOLLAR_PER_MS):
+        DOLLAR_PER_MS, normalization_dict=dict()):
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -210,11 +210,14 @@ def run_optimizer(coef_dict, \
     options['OutputFlag'] = 0
     env = gp.Env(params=options)
     gurobi_model = gp.Model('RequestRouting', env=env)
+    gurobi_model.setParam("OutputFlag", 1)  # Enable logging
+    gurobi_model.setParam("LogToConsole", 1)  # Ensure detailed logging
 
     compute_latency = dict()
     compute_load = dict()
     compute_latency = gppd.add_vars(gurobi_model, compute_df, name="compute_latency", lb="min_compute_latency")
     compute_load = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge", ub="max_load")
+    normalized_compute_load = gppd.add_vars(gurobi_model, compute_df, name="normalized_load_for_compute_edge", ub="max_load")
     '''
     compute_load2 = compute_load**2
     latency = compute_load2**2 + b
@@ -226,6 +229,15 @@ def run_optimizer(coef_dict, \
     for index, row in compute_df.iterrows():
         if degree == 4:
             gurobi_model.addConstr(compute_load2[index] == compute_load[index]**2, name=f'for_higher_degree-{index}')
+        ep = row['endpoint']
+        cid = row['src_cid']
+        rh = compute_load[opt_func.get_compute_arc_var_name(ep, cid)]
+        if ep in normalization_dict:
+            for colocated_endpoint in normalization_dict[ep]:
+                rh += compute_load[opt_func.get_compute_arc_var_name(colocated_endpoint, cid)] * normalization_dict[ep][colocated_endpoint]
+        gurobi_model.addConstr(normalized_compute_load[index] == rh, name=f'normalized_load_{index}')
+        gurobi_model.update()
+        # constraint_file.write(f'normalized_compute_load[{index}] == {rh}\n')
         
     gurobi_model.update()
     constraint_file = open(f'constraint.log', 'w')
@@ -272,16 +284,17 @@ def run_optimizer(coef_dict, \
                     # degree is 4 using compute_load2 = compute_load**2
                     rh += coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2) 
                 elif degree == 2:
-                    rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
+                    # rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
+                    rh += coefs[dependent_ep] * (normalized_compute_load[dependent_arc_name] ** 2) 
                 else:
                     # degree is 1
                     rh += coefs[dependent_ep] * (compute_load[dependent_arc_name])
         rh += coefs['intercept']
-        constraint_file.write(f"{lh}\n")
-        constraint_file.write("==\n")
-        constraint_file.write(f"{rh}\n")
-        constraint_file.write("-"*80)
-        constraint_file.write("\n")
+        # constraint_file.write(f"{lh}\n")
+        # constraint_file.write("==\n")
+        # constraint_file.write(f"{rh}\n")
+        # constraint_file.write("-"*80)
+        # constraint_file.write("\n")
         gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
     gurobi_model.update()
 
@@ -326,8 +339,8 @@ def run_optimizer(coef_dict, \
     min_egress_cost_list = list()
     max_egress_cost_list = list()
     flattened_callsize_dict = {inner_key: value for outer_key, inner_dict in callsize_dict.items() for inner_key, value in inner_dict.items()}
-    # for key in flattened_callsize_dict:
-    #     logger.info(f"flattened_callsize_dict[{key}]: {flattened_callsize_dict[key]}")
+    for key in flattened_callsize_dict:
+        logger.info(f"flattened_callsize_dict[{key}]: {flattened_callsize_dict[key]}")
         
     for var_name in network_arc_var_name:
         if type(var_name) == tuple:
@@ -529,7 +542,7 @@ def run_optimizer(coef_dict, \
         assert False
         
     gurobi_model.update()
-    logger.debug(f"{cfg.log_prefix} model objective: {gurobi_model.getObjective()}")
+    # logger.inf(f"{cfg.log_prefix} model objective: {gurobi_model.getObjective()}")
 
     temp = dict()
     temp = pd.concat([network_load, compute_load], axis=0)
@@ -732,6 +745,7 @@ def run_optimizer(coef_dict, \
     gurobi_model.setParam('NonConvex', 2)
     ts = time.time()
     gurobi_model.optimize()
+    logger.info(f"Optimized Objective Value: {gurobi_model.objVal}")
     solver_runtime = time.time() - ts
     opt_func.log_timestamp("MODEL OPTIMIZE")
 
@@ -750,9 +764,9 @@ def run_optimizer(coef_dict, \
     substract_time = time.time() - ts
     opt_func.log_timestamp("get var and constraint")
     if gurobi_model.Status != GRB.OPTIMAL:
-        logger.warning(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
-        logger.warning(f"XXXX INFEASIBLE MODEL! XXXX")
-        logger.warning(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        logger.info(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        logger.info(f"XXXX INFEASIBLE MODEL! XXXX")
+        logger.info(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
         if cfg.DISPLAY:
             logger.debug(df_constr)
         gurobi_model.computeIIS()
@@ -775,6 +789,7 @@ def run_optimizer(coef_dict, \
                 temp = pd.DataFrame({"From": [arc[0]], "To": [arc[1]], "Flow": [aggregated_load[arc].x]})
                 request_flow = pd.concat([request_flow, temp], ignore_index=True)
         request_flow.to_csv(f'request_flow.csv')
+        gurobi_model.write("gurobi_model.lp")
         logger.debug("asdf request_flow")
         logger.debug(request_flow)
         percentage_df = opt_func.translate_to_percentage(request_flow)

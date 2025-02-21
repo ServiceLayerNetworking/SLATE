@@ -90,7 +90,11 @@ def run_optimizer(coef_dict, \
         degree, \
         inter_cluster_latency, \
         endpoint_sizes, \
-        DOLLAR_PER_MS, normalization_dict=dict()):
+        DOLLAR_PER_MS, \
+        max_rps=1000, \
+        normalization_dict=dict()):
+        # 'max_rps' will be used in MM1 model as a representation of 1 utilization.
+        
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -115,7 +119,7 @@ def run_optimizer(coef_dict, \
         return collapsed_endpoint_level_rps
     
     collapsed_endpoint_level_rps = collapse_cid_in_endpoint_level_rps(endpoint_level_rps)
-    logger.info(f'collapsed_endpoint_level_rps: {collapsed_endpoint_level_rps}')
+    logger.debug(f'collapsed_endpoint_level_rps: {collapsed_endpoint_level_rps}')
     # This is used in flow_conservation-nonleaf_endnode constraint
     request_in_out_weight = dict()
     for cg_key in ep_str_callgraph_table:
@@ -223,6 +227,7 @@ def run_optimizer(coef_dict, \
     latency = compute_load**4 + b -> this is what we want eventually. 
     This is walkaround solution because gurobi does not support more than quadratic.
     '''
+    constraint_file = open(f'constraint.log', 'w')
     compute_load2 = gppd.add_vars(gurobi_model, compute_df, name="load_for_compute_edge2")
     for index, row in compute_df.iterrows():
         if degree == 4:
@@ -230,15 +235,17 @@ def run_optimizer(coef_dict, \
         ep = row['endpoint']
         cid = row['src_cid']
         rh = compute_load[opt_func.get_compute_arc_var_name(ep, cid)]
-        if ep in normalization_dict:
-            for colocated_endpoint in normalization_dict[ep]:
-                rh += compute_load[opt_func.get_compute_arc_var_name(colocated_endpoint, cid)] * normalization_dict[ep][colocated_endpoint]
-        gurobi_model.addConstr(normalized_compute_load[index] == rh, name=f'normalized_load_{index}')
-        gurobi_model.update()
-        # constraint_file.write(f'normalized_compute_load[{index}] == {rh}\n')
+        
+        ## Normalization is given
+        if len(normalization_dict) > 0:
+            if ep in normalization_dict:
+                for colocated_endpoint in normalization_dict[ep]:
+                    rh += compute_load[opt_func.get_compute_arc_var_name(colocated_endpoint, cid)] * normalization_dict[ep][colocated_endpoint]
+            gurobi_model.addConstr(normalized_compute_load[index] == rh, name=f'normalized_load_{index}')
+            gurobi_model.update()
+            constraint_file.write(f'normalized_compute_load[{index}] == {rh}\n')
         
     gurobi_model.update()
-    constraint_file = open(f'constraint.log', 'w')
     
     '''
     Manually setting the latency function constraint
@@ -249,26 +256,25 @@ def run_optimizer(coef_dict, \
     Constraint equation:
         endpoint latency == (coef[ep_1]*scheduled_load[ep_1]) + (coef[ep_2]*scheduled_load[ep_2]) + intercept
     '''
-    normalized_total_rps = dict()
-    for svc_name in compute_df['svc_name'].unique():
-        if svc_name not in normalized_total_rps:
-            normalized_total_rps[svc_name] = 0
-        svc_df = compute_df[compute_df['svc_name'] == svc_name]
-        if len(svc_df) == 0:
-            logger.error(f'svc_name: {svc_name} does not exist in compute_df')
-            assert False
-        cid_of_svc = svc_df['src_cid'].unique()
-        for cid in cid_of_svc:
-            svc_cid_df = svc_df[svc_df['src_cid'] == cid]
-            for ep in svc_cid_df['endpoint'].unique(): # all endpoints of the svc
-                arc_name = opt_func.get_compute_arc_var_name(ep, cid)
-                normalized_total_rps[svc_name] += compute_load[arc_name]
-        logger.debug(f'normalized_total_rps[{svc_name}]: {normalized_total_rps[svc_name]}')
+    
+    if len(normalization_dict) > 0:
+        normalized_total_rps = dict()
+        for svc_name in compute_df['svc_name'].unique():
+            if svc_name not in normalized_total_rps:
+                normalized_total_rps[svc_name] = 0
+            svc_df = compute_df[compute_df['svc_name'] == svc_name]
+            if len(svc_df) == 0:
+                logger.error(f'svc_name: {svc_name} does not exist in compute_df')
+                assert False
+            cid_of_svc = svc_df['src_cid'].unique()
+            for cid in cid_of_svc:
+                svc_cid_df = svc_df[svc_df['src_cid'] == cid]
+                for ep in svc_cid_df['endpoint'].unique(): # all endpoints of the svc
+                    arc_name = opt_func.get_compute_arc_var_name(ep, cid)
+                    normalized_total_rps[svc_name] += compute_load[arc_name]
+            logger.debug(f'normalized_total_rps[{svc_name}]: {normalized_total_rps[svc_name]}')
         
     for index, row in compute_df.iterrows():
-        lh = compute_latency[index]
-        rh = 0
-        # try:
         coefs = row['coef']
         logger.debug(f"target svc,endpoint: {row['svc_name']}, {row['endpoint']}")
         logger.debug(coefs)
@@ -278,22 +284,36 @@ def run_optimizer(coef_dict, \
                 logger.debug(f'dependent_arc_name: {dependent_arc_name}')
                 logger.debug(f'coefs[{dependent_ep}]: {coefs[dependent_ep]}')
                 logger.debug(f'dependent_arc_name: {dependent_arc_name}')
-                if degree == 4:
-                    # degree is 4 using compute_load2 = compute_load**2
-                    rh += coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2) 
+                if degree == 4: # degree is 4 using compute_load2 = compute_load**2
+                    rh = coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2)
+                    rh += coefs['intercept']
+                    lh = compute_latency[index]
                 elif degree == 2:
-                    # rh += coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
-                    rh += coefs[dependent_ep] * (normalized_compute_load[dependent_arc_name] ** 2) 
-                else:
-                    # degree is 1
-                    rh += coefs[dependent_ep] * (compute_load[dependent_arc_name])
-        rh += coefs['intercept']
-        # constraint_file.write(f"{lh}\n")
-        # constraint_file.write("==\n")
-        # constraint_file.write(f"{rh}\n")
-        # constraint_file.write("-"*80)
-        # constraint_file.write("\n")
-        gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
+                    if len(normalization_dict) > 0:
+                        rh = coefs[dependent_ep] * (normalized_compute_load[dependent_arc_name] ** 2)
+                        rh += coefs['intercept']
+                        logger.info(f"Normalizing RPS")
+                    else:
+                        rh = coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
+                        rh += coefs['intercept']
+                elif degree == 1:
+                    rh = coefs[dependent_ep] * compute_load[dependent_arc_name]
+                    rh += coefs['intercept']
+                    lh = compute_latency[index]
+                else: # mm1 model
+                    a = coefs[dependent_ep]
+                    b = coefs['intercept']
+                    rh = (a/(max_rps - compute_load[dependent_arc_name])) + b
+                    lh = compute_latency[index]
+                    # lh = (compute_latency[index] - b) * (max_rps - compute_load[dependent_arc_name])
+                    # rh = a
+                    logger.info(f'MM1 model, a: {a}, b: {b}, max_rps: {max_rps}, compute_load[{dependent_arc_name}]: {compute_load[dependent_arc_name]}')
+                constraint_file.write(f"{lh}\n")
+                constraint_file.write("==\n")
+                constraint_file.write(f"{rh}\n")
+                constraint_file.write("-"*80)
+                constraint_file.write("\n")
+                gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
     gurobi_model.update()
 
 
@@ -337,8 +357,8 @@ def run_optimizer(coef_dict, \
     min_egress_cost_list = list()
     max_egress_cost_list = list()
     flattened_callsize_dict = {inner_key: value for outer_key, inner_dict in callsize_dict.items() for inner_key, value in inner_dict.items()}
-    for key in flattened_callsize_dict:
-        logger.info(f"flattened_callsize_dict[{key}]: {flattened_callsize_dict[key]}")
+    # for key in flattened_callsize_dict:
+    #     logger.debug(f"flattened_callsize_dict[{key}]: {flattened_callsize_dict[key]}")
         
     for var_name in network_arc_var_name:
         if type(var_name) == tuple:
@@ -395,6 +415,10 @@ def run_optimizer(coef_dict, \
     network_latency = dict()
     network_load = dict()
     network_egress_cost = dict()
+    if network_df.index.duplicated().any():
+        logger.error("Duplicate index entries found:")
+        logger.error(network_df[network_df.index.duplicated(keep=False)])
+        # network_df = network_df.reset_index(drop=True)
     network_latency = gppd.add_vars(gurobi_model, network_df, name="network_latency", lb="min_network_time", ub="max_network_time")
     network_load = gppd.add_vars(gurobi_model, network_df, name="load_for_network_edge")
     network_egress_cost = gppd.add_vars(gurobi_model, network_df, name="network_egress_cost", lb="min_egress_cost", ub="max_egress_cost")
@@ -793,8 +817,8 @@ def run_optimizer(coef_dict, \
         logger.debug("asdf percentage_df")
         logger.debug(percentage_df)
         # opt_func.plot_callgraph_request_flow(percentage_df, network_arc_var_name)
-        logger.info(f'Successful run')
-        logger.warning(f"solver runtime: {solver_runtime}")
+        logger.debug(f'Successful run')
+        logger.debug(f"solver runtime: {solver_runtime}")
         return percentage_df, "model solved"
 
 

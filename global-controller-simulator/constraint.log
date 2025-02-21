@@ -1,384 +1,192 @@
-<gurobi.Var compute_latency[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#end')]>
+load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart#us_central_1#start')]
 ==
-0.6245698521639249 + [ 3.358173659059789e-06 load_for_compute_edge[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#end')] ^ 2 ]
+150
 --------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('sslateingress@POST@/cart/checkout#us_west_1#start',_'sslateingress@POST@/cart/checkout#us_west_1#end')]>
+load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart#us_west_1#start')]
 ==
-1.0868519851102758 + [ 1.663884044632706e-05 load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_west_1#start',_'sslateingress@POST@/cart/checkout#us_west_1#end')] ^ 2 ]
+150
 --------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#end')]>
+load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart/checkout#us_central_1#start')]
 ==
-0.9452056491695048 + [ 8.813330823536261e-06 load_for_compute_edge[('cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#end')]>
-==
-0.7322807594252826 + [ 5.541307960266252e-06 load_for_compute_edge[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#end')]>
-==
-0.6987102362698281 + [ 6.244809568429129e-06 load_for_compute_edge[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end')]>
-==
-1.0 + [ 0.0001364372975024 load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#end')]>
-==
-1.0 + [ 8.942462953450725e-05 load_for_compute_edge[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('frontend@POST@/cart/checkout#us_west_1#start',_'frontend@POST@/cart/checkout#us_west_1#end')]>
-==
-0.2560584348954728 + [ 3.73107486513784e-05 load_for_compute_edge[('frontend@POST@/cart/checkout#us_west_1#start',_'frontend@POST@/cart/checkout#us_west_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#end')]>
-==
-0.6245698521639249 + [ 3.358173659059789e-06 load_for_compute_edge[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('sslateingress@POST@/cart/checkout#us_east_1#start',_'sslateingress@POST@/cart/checkout#us_east_1#end')]>
-==
-1.0868519851102758 + [ 1.663884044632706e-05 load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_east_1#start',_'sslateingress@POST@/cart/checkout#us_east_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#end')]>
-==
-0.9452056491695048 + [ 8.813330823536261e-06 load_for_compute_edge[('cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#end')]>
-==
-0.7322807594252826 + [ 5.541307960266252e-06 load_for_compute_edge[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#end')]>
-==
-0.6987102362698281 + [ 6.244809568429129e-06 load_for_compute_edge[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end')]>
-==
-1.0 + [ 0.0001364372975024 load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#end')]>
-==
-1.0 + [ 8.942462953450725e-05 load_for_compute_edge[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('frontend@POST@/cart/checkout#us_east_1#start',_'frontend@POST@/cart/checkout#us_east_1#end')]>
-==
-0.2560584348954728 + [ 3.73107486513784e-05 load_for_compute_edge[('frontend@POST@/cart/checkout#us_east_1#start',_'frontend@POST@/cart/checkout#us_east_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#end')]>
-==
-0.6245698521639249 + [ 3.358173659059789e-06 load_for_compute_edge[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('sslateingress@POST@/cart/checkout#us_central_1#start',_'sslateingress@POST@/cart/checkout#us_central_1#end')]>
-==
-1.0868519851102758 + [ 1.663884044632706e-05 load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_central_1#start',_'sslateingress@POST@/cart/checkout#us_central_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#end')]>
-==
-0.9452056491695048 + [ 8.813330823536261e-06 load_for_compute_edge[('cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#end')]>
-==
-0.7322807594252826 + [ 5.541307960266252e-06 load_for_compute_edge[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#end')]>
-==
-0.6987102362698281 + [ 6.244809568429129e-06 load_for_compute_edge[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end')]>
-==
-1.0 + [ 0.0001364372975024 load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#end')]>
-==
-1.0 + [ 8.942462953450725e-05 load_for_compute_edge[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('frontend@POST@/cart/checkout#us_central_1#start',_'frontend@POST@/cart/checkout#us_central_1#end')]>
-==
-0.2560584348954728 + [ 3.73107486513784e-05 load_for_compute_edge[('frontend@POST@/cart/checkout#us_central_1#start',_'frontend@POST@/cart/checkout#us_central_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#end')]>
-==
-0.6245698521639249 + [ 3.358173659059789e-06 load_for_compute_edge[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('sslateingress@POST@/cart/checkout#us_south_1#start',_'sslateingress@POST@/cart/checkout#us_south_1#end')]>
-==
-1.0868519851102758 + [ 1.663884044632706e-05 load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_south_1#start',_'sslateingress@POST@/cart/checkout#us_south_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#end')]>
-==
-0.9452056491695048 + [ 8.813330823536261e-06 load_for_compute_edge[('cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#end')]>
-==
-0.7322807594252826 + [ 5.541307960266252e-06 load_for_compute_edge[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#end')]>
-==
-0.6987102362698281 + [ 6.244809568429129e-06 load_for_compute_edge[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end')]>
-==
-1.0 + [ 0.0001364372975024 load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#end')]>
-==
-1.0 + [ 8.942462953450725e-05 load_for_compute_edge[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#end')] ^ 2 ]
---------------------------------------------------------------------------------
-<gurobi.Var compute_latency[('frontend@POST@/cart/checkout#us_south_1#start',_'frontend@POST@/cart/checkout#us_south_1#end')]>
-==
-0.2560584348954728 + [ 3.73107486513784e-05 load_for_compute_edge[('frontend@POST@/cart/checkout#us_south_1#start',_'frontend@POST@/cart/checkout#us_south_1#end')] ^ 2 ]
+200
 --------------------------------------------------------------------------------
 load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart/checkout#us_west_1#start')]
-==
-100
---------------------------------------------------------------------------------
-load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart/checkout#us_east_1#start')]
 ==
 400
 --------------------------------------------------------------------------------
 load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart/checkout#us_central_1#start')]
 ==
-700
+load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_central_1#start',_'sslateingress@POST@/cart/checkout#us_central_1#end')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart/checkout#us_south_1#start')]
+load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart#us_central_1#start')]
 ==
-100
+load_for_compute_edge[('sslateingress@POST@/cart#us_central_1#start',_'sslateingress@POST@/cart#us_central_1#end')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#start')]
+load_for_network_edge[('sslateingress@POST@/cart#us_west_1#end',_'frontend@POST@/cart#us_central_1#start')] + load_for_network_edge[('sslateingress@POST@/cart#us_central_1#end',_'frontend@POST@/cart#us_central_1#start')]
 ==
-load_for_compute_edge[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#end')]
+load_for_compute_edge[('frontend@POST@/cart#us_central_1#start',_'frontend@POST@/cart#us_central_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')]
+==
+load_for_compute_edge[('frontend@POST@/cart/checkout#us_central_1#start',_'frontend@POST@/cart/checkout#us_central_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('frontend@POST@/cart#us_west_1#end',_'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart#us_central_1#end',_'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_central_1#start')]
+==
+load_for_compute_edge[('productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_central_1#start',_'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_central_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('frontend@POST@/cart#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/AddItem#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/AddItem#us_central_1#start')]
+==
+load_for_compute_edge[('cartservice@POST@/hipstershop.CartService/AddItem#us_central_1#start',_'cartservice@POST@/hipstershop.CartService/AddItem#us_central_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')]
+==
+load_for_compute_edge[('cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')]
+==
+load_for_compute_edge[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')]
+==
+load_for_compute_edge[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')]
+==
+load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')]
+==
+load_for_compute_edge[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_central_1#start')]
+==
+load_for_compute_edge[('currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_central_1#start',_'currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_central_1#end')]
 --------------------------------------------------------------------------------
 load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart/checkout#us_west_1#start')]
 ==
 load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_west_1#start',_'sslateingress@POST@/cart/checkout#us_west_1#end')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')]
+load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart#us_west_1#start')]
+==
+load_for_compute_edge[('sslateingress@POST@/cart#us_west_1#start',_'sslateingress@POST@/cart#us_west_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('sslateingress@POST@/cart#us_west_1#end',_'frontend@POST@/cart#us_west_1#start')] + load_for_network_edge[('sslateingress@POST@/cart#us_central_1#end',_'frontend@POST@/cart#us_west_1#start')]
+==
+load_for_compute_edge[('frontend@POST@/cart#us_west_1#start',_'frontend@POST@/cart#us_west_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')]
+==
+load_for_compute_edge[('frontend@POST@/cart/checkout#us_west_1#start',_'frontend@POST@/cart/checkout#us_west_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('frontend@POST@/cart#us_west_1#end',_'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart#us_central_1#end',_'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_west_1#start')]
+==
+load_for_compute_edge[('productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_west_1#start',_'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_west_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('frontend@POST@/cart#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/AddItem#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/AddItem#us_west_1#start')]
+==
+load_for_compute_edge[('cartservice@POST@/hipstershop.CartService/AddItem#us_west_1#start',_'cartservice@POST@/hipstershop.CartService/AddItem#us_west_1#end')]
+--------------------------------------------------------------------------------
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')]
 ==
 load_for_compute_edge[('cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#end')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')]
-==
-load_for_compute_edge[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')]
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')]
 ==
 load_for_compute_edge[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#end')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')]
-==
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')]
+load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')]
 ==
 load_for_compute_edge[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#end')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_east_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_south_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')]
+load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')]
 ==
-load_for_compute_edge[('frontend@POST@/cart/checkout#us_west_1#start',_'frontend@POST@/cart/checkout#us_west_1#end')]
+load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#start')]
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')]
 ==
-load_for_compute_edge[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#end')]
+load_for_compute_edge[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#end')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart/checkout#us_east_1#start')]
+load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_west_1#start')]
 ==
-load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_east_1#start',_'sslateingress@POST@/cart/checkout#us_east_1#end')]
+load_for_compute_edge[('currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_west_1#start',_'currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_west_1#end')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#start')]
+load_for_compute_edge[('sslateingress@POST@/cart#us_west_1#start',_'sslateingress@POST@/cart#us_west_1#end')]
 ==
-load_for_compute_edge[('cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#end')]
+load_for_network_edge[('sslateingress@POST@/cart#us_west_1#end',_'frontend@POST@/cart#us_west_1#start')] + load_for_network_edge[('sslateingress@POST@/cart#us_west_1#end',_'frontend@POST@/cart#us_central_1#start')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#start')]
+load_for_compute_edge[('sslateingress@POST@/cart#us_central_1#start',_'sslateingress@POST@/cart#us_central_1#end')]
 ==
-load_for_compute_edge[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#end')]
+load_for_network_edge[('sslateingress@POST@/cart#us_central_1#end',_'frontend@POST@/cart#us_west_1#start')] + load_for_network_edge[('sslateingress@POST@/cart#us_central_1#end',_'frontend@POST@/cart#us_central_1#start')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#start')]
+load_for_compute_edge[('frontend@POST@/cart#us_west_1#start',_'frontend@POST@/cart#us_west_1#end')]
 ==
-load_for_compute_edge[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#end')]
+load_for_network_edge[('frontend@POST@/cart#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/AddItem#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/AddItem#us_central_1#start')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start')]
+load_for_compute_edge[('frontend@POST@/cart#us_west_1#start',_'frontend@POST@/cart#us_west_1#end')]
 ==
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end')]
+load_for_network_edge[('frontend@POST@/cart#us_west_1#end',_'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart#us_west_1#end',_'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_central_1#start')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#start')]
+load_for_compute_edge[('frontend@POST@/cart#us_central_1#start',_'frontend@POST@/cart#us_central_1#end')]
 ==
-load_for_compute_edge[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#end')]
+load_for_network_edge[('frontend@POST@/cart#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/AddItem#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/AddItem#us_central_1#start')]
 --------------------------------------------------------------------------------
-load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_east_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_east_1#end',_'frontend@POST@/cart/checkout#us_east_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_south_1#end',_'frontend@POST@/cart/checkout#us_east_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_east_1#start')]
+load_for_compute_edge[('frontend@POST@/cart#us_central_1#start',_'frontend@POST@/cart#us_central_1#end')]
 ==
-load_for_compute_edge[('frontend@POST@/cart/checkout#us_east_1#start',_'frontend@POST@/cart/checkout#us_east_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#start')]
-==
-load_for_compute_edge[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart/checkout#us_central_1#start')]
-==
-load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_central_1#start',_'sslateingress@POST@/cart/checkout#us_central_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')]
-==
-load_for_compute_edge[('cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')]
-==
-load_for_compute_edge[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')]
-==
-load_for_compute_edge[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')]
-==
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')]
-==
-load_for_compute_edge[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_east_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_south_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')]
-==
-load_for_compute_edge[('frontend@POST@/cart/checkout#us_central_1#start',_'frontend@POST@/cart/checkout#us_central_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#start')]
-==
-load_for_compute_edge[('shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#start',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('SOURCE#XXXX#end',_'sslateingress@POST@/cart/checkout#us_south_1#start')]
-==
-load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_south_1#start',_'sslateingress@POST@/cart/checkout#us_south_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#start')]
-==
-load_for_compute_edge[('cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#start',_'cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#start')]
-==
-load_for_compute_edge[('paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#start',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#start')]
-==
-load_for_compute_edge[('emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#start',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start')]
-==
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#start')]
-==
-load_for_compute_edge[('recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#start',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#end')]
---------------------------------------------------------------------------------
-load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_south_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_east_1#end',_'frontend@POST@/cart/checkout#us_south_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_south_1#end',_'frontend@POST@/cart/checkout#us_south_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_south_1#start')]
-==
-load_for_compute_edge[('frontend@POST@/cart/checkout#us_south_1#start',_'frontend@POST@/cart/checkout#us_south_1#end')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_central_1#start',_'sslateingress@POST@/cart/checkout#us_central_1#end')]
-==
-load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_east_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_south_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_east_1#start',_'sslateingress@POST@/cart/checkout#us_east_1#end')]
-==
-load_for_network_edge[('sslateingress@POST@/cart/checkout#us_east_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_east_1#end',_'frontend@POST@/cart/checkout#us_east_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_east_1#end',_'frontend@POST@/cart/checkout#us_south_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_east_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_south_1#start',_'sslateingress@POST@/cart/checkout#us_south_1#end')]
-==
-load_for_network_edge[('sslateingress@POST@/cart/checkout#us_south_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_south_1#end',_'frontend@POST@/cart/checkout#us_east_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_south_1#end',_'frontend@POST@/cart/checkout#us_south_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_south_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')]
+load_for_network_edge[('frontend@POST@/cart#us_central_1#end',_'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart#us_central_1#end',_'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct#us_central_1#start')]
 --------------------------------------------------------------------------------
 load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_west_1#start',_'sslateingress@POST@/cart/checkout#us_west_1#end')]
 ==
-load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_east_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_south_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')]
+load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_west_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')]
 --------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end')]
+load_for_compute_edge[('sslateingress@POST@/cart/checkout#us_central_1#start',_'sslateingress@POST@/cart/checkout#us_central_1#end')]
 ==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end')]
-==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end')]
-==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end')]
-==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end')]
-==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end')]
-==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end')]
-==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end')]
-==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end')]
-==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end')]
-==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end')]
-==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end')]
-==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#start')]
+load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_west_1#start')] + load_for_network_edge[('sslateingress@POST@/cart/checkout#us_central_1#end',_'frontend@POST@/cart/checkout#us_central_1#start')]
 --------------------------------------------------------------------------------
 load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end')]
 ==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')]
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')]
 --------------------------------------------------------------------------------
 load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end')]
 ==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')]
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')]
 --------------------------------------------------------------------------------
 load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end')]
 ==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')]
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')]
 --------------------------------------------------------------------------------
-load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end')]
+load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end')]
 ==
-load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_central_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_east_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_south_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#end',_'shippingservice@POST@/hipstershop.ShippingService/ShipOrder#us_west_1#start')]
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'cartservice@POST@/hipstershop.CartService/GetCart#us_central_1#start')]
 --------------------------------------------------------------------------------
-load_for_compute_edge[('frontend@POST@/cart/checkout#us_central_1#start',_'frontend@POST@/cart/checkout#us_central_1#end')]
+load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end')]
 ==
-load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')]
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation#us_central_1#start')]
 --------------------------------------------------------------------------------
-load_for_compute_edge[('frontend@POST@/cart/checkout#us_central_1#start',_'frontend@POST@/cart/checkout#us_central_1#end')]
+load_for_compute_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end')]
 ==
-load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('frontend@POST@/cart/checkout#us_east_1#start',_'frontend@POST@/cart/checkout#us_east_1#end')]
-==
-load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('frontend@POST@/cart/checkout#us_east_1#start',_'frontend@POST@/cart/checkout#us_east_1#end')]
-==
-load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_east_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('frontend@POST@/cart/checkout#us_south_1#start',_'frontend@POST@/cart/checkout#us_south_1#end')]
-==
-load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')]
---------------------------------------------------------------------------------
-load_for_compute_edge[('frontend@POST@/cart/checkout#us_south_1#start',_'frontend@POST@/cart/checkout#us_south_1#end')]
-==
-load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_south_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')]
+load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_west_1#start')] + load_for_network_edge[('checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#end',_'paymentservice@POST@/hipstershop.PaymentService/Charge#us_central_1#start')]
 --------------------------------------------------------------------------------
 load_for_compute_edge[('frontend@POST@/cart/checkout#us_west_1#start',_'frontend@POST@/cart/checkout#us_west_1#end')]
 ==
-load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')]
+load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')]
 --------------------------------------------------------------------------------
 load_for_compute_edge[('frontend@POST@/cart/checkout#us_west_1#start',_'frontend@POST@/cart/checkout#us_west_1#end')]
 ==
-load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_east_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_south_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')]
+load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_central_1#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('frontend@POST@/cart/checkout#us_west_1#start',_'frontend@POST@/cart/checkout#us_west_1#end')]
+==
+load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_west_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('frontend@POST@/cart/checkout#us_central_1#start',_'frontend@POST@/cart/checkout#us_central_1#end')]
+==
+load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder#us_central_1#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('frontend@POST@/cart/checkout#us_central_1#start',_'frontend@POST@/cart/checkout#us_central_1#end')]
+==
+load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies#us_central_1#start')]
+--------------------------------------------------------------------------------
+load_for_compute_edge[('frontend@POST@/cart/checkout#us_central_1#start',_'frontend@POST@/cart/checkout#us_central_1#end')]
+==
+load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_west_1#start')] + load_for_network_edge[('frontend@POST@/cart/checkout#us_central_1#end',_'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations#us_central_1#start')]
 --------------------------------------------------------------------------------
