@@ -95,7 +95,8 @@ def run_optimizer(coef_dict, \
         inter_cluster_latency, \
         fanout, \
         total_root_node_rps, \
-            agg_total_endpoint_rps):
+        agg_total_endpoint_rps, \
+        write_log_file):
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
@@ -204,7 +205,8 @@ def run_optimizer(coef_dict, \
         # logger.error(f'!!! ERROR !!! create_compute_df failed')
         # assert False
         # return pd.DataFrame(), f"Exception: {e}"
-    compute_df.to_csv(f'compute_df.csv')
+    if write_log_file:
+        compute_df.to_csv(f'compute_df.csv')
     if traffic_segmentation == False:
         original_compute_df = opt_func.create_compute_df(placement, original_callgraph, callsize_dict, original_NUM_REQUESTS, original_MAX_LOAD)
 
@@ -243,7 +245,8 @@ def run_optimizer(coef_dict, \
                 gurobi_model.addConstr(compute_load2[index] == compute_load[index]**2, name=f'for_higher_degree-{index}')
         
     gurobi_model.update()
-    constraint_file = open(f'constraint.log', 'w')
+    if write_log_file:
+        constraint_file = open(f'constraint.log', 'w')
     
     '''
     Manually setting the latency function constraint
@@ -316,11 +319,12 @@ def run_optimizer(coef_dict, \
                         logger.error(f"degree {degree} is not supported")
                         assert False
         rh += coefs['intercept']
-        constraint_file.write(f"{lh}\n")
-        constraint_file.write("==\n")
-        constraint_file.write(f"{rh}\n")
-        constraint_file.write("-"*80)
-        constraint_file.write("\n")
+        if write_log_file:
+            constraint_file.write(f"{lh}\n")
+            constraint_file.write("==\n")
+            constraint_file.write(f"{rh}\n")
+            constraint_file.write("-"*80)
+            constraint_file.write("\n")
         gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
         # print(f"lh: {lh}")
         # print(f"rh: {rh}")
@@ -445,7 +449,8 @@ def run_optimizer(coef_dict, \
                 
     # print(network_df.columns)
     # network_df.drop(columns=['min_egress_cost', 'max_egress_cost', 'min_network_time', 'max_network_time'], inplace=True)
-    network_df.to_csv(f'network_df.csv')
+    if write_log_file:
+        network_df.to_csv(f'network_df.csv')
     network_latency = dict()
     network_load = dict()
     network_latency = gppd.add_vars(gurobi_model, network_df, name="network_latency", lb="min_network_time", ub="max_network_time")
@@ -581,7 +586,8 @@ def run_optimizer(coef_dict, \
             for comb in end_to_end_path_var[key]:
                 # end_to_end_path_list.append(end_to_end_path_var[key][comb])
                 gurobi_model.addConstr(end_to_end_path_var[key][comb] <= max_end_to_end_latency, name=f'maxconstr_{key}_{comb}')
-                constraint_file.write(f'end_to_end_path_var[{key}][{comb}] <= max_end_to_end_latency({max_end_to_end_latency})\n')
+                if write_log_file:
+                    constraint_file.write(f'end_to_end_path_var[{key}][{comb}] <= max_end_to_end_latency({max_end_to_end_latency})\n')
                 # logger.debug(f'end_to_end_path_var[{key}][{comb}]: {end_to_end_path_var[key][comb]}')
                 # logger.debug(f'<=')
                 # logger.debug(f'max_end_to_end_latency')
@@ -657,11 +663,12 @@ def run_optimizer(coef_dict, \
                     lh = gp.quicksum(aggregated_load.select('*', node_name))
                     rh = incoming
                     gurobi_model.addConstr((lh == rh), name="cluster_"+str(cid)+"_load_in_"+str(root_ep))
-                    constraint_file.write(f'{lh}\n')
-                    constraint_file.write("==\n")
-                    constraint_file.write(f'{rh}\n')
-                    constraint_file.write("-"*80)
-                    constraint_file.write("\n")
+                    if write_log_file:
+                        constraint_file.write(f'{lh}\n')
+                        constraint_file.write("==\n")
+                        constraint_file.write(f'{rh}\n')
+                        constraint_file.write("-"*80)
+                        constraint_file.write("\n")
                     # logger.debug(lh)
                     # logger.debug("==")
                     # logger.debug(rh)
@@ -699,11 +706,12 @@ def run_optimizer(coef_dict, \
                 lh = gp.quicksum(aggregated_load.select('*', start_node))
                 rh = gp.quicksum(aggregated_load.select(start_node, '*'))
                 gurobi_model.addConstr((lh == rh), name="flow_conservation-start_node-"+ep_str)
-                constraint_file.write(f'{lh}\n')
-                constraint_file.write("==\n")
-                constraint_file.write(f'{rh}\n')
-                constraint_file.write("-"*80)
-                constraint_file.write("\n")
+                if write_log_file:
+                    constraint_file.write(f'{lh}\n')
+                    constraint_file.write("==\n")
+                    constraint_file.write(f'{rh}\n')
+                    constraint_file.write("-"*80)
+                    constraint_file.write("\n")
                 # logger.debug(lh)
                 # logger.debug("==")
                 # logger.debug(rh)
@@ -749,11 +757,12 @@ def run_optimizer(coef_dict, \
                     lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
                     rh = outgoing_sum
                     gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
-                    constraint_file.write(f'{lh}\n')
-                    constraint_file.write("==\n")
-                    constraint_file.write(f'{rh}\n')
-                    constraint_file.write("-"*80)
-                    constraint_file.write("\n")
+                    if write_log_file:
+                        constraint_file.write(f'{lh}\n')
+                        constraint_file.write("==\n")
+                        constraint_file.write(f'{rh}\n')
+                        constraint_file.write("-"*80)
+                        constraint_file.write("\n")
                     # logger.debug(lh)
                     # logger.debug('==')
                     # logger.debug(rh)
@@ -850,11 +859,13 @@ def run_optimizer(coef_dict, \
     varInfo = [(v.varName, v.LB, v.UB) for v in gurobi_model.getVars() ]
     df_var = pd.DataFrame(varInfo) # convert to pandas dataframe
     df_var.columns=['Variable Name','LB','UB'] # Add column headers
-    df_var.to_csv(f'variable.csv')
+    if write_log_file:
+        df_var.to_csv(f'variable.csv')
     constrInfo = [(c.constrName, gurobi_model.getRow(c), c.Sense, c.RHS) for c in gurobi_model.getConstrs() ]
     df_constr = pd.DataFrame(constrInfo)
     df_constr.columns=['Constraint Name','Constraint equation', 'Sense','RHS']
-    df_constr.to_csv(f'constraint.csv')
+    if write_log_file:
+        df_constr.to_csv(f'constraint.csv')
     
     num_svc = len(svc_to_placement)
     num_endpoint = len(endpoint_to_placement)
@@ -889,10 +900,12 @@ def run_optimizer(coef_dict, \
             if aggregated_load[arc].x > 1e-6:
                 temp = pd.DataFrame({"From": [arc[0]], "To": [arc[1]], "Flow": [aggregated_load[arc].x]})
                 request_flow = pd.concat([request_flow, temp], ignore_index=True)
+        if write_log_file:
         request_flow.to_csv(f'request_flow.csv')
         logger.debug("asdf request_flow")
         logger.debug(request_flow)
         percentage_df = opt_func.translate_to_percentage(request_flow)
+        if write_log_file:
         percentage_df.to_csv(f'percentage_df.csv')
         logger.debug("asdf percentage_df")
         logger.debug(percentage_df)

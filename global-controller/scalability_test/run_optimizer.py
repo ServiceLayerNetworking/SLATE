@@ -152,7 +152,7 @@ def optimizer_entrypoint():
     pprint("objective")
     pprint(objective)
     
-    percentage_df = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective)
+    percentage_df = opt.run_optimizer(coef_dict, endpoint_level_inflight, endpoint_level_rps,  placement, all_endpoints, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, write_log_file=False)
     print("get get")
     percentage_df.to_csv(f"percentage_df.csv")
     return cluster_pcts
