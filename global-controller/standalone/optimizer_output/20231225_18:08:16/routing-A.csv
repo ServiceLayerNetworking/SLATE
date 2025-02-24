@@ -1,8 +1,0 @@
-index_col,src,dst,src_cid,dst_cid,flow,total,weight
-"('productpage-v1', 0, 'reviews-v3')",productpage-v1,reviews-v3,0,0,21,21,1.0
-"('ingress_gw', 0, 'productpage-v1')",ingress_gw,productpage-v1,0,0,10,10,1.0
-"('productpage-v1', 1, 'reviews-v3')",productpage-v1,reviews-v3,1,0,10,10,1.0
-"('ingress_gw', 1, 'productpage-v1')",ingress_gw,productpage-v1,1,0,11,21,0.5238095238095238
-"('ingress_gw', 1, 'productpage-v1')",ingress_gw,productpage-v1,1,1,10,21,0.47619047619047616
-"('SOURCE', -1, 'ingress_gw')",SOURCE,ingress_gw,-1,0,10,30,0.3333333333333333
-"('SOURCE', -1, 'ingress_gw')",SOURCE,ingress_gw,-1,1,20,30,0.6666666666666666

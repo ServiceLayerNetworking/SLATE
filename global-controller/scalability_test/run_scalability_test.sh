@@ -1,4 +1,4 @@
-
+#!/bin/bash
 
 output_fn=$1
 if [ -z ${output_fn} ]; then

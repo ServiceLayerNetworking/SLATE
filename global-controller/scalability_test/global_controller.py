@@ -1,3 +1,4 @@
+import sys
 from flask import Flask, request, abort
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -292,7 +293,7 @@ def write_optimizer_output(optimizer_cnt, percentage_df, desc, fn):
         
 
 ## All variables are global variables
-def optimizer_entrypoint(degree_, fanout):
+def optimizer_entrypoint(degree_, fanout, write_log_file):
     global coef_dict
     global endpoint_level_inflight
     # global endpoint_level_rps
@@ -426,7 +427,8 @@ def optimizer_entrypoint(degree_, fanout):
             inter_cluster_latency, \
             fanout, \
             total_root_node_rps, \
-                agg_total_endpoint_rps)
+            agg_total_endpoint_rps, \
+            write_log_file)
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
     logger.info(f"after run_optimizer optimizer_cnt-{optimizer_cnt}")
@@ -724,13 +726,13 @@ def gen(num_cluster, num_callgraph, depth, fanout):
     logger.info("inter_cluster_latency")
     logger.info(inter_cluster_latency)
     
-import sys
 if __name__ == "__main__":
     num_cluster = int(sys.argv[1])
     num_callgraph = int(sys.argv[2])
     depth = int(sys.argv[3])
     fanout = int(sys.argv[4])
     degree_ = int(sys.argv[5])
+    write_log_file = False
     gen(num_cluster, num_callgraph, depth, fanout)
     aggregated_rps_routine()
-    optimizer_entrypoint(degree_, fanout)
+    optimizer_entrypoint(degree_, fanout, write_log_file)
