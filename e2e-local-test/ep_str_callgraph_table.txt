@@ -1,0 +1,18 @@
+************************************************************
+hashed_cg_key-0: b292c3dd
+sslateingress@POST@/cart -> ['frontend@POST@/cart']
+frontend@POST@/cart -> ['cartservice@POST@/hipstershop.CartService/AddItem', 'productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct']
+productcatalogservice@POST@/hipstershop.ProductCatalogService/GetProduct -> []
+cartservice@POST@/hipstershop.CartService/AddItem -> []
+
+************************************************************
+hashed_cg_key-1: c5f11459
+cartservice@POST@/hipstershop.CartService/GetCart -> []
+sslateingress@POST@/cart/checkout -> ['frontend@POST@/cart/checkout']
+emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation -> []
+recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations -> []
+checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder -> ['cartservice@POST@/hipstershop.CartService/GetCart', 'emailservice@POST@/hipstershop.EmailService/SendOrderConfirmation', 'paymentservice@POST@/hipstershop.PaymentService/Charge']
+paymentservice@POST@/hipstershop.PaymentService/Charge -> []
+frontend@POST@/cart/checkout -> ['checkoutservice@POST@/hipstershop.CheckoutService/PlaceOrder', 'currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies', 'recommendationservice@POST@/hipstershop.RecommendationService/ListRecommendations']
+currencyservice@POST@/hipstershop.CurrencyService/GetSupportedCurrencies -> []
+

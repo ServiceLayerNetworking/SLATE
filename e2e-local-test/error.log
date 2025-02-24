@@ -1,0 +1,9 @@
+__main__ - optimizer_entrypoint(line:1020) - ERROR - !!! ERROR !!! Total demand(900) at sslateingress > total capcity(0) at frontend
+__main__ - optimizer_entrypoint(line:1024) - ERROR - recalc capacity: frontend, old_capacity,451 -> new_capacity, 451
+__main__ - optimizer_entrypoint(line:1024) - ERROR - recalc capacity: frontend, old_capacity,451 -> new_capacity, 451
+__main__ - optimizer_entrypoint(line:1020) - ERROR - !!! ERROR !!! Total demand(900) at sslateingress > total capcity(0) at frontend
+__main__ - optimizer_entrypoint(line:1024) - ERROR - recalc capacity: frontend, old_capacity,451 -> new_capacity, 451
+__main__ - optimizer_entrypoint(line:1024) - ERROR - recalc capacity: frontend, old_capacity,451 -> new_capacity, 451
+__main__ - optimizer_entrypoint(line:1020) - ERROR - !!! ERROR !!! Total demand(900) at sslateingress > total capcity(0) at frontend
+__main__ - optimizer_entrypoint(line:1024) - ERROR - recalc capacity: frontend, old_capacity,451 -> new_capacity, 451
+__main__ - optimizer_entrypoint(line:1024) - ERROR - recalc capacity: frontend, old_capacity,451 -> new_capacity, 451
