@@ -118,7 +118,7 @@ class Span:
         temp["svc_name"] = self.svc_name
         temp["method"] = self.method
         temp["endpoint_str"] = self.endpoint_str
-        temp["path"] = self.url
+        temp["url"] = self.url
         temp["st"] = self.st
         temp["et"] = self.et
         temp["rt"] = self.rt
