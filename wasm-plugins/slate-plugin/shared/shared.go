@@ -16,6 +16,8 @@ const (
 	KEY_OUTBOUND_ENDPOINT_LIST = "slate_outbound_endpoint_list"
 	KEY_INBOUND_ENDPOINT_LIST  = "slate_inbound_endpoint_list"
 	KEY_TRACED_REQUESTS        = "slate_traced_requests"
+
+	RING_BUFFER_SIZE = 14000
 )
 
 // TracedRequestStats is a struct that holds information about a traced request.
@@ -63,6 +65,34 @@ func TimestampListGetRPS(method string, path string) uint64 {
 	return queueSize / 4
 }
 
+/*
+RingBufferReadRPS will get the number of requests in the last second for the given method and path.
+
+Reading the RPS is done by reading the readPos and writePos, and calculating the number of timestamps in the buffer.
+If writePos > readPos, then the number of timestamps is (writePos - readPos) / 4.
+If writePos < readPos, then the number of timestamps is (writePos + (len(buffer) - readPos)) / 4.
+*/
+func RingBufferReadRPS(method, path string) uint64 {
+	// get list of timestamps
+	readPosBytes, _, err := proxywasm.GetSharedData(TimestampListReadPosKey(method, path))
+	if err != nil {
+		return 0
+	}
+	readPos := binary.LittleEndian.Uint64(readPosBytes)
+	writePosBytes, _, err := proxywasm.GetSharedData(TimestampListWritePosKey(method, path))
+	if err != nil {
+		return 0
+	}
+	writePos := binary.LittleEndian.Uint64(writePosBytes)
+
+	if writePos >= readPos {
+		return (writePos - readPos) / 4
+	} else {
+		return (writePos + (uint64(RING_BUFFER_SIZE) - readPos)) / 4
+	}
+
+}
+
 // Get the current load conditions of all traced requests.
 func GetEndpointLoadConditions() (map[string]EndpointStats, error) {
 	requestStats := make(map[string]EndpointStats)
@@ -88,7 +118,8 @@ func GetEndpointLoadConditions() (map[string]EndpointStats, error) {
 		path := mp[1]
 		requestStats[endpoint] = EndpointStats{
 			Inflight: 0,
-			Total:    TimestampListGetRPS(method, path),
+			//Total:    TimestampListGetRPS(method, path),
+			Total: RingBufferReadRPS(method, path),
 		}
 	}
 

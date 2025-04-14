@@ -210,7 +210,8 @@ func (ctx *httpContext) OnHttpRequestHeaders(int, bool) types.Action {
 	shared.IncrementSharedData(shared.KEY_HILLCLIMB_INBOUNDRPS, 1)
 	shared.AddToSharedDataList(shared.KEY_ENDPOINT_RPS_LIST, shared.EndpointListKey(reqMethod, reqPath))
 	// add the new request to our queue
-	ctx.TimestampListAdd(reqMethod, reqPath)
+	//ctx.TimestampListAdd(reqMethod, reqPath)
+	ctx.TimestampListAddRingBuffer(reqMethod, reqPath)
 
 	// if this is a traced request, we need to record load conditions and request details
 	if ctx.tracedRequest(traceId) {
@@ -464,11 +465,158 @@ func (h *httpContext) GetTime() uint32 {
 }
 
 /*
+TimestampListAddRingBuffer adds a timestamps in the form of a ring buffer.
+
+The ring buffer is a fixed size buffer that is used to store the timestamps.
+
+There are two parts to an add operation:
+1. Writing the current timestamp to the buffer at the writePos, and advancing the writePos.
+2. Evicting old timestamps (older than 1s) from the buffer by advancing the readPos.
+
+An add operation is done by writing the timestamp at the writePos, and incrementing the writePos. This is all done
+atomically with a CAS operation -- if there is a CAS mismatch, we retry the operation. If advancing the writePos
+goes beyond the end of the buffer, we wrap around to the beginning of the buffer.
+
+Reading the RPS is done by reading the readPos and writePos, and calculating the number of timestamps in the buffer.
+If writePos > readPos, then the number of timestamps is (writePos - readPos) / 4.
+If writePos < readPos, then the number of timestamps is (writePos + (len(buffer) - readPos)) / 4.
+*/
+func (h *httpContext) TimestampListAddRingBuffer(method string, path string) {
+	t := h.GetTime()
+	_, cas, err := proxywasm.GetSharedData(shared.SharedQueueKey(method, path))
+	if err != nil {
+		// ring buffer initialization. reasonable preset: 14000 bytes = 3500 RPS max capacity
+		newListBytes := make([]byte, shared.RING_BUFFER_SIZE)
+		binary.LittleEndian.PutUint32(newListBytes, t)
+		if err := proxywasm.SetSharedData(shared.SharedQueueKey(method, path), newListBytes, cas); err != nil {
+			h.TimestampListAddRingBuffer(method, path)
+			return
+		}
+		// initialize readPos and writePos to 0 and 0
+		readPos := make([]byte, 8)
+		writePos := make([]byte, 8)
+		binary.LittleEndian.PutUint64(readPos, 0)
+		binary.LittleEndian.PutUint64(writePos, 0)
+		if err := proxywasm.SetSharedData(shared.TimestampListReadPosKey(method, path), readPos, 0); err != nil {
+			proxywasm.LogCriticalf("[RINGBUFFER] Unable to initialze readPos=0: %v", err)
+			return
+		}
+		if err := proxywasm.SetSharedData(shared.TimestampListWritePosKey(method, path), writePos, 0); err != nil {
+			proxywasm.LogCriticalf("[RINGBUFFER] Unable to initialze writePos=0: %v", err)
+			return
+		}
+	}
+
+	// Append timestamp to the ring buffer
+	h.RingBufferAppend(method, path, t)
+
+	// Evict old timestamps from the ring buffer
+	t = h.GetTime()
+	h.RingBufferEvict(method, path, t)
+}
+
+/*
+RingBufferAppend appends a timestamp to the ring buffer at the writePos, and increments the writePos.
+This operation is done atomically with a CAS operation -- if there is a CAS mismatch, we retry the operation.
+*/
+func (h *httpContext) RingBufferAppend(method, path string, timestamp uint32) {
+
+	// get the ring buffer
+	ringBufferBytes, cas, err := proxywasm.GetSharedData(shared.SharedQueueKey(method, path))
+	if err != nil {
+		proxywasm.LogCriticalf("[RINGBUFFER] Unable to get shared data for ring buffer: %v", err)
+		return
+	}
+
+	// get the write position
+	writePosBytes, writeCas, err := proxywasm.GetSharedData(shared.TimestampListWritePosKey(method, path))
+	if err != nil {
+		proxywasm.LogCriticalf("[RINGBUFFER] Unable to get shared data for writePos: %v", err)
+		return
+	}
+	writePos := binary.LittleEndian.Uint64(writePosBytes)
+
+	// write the timestamp at the writePos
+	binary.LittleEndian.PutUint32(ringBufferBytes[writePos:], timestamp)
+
+	// try to commit the new ring buffer
+	if err := proxywasm.SetSharedData(shared.SharedQueueKey(method, path), ringBufferBytes, cas); err != nil {
+		// CAS mismatch, retry the operation
+		h.RingBufferAppend(method, path, timestamp)
+		return
+	}
+	// increment the writePos by 4 on commit of the ring buffer.
+	// if this increment causes writePos >= len(ringBufferBytes), wrap around to the beginning of the buffer.
+	writePos += 4
+	if writePos >= uint64(len(ringBufferBytes)) {
+		writePos = 0
+	}
+	// set the new writePos
+	writePosBytes = make([]byte, 8)
+	binary.LittleEndian.PutUint64(writePosBytes, writePos)
+	if err := proxywasm.SetSharedData(shared.TimestampListWritePosKey(method, path), writePosBytes, writeCas); err != nil {
+		// this means we were able to set the ring buffer, but not the writePos.
+		// another thread probably wrote to the location in the buffer we just wrote to.
+		// we will tolerate this, and lose one timestamp. ideally, we would retry the operation.
+		proxywasm.LogCriticalf("[RINGBUFFER] Unable to set writePos after successful ring buffer append, losing timestamp: %v", err)
+	}
+}
+
+/*
+RingBufferEvict evicts old timestamps from the ring buffer by advancing the readPos as long as the timestamp
+at the readPos - 1000ms is older than the given timestamp.
+
+This is best-effort -- if we see a CAS mismatch, it's likely that another thread has already evicted the timestamps,
+so we just return.
+*/
+func (h *httpContext) RingBufferEvict(method, path string, timestamp uint32) {
+	// get the ring buffer -- read only
+	ringBufferBytes, _, err := proxywasm.GetSharedData(shared.SharedQueueKey(method, path))
+	if err != nil {
+		proxywasm.LogCriticalf("[RINGBUFFER] Unable to get shared data for ring buffer: %v", err)
+		return
+	}
+
+	// get the read position
+	readPosBytes, readCas, err := proxywasm.GetSharedData(shared.TimestampListReadPosKey(method, path))
+	if err != nil {
+		proxywasm.LogCriticalf("[RINGBUFFER] Unable to get shared data for readPos: %v", err)
+		return
+	}
+	readPos := binary.LittleEndian.Uint64(readPosBytes)
+
+	// evict old timestamps from the ring buffer. if we reach the end of the buffer, wrap around to the beginning.
+	for readPos < uint64(len(ringBufferBytes)) {
+		timestampAtReadPos := binary.LittleEndian.Uint32(ringBufferBytes[readPos:])
+		if timestampAtReadPos > timestamp-1000 {
+			// if the read timestamp is more recent than a second ago, we stop evicting
+			break
+		}
+		readPos += 4
+		if readPos >= uint64(len(ringBufferBytes)) {
+			readPos = 0
+		}
+	}
+
+	// set the new readPos
+	readPosBytes = make([]byte, 8)
+	binary.LittleEndian.PutUint64(readPosBytes, readPos)
+	if err := proxywasm.SetSharedData(shared.TimestampListReadPosKey(method, path), readPosBytes, readCas); err != nil {
+		// we just return here because another thread likely did the evictions for us.
+		//proxywasm.LogCriticalf("[RINGBUFFER] Unable to set readPos during eviction: %v", err)
+	}
+}
+
+/*
 TimestampListAdd adds a new timestamp to the end of the list for the given method and path.
 The list is stored as a comma-separated string of timestamps.
 It also evicts timestamps older than the given time.
 
 The general idea is to have a fixed size buffer of timestamps, and we rotate the buffer when we reach the end.
+
+3 Parts:
+
+1. If the writePos is at the end of the list, *atomically* rotate the list to the beginning.
 */
 func (h *httpContext) TimestampListAdd(method string, path string) {
 	// get list of timestamps
@@ -489,7 +637,7 @@ func (h *httpContext) TimestampListAdd(method string, path string) {
 	if err != nil {
 		// nothing there, just set to the current time
 		// 4 bytes per request, so we can store 1750 requests in 7000 bytes
-		newListBytes := make([]byte, 7000)
+		newListBytes := make([]byte, 14000)
 		binary.LittleEndian.PutUint32(newListBytes, t)
 		if err := proxywasm.SetSharedData(shared.SharedQueueKey(method, path), newListBytes, cas); err != nil {
 			h.TimestampListAdd(method, path)
@@ -505,16 +653,18 @@ func (h *httpContext) TimestampListAdd(method string, path string) {
 		return
 	}
 	// get write position
-	timestampPos, writeCas, err := proxywasm.GetSharedData(shared.TimestampListWritePosKey(method, path))
+	// W_R1 - first read to writePos
+	timestampPos, _, err := proxywasm.GetSharedData(shared.TimestampListWritePosKey(method, path))
 	if err != nil {
 		proxywasm.LogCriticalf("Couldn't get shared data for timestamp write pos: %v", err)
 		return
 	}
 	writePos := binary.LittleEndian.Uint64(timestampPos)
 	// if we're at the end of the list, we need to rotate list
-	if writePos+4 > uint64(len(timestampListBytes)) {
+	if writePos+4 >= uint64(len(timestampListBytes)) {
 		proxywasm.LogCriticalf("[REACHED CAPACITY, ROTATING]")
 		// rotation magic
+		// R_R1 - first read to readPos
 		readPosBytes, readCas, err := proxywasm.GetSharedData(shared.TimestampListReadPosKey(method, path))
 		if err != nil {
 			proxywasm.LogCriticalf("[ROTATION MAGIC] Couldn't get shared data for timestamp read pos: %v", err)
@@ -524,6 +674,20 @@ func (h *httpContext) TimestampListAdd(method string, path string) {
 		if readPos == 0 {
 			// either (1) requests are coming in so fast that none have been evicted yet, or (2) another thread
 			// already rotated the list
+			// queue has been rotated between W_R1 and R_R1
+			// but for some reason, the writePos is stuck at the end of the list
+
+			// todo this is a stupid fix, hopefully temporary
+			// set writePos to 4
+			// todo find the actual race happening that causes 1750 stuck condition
+			//writePosBytes := make([]byte, 8)
+			//binary.LittleEndian.PutUint64(writePosBytes, 4)
+			//if err := proxywasm.SetSharedData(shared.TimestampListWritePosKey(method, path), writePosBytes, 0); err != nil {
+			//	proxywasm.LogCriticalf("[ROTATION MAGIC] unable to set shared data for timestamp write pos: %v", err)
+			//	return
+			//}
+
+			proxywasm.LogCriticalf("[ROTATION MAGIC] writePos at end of list, but readPos is 0, so not rotating")
 			return
 		}
 
@@ -541,13 +705,17 @@ func (h *httpContext) TimestampListAdd(method string, path string) {
 		}
 		// set writePos to the end of the segment we just rotated
 		writePos = uint64(bytesRemaining)
-		// set writePos
+		// set writePos -- use cas=0 here because this thread already set readPos, and another thread may
+		//  increment writePos before we set it (under high load).
+		// Otherwise, readPos gets stuck at 0 and writePos gets stuck at the end of the list -- causing
+		// the "forever 1750 requests" problem.
 		writePosBytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(writePosBytes, writePos)
-		if err := proxywasm.SetSharedData(shared.TimestampListWritePosKey(method, path), writePosBytes, writeCas); err != nil {
+		if err := proxywasm.SetSharedData(shared.TimestampListWritePosKey(method, path), writePosBytes, 0); err != nil {
 			proxywasm.LogCriticalf("[ROTATION MAGIC] unable to set shared data for timestamp write pos: %v", err)
 		}
 	}
+
 	// add new timestamp
 	if writePos >= uint64(len(timestampListBytes)) {
 		proxywasm.LogCriticalf("writePos: %v, len: %v", writePos, len(timestampListBytes))
@@ -569,6 +737,7 @@ func (h *httpContext) TimestampListAdd(method string, path string) {
 	readPosBytes, cas2, err := proxywasm.GetSharedData(shared.TimestampListReadPosKey(method, path))
 	if err != nil {
 		// set read pos to 0
+		proxywasm.LogCriticalf("got error reading shared.TimestampListReadPosKey(method, path), setting readPos=0 with cas=0")
 		readPosBytes = make([]byte, 8)
 		binary.LittleEndian.PutUint64(readPosBytes, 0)
 		if err := proxywasm.SetSharedData(shared.TimestampListReadPosKey(method, path), readPosBytes, 0); err != nil {
