@@ -173,7 +173,7 @@ global_processing_latencies = dict() # svc -> region -> pod -> method@path -> {l
 global_prev_processing_latencies = dict()
 processing_latencies_mutex = Lock()
 max_num_trace = 0
-load_bucket_size = 0
+load_bucket_size = 1
 
 should_we_rollback = True
 
@@ -380,7 +380,7 @@ def perform_jumping():
 
     # jumping is performed between parent_svc and child_svc
     parent_svc = "sslateingress"
-    child_svc = "frontend"
+    child_svc = "record-service"
 
     logger.info(f"perform_jumping, jumping_feature_enabled: {jumping_feature_enabled}, jumping_towards_optimizer: {jumping_towards_optimizer}, currently_globally_oscillating: {currently_globally_oscillating}")
     # snapshot the current optimizer output and processing latencies
@@ -1434,7 +1434,7 @@ def write_latency(svc: str, avg_processing_latency: int, latency_dict: dict):
     with open ("region_jumping_latency.csv", "a") as f:
         for region in ["us-west-1", "us-central-1", "us-south-1", "us-east-1"]:
             f.write(f"{temp_counter},{region},{calculate_avg_processing_latency(latency_dict, svc, region)[0]}\n")
-            for tc in ["POST@/cart", "POST@/cart/checkout"]:
+            for tc in ["POST@/cart", "POST@/cart/checkout", "GET@/getRecord"]:
                 l, _, m2 = calculate_avg_processing_latency_for_traffic_class(latency_dict, f"{svc}@{tc}", region)
                 f.write(f"{temp_counter},{region},{tc},{l}\n")
     if svc not in historical_svc_latencies:
@@ -2657,7 +2657,7 @@ def optimizer_entrypoint():
                         endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['frontend']
                     elif benchmark_name == "hotelreservation":
                         endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['slateingress']
-                    elif benchmark_name == "alibaba" or benchmark_name == "onlineboutique":
+                    elif benchmark_name == "alibaba" or benchmark_name == "onlineboutique" or benchmark_name == "cachethrash":
                         endpoint_rps_at_frontend = region_endpoint_level_rps[target_region]['sslateingress']
                     else:
                         logger.error(f"!!! ERROR !!!: benchmark_name is not supported. benchmark_name: {benchmark_name}")
@@ -2849,21 +2849,50 @@ def filter_incomplete_traces(given_traces):
     return ret_traces
 
 
+# def filter_incomplete_trace_for_multi_traffic_class_in_df(given_df):
+#     global required_total_num_services
+#     given_df['num_span'] = given_df.groupby('trace_id')['span_id'].transform('count')
+#     conditions = [
+#         given_df['endpoint'] == "frontend@POST@/cart",
+#         given_df['endpoint'] == "frontend@POST@/cart/checkout"
+#     ]
+#     values = [2, 4, 8]
+#     given_df['required_total_num_services'] = np.select(conditions, values, default=0)
+#     trace_ids_with_complete_spans = given_df[
+#         given_df['num_span'] == given_df['required_total_num_services']
+#     ]['trace_id'].unique()
+#     df_complete_traces = given_df[given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+#     given_df = given_df[~given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
+#     return df_complete_traces, given_df
+
 def filter_incomplete_trace_for_multi_traffic_class_in_df(given_df):
-    global required_total_num_services
     given_df['num_span'] = given_df.groupby('trace_id')['span_id'].transform('count')
+    
     conditions = [
         given_df['endpoint'] == "frontend@POST@/cart",
         given_df['endpoint'] == "frontend@POST@/cart/checkout"
     ]
     values = [4, 8]
     given_df['required_total_num_services'] = np.select(conditions, values, default=0)
-    trace_ids_with_complete_spans = given_df[
-        given_df['num_span'] == given_df['required_total_num_services']
-    ]['trace_id'].unique()
-    df_complete_traces = given_df[given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
-    given_df = given_df[~given_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
-    return df_complete_traces, given_df
+    
+    # Determine completeness at the trace level
+    trace_completeness = (
+        given_df.groupby('trace_id')[['num_span', 'required_total_num_services']]
+        .first()
+        .reset_index()
+    )
+    trace_completeness['is_trace_complete'] = (
+        trace_completeness['num_span'] == trace_completeness['required_total_num_services']
+    )
+    
+    # Join back the completeness flag
+    given_df = given_df.merge(
+        trace_completeness[['trace_id', 'is_trace_complete']],
+        on='trace_id',
+        how='left'
+    )
+    
+    return given_df, given_df
 
 
 def filter_incomplete_trace_in_df(given_df):
@@ -3296,6 +3325,7 @@ def training_phase():
     
     ts = time.time()
     # df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_in_df(df_incomplete_traces)
+    logger.info(f"df_incomplete_traces before filter_incomplete_trace_in_df: {(df_incomplete_traces)}")
     df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_for_multi_traffic_class_in_df(df_incomplete_traces)
     
     print_len_df_trace(df_new_complete_traces, "training_phase, df_new_complete_traces")
@@ -3306,6 +3336,8 @@ def training_phase():
     assert len(global_stitched_df) == 0
     global_stitched_df = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
     # global_stitched_df = tst.stitch_time_in_df_concurrent(df_new_complete_traces, ep_str_callgraph_table, max_workers=8)
+    logger.info(f"global_stitched_df, {len(global_stitched_df)}")
+    logger.info(f"global_stitched_df, {global_stitched_df.head(5)}")
     print_len_df_trace(global_stitched_df, "training_phase, global_stitched_df")
     logger.info(f"stitch_time_in_df took {int(time.time()-ts)}s")
     
@@ -3435,6 +3467,9 @@ def read_config_file():
                     elif benchmark_name == "not_init":
                         parent_of_bottleneck_service = "not_init"
                         bottleneck_service = "not_init"
+                    elif benchmark_name == "cachethrash":
+                        parent_of_bottleneck_service = "sslateingress"
+                        bottleneck_service = "record-service"
                     else:
                         logger.error(f"!!! ERROR !!!: unknown benchmark_name: {benchmark_name}")
                         state = "[!!! PANIC !!!] unknown benchmark_name"

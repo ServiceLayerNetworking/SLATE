@@ -15,6 +15,8 @@
 
 # docker_file="Dockerfile-continuous"
 docker_file="Dockerfile"
+# ghcr_account="adiprerepa"
+# ghcr_account="gangmuk"
 ghcr_account="adiprerepa"
 
 echo "It is pushing to the '${ghcr_account}' repository..."

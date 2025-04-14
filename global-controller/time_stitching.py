@@ -657,6 +657,7 @@ def stitch_time_in_df_concurrent(given_df, ep_str_callgraph_table, max_workers=4
 
 
 def stitch_time_in_df(given_df, ep_str_callgraph_table):
+    logger.info(f"stitch_time_in_df: {given_df}")
     ret_dfs = []
     overhead = {}
     ts = time.time()
