@@ -59,6 +59,7 @@ pd.set_option('display.width', 1000)
 '''runtime (optimizer)'''
 # endpoint_level_rps = {}
 
+num_of_optimizer_runs = 0
 model_updated_before = False
 new_global_stitched_df = {} # it will be initialized as a dataframe
 df_incomplete_traces = {}
@@ -149,7 +150,19 @@ benchmark_name = ""
 # benchmark_set = ["metrics", "matmul-app", "hotelreservation", "spread-unavail-30bg"]
 required_total_num_services = 0
 ROUTING_RULE = "LOCAL" # It will be updated by read_config_file function.
-ROUTING_RULE_SET = ["LOCAL", "SLATE", "SLATE-with-jumping-local","SLATE-with-jumping-global", "SLATE-without-jumping", "REMOTE", "MCLB", "WATERFALL", "WATERFALL2", "SLATE-with-jumping-global-continuous-profiling"]
+ROUTING_RULE_SET = ["LOCAL", \
+                "SLATE", \
+                "REMOTE", \
+                "MCLB", \
+                "WATERFALL", \
+                "WATERFALL2", \
+                "SLATE-without-jumping", \
+                "SLATE-with-jumping-local", \
+                "SLATE-with-jumping-global-with-optimizer-without-continuous-profiling", \
+                "SLATE-with-jumping-global-with-optimizer-with-continuous-profiling", \
+                "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling", \
+                "SLATE-with-jumping-global-without-optimizer-with-continuous-profiling", \
+                ]
 CAPACITY = 0 # If it is runtime -> training_phase() -> max_capacity_per_service() -> set max_capacity_per_service[svc] = CAPACITY
 max_capacity_per_service = dict() # max_capacity_per_service[svc][region] = CAPACITY
 hillclimbing_distribution_history = list() #list(dict())
@@ -418,28 +431,30 @@ def perform_jumping():
     logger.info(f"loghill ruleset_overperformance: {ruleset_overperformance}")
 
 
-    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1) and len(percentage_df) > 0:
-        logger.info(f"loghill rules are different, stepping towards optimizer output, old rules:\n{compute_traffic_matrix(cur_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
-        # here, we want to start defensive jumping towards the optimizer output.
-        # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
-        # use_optimizer_output = True
-        jumping_towards_optimizer = True
-        jumping_ruleset_num_iterations = 0
-        currently_globally_oscillating = False
-        # make jumping_df the same as percentage_df, because /proxyLoad will use percentage_df, so the latencies
-        # in processing_latencies will be based on the percentage_df.
-        # jumping_df = percentage_df.copy()
-        if len(jumping_df) == 0:
-            jumping_df = percentage_df.copy()
-            # this means that the rules are different from what we last saw, but we haven't started jumping yet / don't have a state, so we can just return.
-            return
-        starting_df = jumping_df.copy()
-        desired_df = percentage_df.copy()
-        cur_convex_comb_value = 0
-        convex_comb_direction = 1
-        # clear the prev processing latencies, because we will be making a measurement based on the current rules, compared to the proposed (step) rules.
-        global_prev_processing_latencies.clear()
-        return
+    
+    # ## Defensive jumping
+    # if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1) and len(percentage_df) > 0:
+    #     logger.info(f"loghill rules are different, stepping towards optimizer output, old rules:\n{compute_traffic_matrix(cur_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
+    #     # here, we want to start defensive jumping towards the optimizer output.
+    #     # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
+    #     # use_optimizer_output = True
+    #     jumping_towards_optimizer = True
+    #     jumping_ruleset_num_iterations = 0
+    #     currently_globally_oscillating = False
+    #     # make jumping_df the same as percentage_df, because /proxyLoad will use percentage_df, so the latencies
+    #     # in processing_latencies will be based on the percentage_df.
+    #     # jumping_df = percentage_df.copy()
+    #     if len(jumping_df) == 0:
+    #         jumping_df = percentage_df.copy()
+    #         # this means that the rules are different from what we last saw, but we haven't started jumping yet / don't have a state, so we can just return.
+    #         return
+    #     starting_df = jumping_df.copy()
+    #     desired_df = percentage_df.copy()
+    #     cur_convex_comb_value = 0
+    #     convex_comb_direction = 1
+    #     # clear the prev processing latencies, because we will be making a measurement based on the current rules, compared to the proposed (step) rules.
+    #     global_prev_processing_latencies.clear()
+    #     return
     
     # if overperformances_are_different(prev_ruleset_overperformance, ruleset_overperformance, maxPctDiff=3) and not jumping_towards_optimizer:
     if processing_latencies_delta_are_different(cur_processing_latencies, prev_processing_latencies, cur_aggregated_rps, prev_aggregated_rps, maxPctDiff=1.5) and not jumping_towards_optimizer:
@@ -1269,6 +1284,7 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict, 
             src_rules = filtered_rules[(filtered_rules["src_cid"] == src_region) & (filtered_rules["dst_endpoint"] == dst_traffic_class)]
             dst_regions = src_rules["dst_cid"].unique()
             if len(dst_regions) < 2:
+                logging.info(f"skipping ruleset for src_region: {src_region} as it has less than 2 dst regions({dst_regions})")
                 continue
             else:
                 logger.info(f"calculate_ruleset_overperformance: src_region: {src_region}, dst_regions: {dst_regions}")
@@ -1988,7 +2004,8 @@ def handleProxyLoad():
             #     logger.info(f"ERROR: Skip per_pod_ep_rps, {endpoint}. this endpoint is not in stitched trace.")
     
     if svc_level_rps > 0:
-        if ROUTING_RULE == "SLATE-with-jumping-global-continuous-profiling":
+        # if ROUTING_RULE == "SLATE-with-jumping-global-with-optimizer-with-continuous-profiling":
+        if "with-continuous-profiling" in ROUTING_RULE:
             with list_of_body_mutex: # option 4
                 # with open("body.csv", "a") as f: # to avoid duplicated traces
                 #     f.write(body)
@@ -2338,27 +2355,31 @@ def get_total_endpoint_level_rps(aggregated_rps):
                 total_endpoint_level_rps[endpoint] += aggregated_rps[region][svc][endpoint]
     return total_endpoint_level_rps
 
+
+def make_percentage_df_sim_percentage_df(percentage_df):
+    sim_percentage_df = percentage_df.copy()
+    # sim_percentage_df.drop(columns=['src_endpoint', "dst_endpoint"], inplace=True)
+    sim_percentage_df.insert(loc=0, column="counter", value=temp_counter)
+    sim_percentage_df = sim_percentage_df.reset_index(drop=True)
+    sim_percentage_df.index = [''] * len(sim_percentage_df)
+    '''
+    column of sim_percentage_df dataframe: ['counter', 'src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint', 'src_cid', 'dst_cid', 'flow', 'total', 'weight']
+    '''
+    # if "routing_history.csv" in fn:
+    #     logger.info(f"sim_percentage_df:\n{sim_percentage_df.to_csv()}")
+    return sim_percentage_df
+
 def write_optimizer_output(temp_counter, percentage_df, desc, fn):
     if percentage_df.empty:
         if os.path.isfile(fn):
             with open(fn, "a") as f:
                 f.write(f"idx,{temp_counter},fail,{desc}\n")
     else:
-        sim_percentage_df = percentage_df.copy()
-        # sim_percentage_df.drop(columns=['src_endpoint', "dst_endpoint"], inplace=True)
-        sim_percentage_df.insert(loc=0, column="counter", value=temp_counter)
-        sim_percentage_df = sim_percentage_df.reset_index(drop=True)
-        sim_percentage_df.index = [''] * len(sim_percentage_df)
+        sim_percentage_df = make_percentage_df_sim_percentage_df(percentage_df)
         if os.path.isfile(fn) == False:
             sim_percentage_df.to_csv(fn, mode="w")
         else:
             sim_percentage_df.to_csv(fn, mode="a")
-        '''
-        column of sim_percentage_df dataframe: ['counter', 'src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint', 'src_cid', 'dst_cid', 'flow', 'total', 'weight']
-        '''
-        # logger.info(f"sim_percentage_df:\n{sim_percentage_df[sim_percentage_df['src_svc']=='sslateingress'].to_csv()}")
-        if "routing_history.csv" in fn:
-            logger.info(f"sim_percentage_df:\n{sim_percentage_df.to_csv()}")
         
 
 
@@ -2467,6 +2488,14 @@ def optimizer_entrypoint():
     
     
     if "SLATE" in ROUTING_RULE:
+        global num_of_optimizer_runs
+        if ROUTING_RULE.startswith("SLATE-with-jumping-global-without-optimizer"):
+            if num_of_optimizer_runs == 0:
+                logger.info(f"Run the optimizer only once for {ROUTING_RULE} (num_of_optimizer_runs: {num_of_optimizer_runs})")
+            else:
+                logger.info(f"Skip optimizer for {ROUTING_RULE}, num_of_optimizer_runs({num_of_optimizer_runs}) > 0")
+                return
+        num_of_optimizer_runs += 1
         if benchmark_name == "usecase1-cascading":
             logger.info(f"WARNING: Keep the capacity threshold for SLATE for usecase1-cascading")
         else:
@@ -2475,7 +2504,6 @@ def optimizer_entrypoint():
             for svc in max_capacity_per_service:
                 for region in max_capacity_per_service[svc]:
                     max_capacity_per_service[svc][region] = 100000
-        logger.debug(f"run_optimizer starts")
         global endpoint_size
         global DOLLAR_PER_MS
         state = f"{temp_counter}-Optimizer running"
@@ -2511,6 +2539,10 @@ def optimizer_entrypoint():
         logger.info(f"temp_counter,{temp_counter}, optimizer took {int(time.time()-optimizer_start_ts)}s")
         if not cur_percentage_df.empty:
             percentage_df = cur_percentage_df
+            sim_percentage_df = make_percentage_df_sim_percentage_df(percentage_df)
+            logger.info(f"Optimizer run: {num_of_optimizer_runs}, sim_percentage_df:\n{sim_percentage_df.to_csv()}")
+            
+            
             if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.15) and len(percentage_df) > 0:
                 logger.info(f"(loghill optimizer_entrypoint) rules are different, changing base rules")
                 jumping_ruleset_num_iterations = 0
@@ -2521,6 +2553,7 @@ def optimizer_entrypoint():
                 global_prev_processing_latencies.clear()
                 global_processing_latencies.clear()
                 completed_rulesets.clear()
+                
     elif ROUTING_RULE == "WATERFALL2":
         waterfall_load_balance = dict()
         remaining_src_region_src_svc_rps = dict()
@@ -3012,6 +3045,7 @@ def initialize_global_datastructure():
     
     ts = time.time()
     all_endpoints = get_all_endpoint_from_df(global_stitched_df)
+    logger.info(f"all_endpoints: {all_endpoints}")
     logger.info(f"get_all_endpoint_from_df took: {int(time.time()-ts)}s")
     
     ts = time.time()
@@ -3807,9 +3841,9 @@ def update_traces():
     if init_done == False:
         logger.info(f"Train has not been done yet. train_done: {train_done}, init_done: {init_done}. Skip update_traces()")
         return
-    if mode == "runtime" and ROUTING_RULE != "SLATE-with-jumping-global-continuous-profiling":
-    # if ROUTING_RULE != "SLATE-with-jumping-global-continuous-profiling":
-        logger.info(f"ROUTING_RULE({ROUTING_RULE}) is not SLATE-with-jumping-global-continuous-profiling. Skip update_traces()")
+    # if mode == "runtime" and ROUTING_RULE != "SLATE-with-jumping-global-with-optimizer-with-continuous-profiling":
+    if mode == "runtime" and "with-continuous-profiling" not in ROUTING_RULE:
+        logger.info(f"ROUTING_RULE({ROUTING_RULE}) is not with-continuous-profiling. Skip update_traces()")
         return
     if mode == "profile":
         logger.info(f"Running update_traces for profile!")
