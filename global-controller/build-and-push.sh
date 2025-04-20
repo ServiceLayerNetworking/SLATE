@@ -17,8 +17,9 @@
 docker_file="Dockerfile"
 #ghcr_account="adiprerepa"
 ghcr_account="gangmuk"
-
+tag=latest-c8220-apr15
 echo "It is pushing to the '${ghcr_account}' repository..."
-docker build -f ${docker_file} -t ghcr.io/${ghcr_account}/slate-controller:latest .
-docker push ghcr.io/${ghcr_account}/slate-controller:latest
+docker build -f ${docker_file} -t ghcr.io/${ghcr_account}/slate-controller:${tag} .
+docker push ghcr.io/${ghcr_account}/slate-controller:${tag}
 kubectl rollout restart deploy slate-controller
+echo tag: ${tag}

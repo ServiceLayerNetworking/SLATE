@@ -348,6 +348,88 @@ def decide_rollback_or_not(svc, method_path):
     """
     pass
 
+def create_default_multi_region_routing_df_min_remote_weight(percentage_df, min_remote_weight=0.03):
+    default_df = percentage_df.copy()
+    regions = default_df['src_cid'].unique()
+    num_regions = len(regions)
+    local_weight = 1.0 - ((num_regions - 1) * min_remote_weight)
+    if local_weight <= 0:
+        logger.warning(f"Calculated local_weight is {local_weight}, which is invalid. Adjusting weights to equal distribution.")
+        local_weight = 1.0 / num_regions
+        min_remote_weight = 1.0 / num_regions
+    result_records = []
+    grouped = default_df.groupby(['src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint', 'src_cid'])
+    for (src_svc, dst_svc, src_endpoint, dst_endpoint, src_region), group in grouped:
+        if src_svc == "SOURCE":
+            result_records.append(group.to_dict('records')[0])
+            continue
+        first_row = group.iloc[0]
+        flow = first_row['flow']
+        total = first_row['total']
+        for dst_region in regions:
+            if not ((default_df['dst_svc'] == dst_svc) & (default_df['dst_cid'] == dst_region)).any():
+                continue
+            weight = local_weight if src_region == dst_region else min_remote_weight
+            record = {
+                'src_svc': src_svc,
+                'dst_svc': dst_svc,
+                'src_endpoint': src_endpoint,
+                'dst_endpoint': dst_endpoint,
+                'src_cid': src_region,
+                'dst_cid': dst_region,
+                'flow': flow * weight,  # Adjust flow based on weight
+                'total': total,
+                'weight': weight
+            }
+            result_records.append(record)
+    result_df = pd.DataFrame(result_records)
+    return result_df
+
+
+# def create_default_multi_region_routing_df_max_local_weight(percentage_df, max_local_weight=0.9):
+#     """
+#     Creates a default routing DataFrame where each source region routes primarily to itself
+#     but also routes a small percentage to all other regions.
+    
+#     Args:
+#         percentage_df (pd.DataFrame): The optimizer output DataFrame to use as a template
+#         max_local_weight (float): Weight for local region (default 0.9 or 90%)
+        
+#     Returns:
+#         pd.DataFrame: A new DataFrame with multi-region routing rules
+#     """
+#     default_df = percentage_df.copy()
+#     regions = default_df['src_cid'].unique()
+#     num_regions = len(regions)
+#     remote_weight = (1.0 - max_local_weight) / (num_regions - 1) if num_regions > 1 else 0
+#     result_records = []
+#     grouped = default_df.groupby(['src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint', 'src_cid'])
+#     for (src_svc, dst_svc, src_endpoint, dst_endpoint, src_region), group in grouped:
+#         if src_svc == "SOURCE":
+#             result_records.append(group.to_dict('records')[0])
+#             continue
+#         first_row = group.iloc[0]
+#         flow = first_row['flow']
+#         total = first_row['total']
+#         for dst_region in regions:
+#             if not ((default_df['dst_svc'] == dst_svc) & (default_df['dst_cid'] == dst_region)).any():
+#                 continue
+#             weight = max_local_weight if src_region == dst_region else remote_weight
+#             record = {
+#                 'src_svc': src_svc,
+#                 'dst_svc': dst_svc,
+#                 'src_endpoint': src_endpoint,
+#                 'dst_endpoint': dst_endpoint,
+#                 'src_cid': src_region,
+#                 'dst_cid': dst_region,
+#                 'flow': flow * weight,  # Adjust flow based on weight
+#                 'total': total,
+#                 'weight': weight
+#             }
+#             result_records.append(record)
+#     result_df = pd.DataFrame(result_records)
+#     return result_df
+
 
 def perform_jumping():
     global percentage_df
@@ -399,7 +481,7 @@ def perform_jumping():
     parent_svc = "sslateingress"
     child_svc = "frontend"
 
-    logger.info(f"perform_jumping, jumping_feature_enabled: {jumping_feature_enabled}, jumping_towards_optimizer: {jumping_towards_optimizer}, currently_globally_oscillating: {currently_globally_oscillating}")
+    logger.info(f"loghill temp_counter {temp_counter} jumping_feature_enabled: {jumping_feature_enabled}, jumping_towards_optimizer: {jumping_towards_optimizer}, currently_globally_oscillating: {currently_globally_oscillating}")
     # snapshot the current optimizer output and processing latencies
     cur_last_seen_opt_output = jumping_last_seen_opt_output.copy()
     jumping_last_seen_opt_output = percentage_df.copy()
@@ -423,49 +505,67 @@ def perform_jumping():
         # we haven't seen the optimizer output yet just return
         return
     jumping_ruleset_num_iterations += 1
-    logger.info(f"loghill temp_counter {temp_counter} (current ruleset {cur_jumping_ruleset} prev_processing_latency: {prev_processing_latency}, cur_processing_latency: {cur_processing_latency}")
+    logger.info(f"loghill (current ruleset {cur_jumping_ruleset} prev_processing_latency: {prev_processing_latency}, cur_processing_latency: {cur_processing_latency}")
 
     ruleset_overperformance = calculate_ruleset_overperformance(jumping_df.copy(), cur_processing_latencies, parent_svc=parent_svc, child_svc=child_svc)
     prev_ruleset_overperformance = global_prev_ruleset_overperformance.copy()
     global_prev_ruleset_overperformance = ruleset_overperformance.copy()
     logger.info(f"loghill ruleset_overperformance: {ruleset_overperformance}")
 
-
-    
-    # ## Defensive jumping
-    # if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1) and len(percentage_df) > 0:
-    #     logger.info(f"loghill rules are different, stepping towards optimizer output, old rules:\n{compute_traffic_matrix(cur_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
-    #     # here, we want to start defensive jumping towards the optimizer output.
-    #     # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
-    #     # use_optimizer_output = True
-    #     jumping_towards_optimizer = True
-    #     jumping_ruleset_num_iterations = 0
-    #     currently_globally_oscillating = False
-    #     # make jumping_df the same as percentage_df, because /proxyLoad will use percentage_df, so the latencies
-    #     # in processing_latencies will be based on the percentage_df.
-    #     # jumping_df = percentage_df.copy()
-    #     if len(jumping_df) == 0:
-    #         jumping_df = percentage_df.copy()
-    #         # this means that the rules are different from what we last saw, but we haven't started jumping yet / don't have a state, so we can just return.
-    #         return
-    #     starting_df = jumping_df.copy()
-    #     desired_df = percentage_df.copy()
-    #     cur_convex_comb_value = 0
-    #     convex_comb_direction = 1
-    #     # clear the prev processing latencies, because we will be making a measurement based on the current rules, compared to the proposed (step) rules.
-    #     global_prev_processing_latencies.clear()
-    #     return
-    
-    # if overperformances_are_different(prev_ruleset_overperformance, ruleset_overperformance, maxPctDiff=3) and not jumping_towards_optimizer:
-    if processing_latencies_delta_are_different(cur_processing_latencies, prev_processing_latencies, cur_aggregated_rps, prev_aggregated_rps, maxPctDiff=1.5) and not jumping_towards_optimizer:
-        # we are oscillating, but the overperformances are different, so we should restart jumping in the disjoint rulesets.
-        currently_globally_oscillating = False
-        jumping_towards_optimizer = False
-        completed_rulesets.clear()
-        cur_jumping_ruleset = pick_best_ruleset(ruleset_overperformance, completed_rulesets)
-        logger.info(f"loghill detected overperformance change, picked new ruleset: {cur_jumping_ruleset}")
+    if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1) and len(percentage_df) > 0:
+        logger.info(f"loghill rules are different, stepping towards optimizer output")
+        logger.info("*"*50)
+        logger.info(f"old rules:\n{compute_traffic_matrix(cur_last_seen_opt_output)}")
+        logger.info("*"*50)
+        logger.info(f"new rules:\n{compute_traffic_matrix(percentage_df)}")
+        logger.info(f"cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
+        logger.info("*"*50)
+        # here, we want to start defensive jumping towards the optimizer output.
+        # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
+        # use_optimizer_output = True
+        jumping_towards_optimizer = True
         jumping_ruleset_num_iterations = 0
-        # global_prev_processing_latencies.clear()
+        currently_globally_oscillating = False
+        # make jumping_df the same as percentage_df, because /proxyLoad will use percentage_df, so the latencies
+        # in processing_latencies will be based on the percentage_df.
+        # jumping_df = percentage_df.copy()
+        if len(jumping_df) == 0:
+            if ROUTING_RULE == "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling":
+                # jumping_df = create_default_multi_region_routing_df_max_local_weight(percentage_df, max_local_weight=0.9)
+                jumping_df = create_default_multi_region_routing_df_min_remote_weight(percentage_df, min_remote_weight=0.03)
+                sim_jumping_df = make_percentage_df_sim_percentage_df(jumping_df)
+                logger.info(f"create_default_multi_region_routing_df, jumping_df:\n{sim_jumping_df.to_csv()}")
+            else:
+                jumping_df = percentage_df.copy()
+                logger.info(f"jumping_df is empty, copying percentage_df to jumping_df")
+            # this means that the rules are different from what we last saw, but we haven't started jumping yet / don't have a state, so we can just return.
+            return
+        starting_df = jumping_df.copy()
+        desired_df = percentage_df.copy()
+        cur_convex_comb_value = 0
+        convex_comb_direction = 1
+        # clear the prev processing latencies, because we will be making a measurement based on the current rules, compared to the proposed (step) rules.
+        global_prev_processing_latencies.clear()
+        return
+    else:
+        logger.info(f"loghill rules are not different, jumping_towards_optimizer: {jumping_towards_optimizer}")
+        
+        
+    # if overperformances_are_different(prev_ruleset_overperformance, ruleset_overperformance, maxPctDiff=3) and not jumping_towards_optimizer:
+    if not jumping_towards_optimizer:
+        if processing_latencies_delta_are_different(cur_processing_latencies, prev_processing_latencies, cur_aggregated_rps, prev_aggregated_rps, maxPctDiff=1.5):
+            # we are oscillating, but the overperformances are different, so we should restart jumping in the disjoint rulesets.
+            currently_globally_oscillating = False
+            jumping_towards_optimizer = False
+            completed_rulesets.clear()
+            cur_jumping_ruleset = pick_best_ruleset(ruleset_overperformance, completed_rulesets)
+            logger.info(f"loghill detected overperformance change, picked new ruleset: {cur_jumping_ruleset}")
+            jumping_ruleset_num_iterations = 0
+            # global_prev_processing_latencies.clear()
+        else:
+            logger.info(f"loghill detected no overperformance change, continuing jumping in the disjoint rulesets")
+    else:
+        logger.info(f"loghill jumping towards optimizer, not changing ruleset")
 
     if currently_globally_oscillating:
         # we are oscillating and the overperformances are the same, so we should stop jumping.
@@ -492,7 +592,9 @@ def perform_jumping():
             logger.info(f"loghill no more rulesets to jump to, starting oscillation detection (currently_globally_oscillating=True)")
             return
 
+    ## Is this defensive jumping?
     if jumping_towards_optimizer:
+        logger.error(f"THIS IS DEFENSIVE JUMPING PART. IT SHOULD NOT BE PRINTED")
         # we perform the first jumping iteration here (this means there will be some delay between detecting rule changes and starting to jump)
 
         # compute the convex combination of the starting_df and desired_df for traffic matrix of regions between services sslateingress and frontend
@@ -600,11 +702,15 @@ def perform_jumping():
                     completed_rulesets.add(cur_jumping_ruleset)
                     cur_jumping_ruleset = pick_best_ruleset(ruleset_overperformance, completed_rulesets)
                 else:
+                    if ROUTING_RULE == "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling":
+                        adjusted_df = enforce_minimum_remote_weights(adjusted_df)
                     jumping_df = adjusted_df.copy()
             else:
                 logger.info(f"failing to adjust ruleset, no ruleset to adjust")
         else:
             jumping_df = percentage_df.copy()
+            logger.info(f"Copying percentage_df to jumping_df")
+            logger.info(f"{jumping_df.to_csv()}")
     return
 
 
@@ -614,7 +720,6 @@ def rules_are_different(df1: pd.DataFrame, df2: pd.DataFrame, maxThreshold=0.1):
     the weight is different by more than maxThreshold, we return True. 
     If the rule does not exist in one of the dataframes or columns are missing, we return True.
     """
-
     required_columns = ["src_svc", "dst_svc", "src_endpoint", "dst_endpoint", "src_cid", "dst_cid", "weight"]
 
     # Check if all required columns exist in both dataframes
@@ -629,6 +734,7 @@ def rules_are_different(df1: pd.DataFrame, df2: pd.DataFrame, maxThreshold=0.1):
     # Check rules in df1
     for idx in df1.index:
         if idx in df2.index and abs(df1.loc[idx]["weight"] - df2.loc[idx]["weight"]) > maxThreshold:
+            logger.info(f"rule is different, service {df1.loc[idx]['src_svc']} {df1.loc[idx]['dst_svc']}, regions, {df1.loc[idx]['src_cid']} {df1.loc[idx]['dst_cid']}, weight {df1.loc[idx]['weight']} vs {df2.loc[idx]['weight']}")
             return True
 
     # # Check rules in df2
@@ -801,6 +907,7 @@ def processing_latencies_delta_are_different(
     """
 
     if prev_processing_latencies is None or len(prev_processing_latencies) == 0:
+        logger.info(f"Previous processing latencies are empty or None.")
         return False
     for region, services in cur_aggregated_rps.items():
         if bottleneck_service not in services:
@@ -816,32 +923,22 @@ def processing_latencies_delta_are_different(
             
             # Skip comparison if expected latencies are zero to avoid division by zero
             if expected_latency_prev == 0 or expected_latency_cur == 0:
-                logger.debug(
-                    f"Skipping comparison for Region: {region}, Service: {bottleneck_service}, Endpoint: {endpoint} "
-                    f"due to zero expected latency."
-                )
+                logger.warning(f"Skipping comparison for Region: {region}, Service: {bottleneck_service}, Endpoint: {endpoint} due to zero expected latency.")
                 continue
 
             # Retrieve actual latencies; default to 0 if not present
             # methodpath is just method@path, e.g., GET@/cart/checkout, get it from endpoint which is of form svc@method@path
-            actual_prev, _, _ = calculate_avg_processing_latency_for_traffic_class(
-                prev_processing_latencies, endpoint, region
-            )
-            actual_cur, _, _ = calculate_avg_processing_latency_for_traffic_class(
-                cur_processing_latencies, endpoint, region
-            )
+            actual_prev, _, _ = calculate_avg_processing_latency_for_traffic_class(prev_processing_latencies, endpoint, region)
+            actual_cur, _, _ = calculate_avg_processing_latency_for_traffic_class(cur_processing_latencies, endpoint, region)
 
             # Calculate the deltas
             delta_prev = abs(expected_latency_prev - actual_prev)
             delta_cur = abs(expected_latency_cur - actual_cur)
-
+            logger.info(f"Region: {region}, Service: {bottleneck_service}, delta prev: {delta_prev}ms, delta cur: {delta_cur}ms, expected latency prev: {expected_latency_prev}ms, expected latency cur: {expected_latency_cur}ms, actual latency prev: {actual_prev}ms, actual latency cur: {actual_cur}ms")
             if True: # this is for debugging
                 # check if within 30ms
                 if abs(delta_prev - delta_cur) > 30:
-                    logger.info(
-                        f"Latency delta difference exceeded: {abs(delta_prev - delta_cur)}ms > 30ms (abs({delta_prev} - {delta_cur})) "
-                    f"for Region: {region}, Service: {bottleneck_service}, Endpoint: {endpoint}"
-                    )
+                    logger.info(f"Latency delta difference exceeded: {abs(delta_prev - delta_cur)}ms > 30ms (abs({delta_prev} - {delta_cur})) for Region: {region}, Service: {bottleneck_service}, Endpoint: {endpoint}")
                     return True
             else:
                 # Calculate the percentage difference between the two deltas
@@ -1268,26 +1365,27 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict, 
     # return the overperformance as a dictionary of destination region to overperformance.
 
     # todo aditya problem: latency is not being injected right...
-    logger.info(f"calculate_ruleset_overperformance: rules:\n{rules.columns}")
+    
+    # logger.info(f"calculate_ruleset_overperformance: rules:\n{rules.to_csv()}")
     if "src_svc" not in rules.columns or "dst_svc" not in rules.columns or "src_cid" not in rules.columns or "dst_cid" not in rules.columns:
         return dict()
     filtered_rules = rules[(rules["src_svc"] == parent_svc) & (rules["dst_svc"] == child_svc)]
     dst_traffic_classes = filtered_rules["dst_endpoint"].unique()
-    logger.info(f"calculate_ruleset_overperformance: traffic_classes: {dst_traffic_classes}")
+    # logger.info(f"traffic_classes: {dst_traffic_classes}")
     overperformance = dict()
 
     # ruleset: rules for a given traffic class from a source region to multiple destination regions.
     for dst_traffic_class in dst_traffic_classes:
         src_regions = filtered_rules[filtered_rules["dst_endpoint"] == dst_traffic_class]["src_cid"].unique()
-        logger.info(f"calculate_ruleset_overperformance: traffic_class: {dst_traffic_class}, src_regions: {src_regions}")
+        # logger.info(f"traffic_class: {dst_traffic_class}, src_regions: {src_regions}")
         for src_region in src_regions:
             src_rules = filtered_rules[(filtered_rules["src_cid"] == src_region) & (filtered_rules["dst_endpoint"] == dst_traffic_class)]
             dst_regions = src_rules["dst_cid"].unique()
             if len(dst_regions) < 2:
                 logging.info(f"skipping ruleset for src_region: {src_region} as it has less than 2 dst regions({dst_regions})")
                 continue
-            else:
-                logger.info(f"calculate_ruleset_overperformance: src_region: {src_region}, dst_regions: {dst_regions}")
+            # else:
+            #     logger.info(f"src_region: {src_region}, dst_regions: {dst_regions}")
             overperformance[src_region] = dict()
             for dst_region in dst_regions:
                 # src_traffic_class is src_endpoint
@@ -1313,7 +1411,7 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict, 
                 overperformance[src_traffic_class][dst_traffic_class][src_region][dst_region] = (expected_latency_in_dst_region - actual_latency_in_dst_region) * ruleset_rps_in_dst_region
 
                 total_load_in_dst_region = aggregated_rps.get(dst_region, {}).get(bottleneck_service, {}).get(dst_traffic_class, 0)
-                logger.info(f"loghill calculate_ruleset_overperformance: src_region: {src_region}, src traffic class {src_traffic_class}, dst traffic class {dst_traffic_class}, dst_region: {dst_region}, expected_latency ({total_load_in_dst_region} rps): {expected_latency_in_dst_region}, actual_latency: {actual_latency_in_dst_region}, load in {dst_region} for this ruleset: {ruleset_rps_in_dst_region}, pct of ruleset: {src_rules[src_rules['dst_cid'] == dst_region]['weight'].values[0]}")
+                logger.info(f"loghill calculate_ruleset_overperformance: {src_traffic_class}, {src_region} ->  {dst_region}, expected_latency: {expected_latency_in_dst_region:.2f}, actual_latency: {actual_latency_in_dst_region:.2f}, overperformance: {overperformance[src_traffic_class][dst_traffic_class][src_region][dst_region]}")
     return overperformance
 
 def get_expected_latency_for_traffic_class(region: str, svc: str, traffic_class: str) -> int:
@@ -1353,9 +1451,11 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, src_traffic_class: str, d
     if len(overperformance) == 0:
         logger.debug(f"loghill no overperformance for ruleset [{region}]")
         return ruleset, False
-    
+        
     # get the destination regions, and the average performance of the ruleset (for those destination regions)
-    src_svc, dst_svc, src_endpoint, dst_endpoint = src_traffic_class.split("@")[0], dst_traffic_class.split("@")[0], src_traffic_class, dst_traffic_class
+    src_svc, dst_svc = src_traffic_class.split("@")[0]
+    src_endpoint = dst_traffic_class.split("@")[0]
+    dst_endpoint = src_traffic_class, dst_traffic_class
     dst_cids = list(overperformance.keys())
     avg_performance = sum([overperformance[dst_cid] for dst_cid in dst_cids]) / len(dst_cids)
     # partition the destination regions into underperformers and overperformers
@@ -1423,9 +1523,58 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, src_traffic_class: str, d
     # log the old and adjusted rulesets, with just the weights (something in the form of source region -> destination region -> weight for old and new.)
     # hold the dest service (frontend) and the source service (sslateingress) constant.
     logger.info(f"loghill (on {region} {src_traffic_class} {dst_traffic_class})\
-                \nold ruleset: {compute_traffic_matrix(ruleset, src_service=src_svc, dst_service=dst_svc)}\nadjusted ruleset: {compute_traffic_matrix(adjusted_ruleset, src_service=src_svc, dst_service=dst_svc)}")
+                    \n\n \
+                    old ruleset: {compute_traffic_matrix(ruleset, src_service=src_svc, dst_service=dst_svc)} \
+                    \n\n \
+                    adjusted ruleset: {compute_traffic_matrix(adjusted_ruleset, src_service=src_svc, dst_service=dst_svc)} \
+                    \n")
     return adjusted_ruleset if not out_of_bounds else ruleset, not out_of_bounds
 
+
+def enforce_minimum_remote_weights(routing_df, min_remote_weight=0.03):
+    """
+    Enforces minimum weights for remote regions to ensure multi-region routing.
+    Args:
+        routing_df (pd.DataFrame): The routing rules DataFrame
+        min_remote_weight (float): Minimum weight for each remote region (default: 0.03 or 3%)
+    Returns:
+        pd.DataFrame: Updated routing DataFrame with minimum weights enforced
+    """
+    result_df = routing_df.copy()
+    source_groups = result_df.groupby(['src_svc', 'src_endpoint', 'src_cid'])
+    for (src_svc, src_endpoint, src_region), group_indices in source_groups.groups.items():
+        group_df = result_df.loc[group_indices]
+        remote_indices = []
+        local_index = None
+        for idx in group_indices:
+            dst_region = result_df.loc[idx, 'dst_cid']
+            if dst_region != src_region:
+                remote_indices.append(idx)
+            else:
+                local_index = idx
+        if not remote_indices:
+            continue
+        needs_adjustment = False
+        for idx in remote_indices:
+            if result_df.loc[idx, 'weight'] < min_remote_weight:
+                needs_adjustment = True
+                result_df.loc[idx, 'weight'] = min_remote_weight
+        if needs_adjustment and local_index is not None:
+            remote_sum = sum(result_df.loc[idx, 'weight'] for idx in remote_indices)
+            local_weight = 1.0 - remote_sum
+            if local_weight < 0:
+                logger.warning(f"Cannot enforce minimum weights for group {src_svc}, {src_endpoint}, {src_region} - defaulting to equal distribution")
+                total_regions = len(remote_indices) + 1
+                for idx in remote_indices:
+                    result_df.loc[idx, 'weight'] = 1.0 / total_regions
+                result_df.loc[local_index, 'weight'] = 1.0 / total_regions
+            else:
+                result_df.loc[local_index, 'weight'] = local_weight
+        current_sum = sum(result_df.loc[idx, 'weight'] for idx in group_indices)
+        if abs(current_sum - 1.0) > 0.001:
+            for idx in group_indices:
+                result_df.loc[idx, 'weight'] = result_df.loc[idx, 'weight'] / current_sum
+    return result_df
 
 def get_expected_latency_for_rule(load: int, svc: str, methodpath: str) -> int:
     """
@@ -1865,27 +2014,12 @@ def verify_return_df(return_df, src_region):
             logger.error(f"ERROR: weight is out of range. {row['weight']}")
             logger.error(f"row: \n{row}")
             assert False
-            
-        ## For partial replication scenario, this assertion does not function as its original role
-        # assert row['src_endpoint'] in aggregated_rps[row['src_cid']][row['src_svc']]
-        # assert row['dst_endpoint'] in aggregated_rps[row['dst_cid']][row['dst_svc']]
-        # assert row['src_endpoint'].split(cfg.ep_del)[0] == row['src_svc']
-        # assert row['dst_endpoint'].split(cfg.ep_del)[0] == row['dst_svc']
-        # assert row['src_cid'] == src_region
-        
     return_df = return_df.drop(columns=['src_svc', "dst_svc", "flow", "total"])
     desired_order_of_columns = ['src_endpoint', 'dst_endpoint', 'src_cid', 'dst_cid', 'weight']
-    # Select only the columns to keep from the DataFrame
     return_df = return_df.loc[:, desired_order_of_columns] 
-    # make sure it has CORRECT order of columns to comply with wasm api
     return_df = return_df[desired_order_of_columns]
     assert list(return_df.columns) == desired_order_of_columns
     return return_df
-
-defaultresponse = """sslateingress@POST@/cart,frontend@POST@/cart,us-west-1,us-west-1,1.0
-sslateingress@POST@/cart,frontend@POST@/cart,us-west-1,us-east-1,0.0
-"""
-
 
 def add_span_to_traces(given_traces, span):
     region, load_bucket, trace_id = span.cluster_id, span.load_bucket, span.trace_id
@@ -2488,6 +2622,10 @@ def optimizer_entrypoint():
     
     
     if "SLATE" in ROUTING_RULE:
+        desc = "Empty for description for now"
+        write_optimizer_output(temp_counter, percentage_df, desc, "routing_history.csv")
+        # logger.info(f"loghill writing jumping_routing_history.csv {percentage_df if use_optimizer_output or not jumping_feature_enabled else jumping_df} and {jumping_df}")
+        write_optimizer_output(temp_counter, percentage_df if use_optimizer_output or not jumping_feature_enabled else jumping_df, desc, "jumping_routing_history.csv")
         global num_of_optimizer_runs
         if ROUTING_RULE.startswith("SLATE-with-jumping-global-without-optimizer"):
             if num_of_optimizer_runs == 0:
@@ -2547,9 +2685,17 @@ def optimizer_entrypoint():
                 logger.info(f"(loghill optimizer_entrypoint) rules are different, changing base rules")
                 jumping_ruleset_num_iterations = 0
                 currently_globally_oscillating = False
-                jumping_df = percentage_df.copy()
-                prev_jumping_df = percentage_df.copy()
-                jumping_last_seen_opt_output = percentage_df.copy()
+                if ROUTING_RULE == "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling":
+                    # jumping_df = create_default_multi_region_routing_df_max_local_weight(percentage_df, max_local_weight=0.9)
+                    jumping_df = create_default_multi_region_routing_df_min_remote_weight(percentage_df, min_remote_weight=0.03)
+                    sim_jumping_df = make_percentage_df_sim_percentage_df(jumping_df)
+                    logger.info(f"create_default_multi_region_routing_df, jumping_df:\n{sim_jumping_df.to_csv()}")
+                    prev_jumping_df = jumping_df.copy()
+                    jumping_last_seen_opt_output = jumping_df.copy()
+                else:
+                    jumping_df = percentage_df.copy()
+                    prev_jumping_df = percentage_df.copy()
+                    jumping_last_seen_opt_output = percentage_df.copy()
                 global_prev_processing_latencies.clear()
                 global_processing_latencies.clear()
                 completed_rulesets.clear()
@@ -2781,12 +2927,7 @@ def optimizer_entrypoint():
     logger.debug(f"run_optimizer temp_counter-{temp_counter}, result: {desc}")
     if percentage_df.empty:
         logger.error(f"ERROR: run_optimizer FAIL (**{desc}**) return without updating percentage_df")
-    write_optimizer_output(temp_counter, percentage_df, desc, "routing_history.csv")
-    # logger.info(f"loghill writing jumping_routing_history.csv {percentage_df if use_optimizer_output or not jumping_feature_enabled else jumping_df} and {jumping_df}")
-    write_optimizer_output(temp_counter, percentage_df if use_optimizer_output or not jumping_feature_enabled else jumping_df, desc, "jumping_routing_history.csv")
-    
-    
-    ''' end of optimizer_entrypoint '''
+
 
 
 def load_coef(coef_file="coef.csv"):
