@@ -302,21 +302,49 @@ def static_hash(value):
     hash_object.update(value_bytes)
     return hash_object.hexdigest()
 
+# def trace_df_to_endpoint_callgraph_table(given_df):
+#     ep_str_callgraph_table = dict()
+#     for tid in given_df["trace_id"].unique():
+#         # logger.info(f"trace_id: {tid}")
+#         single_trace = given_df[given_df["trace_id"] == tid]
+#         ep_str_cg = singlejson_trace_to_endpoint_str_callgraph(single_trace)
+#         cg_key = get_callgraph_key(ep_str_cg)
+#         assert cg_key != False
+#         hash_key = static_hash(cg_key)[:8]
+#         if hash_key not in ep_str_callgraph_table:
+#             logger.info(f"new callgraph key: {hash_key}, callgraph str {cg_key} in trace {tid}")
+#             ep_str_callgraph_table[hash_key] = ep_str_cg
+#             # ## NOTE: It will only get one request type. For multiple request type, uncomment it.
+#             # break
+#     return ep_str_callgraph_table
+
+
+## improved version to skip parsing all traces. do it only when it is unique trace for a given request type
 def trace_df_to_endpoint_callgraph_table(given_df):
     ep_str_callgraph_table = dict()
+    have_seen_already = set()
+    target_services = ['sslateingress', 'frontend']
     for tid in given_df["trace_id"].unique():
-        # logger.info(f"trace_id: {tid}")
         single_trace = given_df[given_df["trace_id"] == tid]
+        service_data = single_trace[single_trace['svc_name'].isin(target_services)]
+        if len(service_data) == 0:
+            logger.info(f"No target services found in trace {tid}")
+            continue
+        call_graph_identifier = tuple(sorted([(row['svc_name'], row['method'], row['url']) for _, row in service_data.iterrows()]))
+        if call_graph_identifier in have_seen_already:
+            continue
+        logger.info(f"New call graph pattern in trace {tid}")
+        logger.info(f"call graph: {single_trace.to_csv()}")
+        have_seen_already.add(call_graph_identifier)
         ep_str_cg = singlejson_trace_to_endpoint_str_callgraph(single_trace)
         cg_key = get_callgraph_key(ep_str_cg)
         assert cg_key != False
         hash_key = static_hash(cg_key)[:8]
         if hash_key not in ep_str_callgraph_table:
-            logger.info(f"new callgraph key: {hash_key}, callgraph str {cg_key} in trace {tid}")
+            logger.info(f"New callgraph key: {hash_key}, callgraph str {cg_key} in trace {tid}")
             ep_str_callgraph_table[hash_key] = ep_str_cg
-            ## NOTE: It will only get one request type. For multiple request type, uncomment it.
-            break
     return ep_str_callgraph_table
+
 
 def singlejson_trace_to_endpoint_str_callgraph(single_trace):
     callgraph = {}
@@ -694,7 +722,7 @@ def stitch_time_in_df(given_df, ep_str_callgraph_table):
         if ret:
             ret_dfs.append(single_trace)
         else:
-            logger.debug(f"stitch_trace failed for trace {tid}")
+            logger.error(f"stitch_trace failed for trace {tid}")
     ts = time.time()
     ret_df = pd.concat(ret_dfs, ignore_index=True) if ret_dfs else pd.DataFrame()
     if "concat" not in overhead:
@@ -746,7 +774,7 @@ def get_child_spans(single_trace, parent_span, ep_str_callgraph_table):
     return pd.DataFrame(child_spans)
 
 
-def calc_exclusive_time_in_df(single_trace, overhead):
+def calc_exclusive_time_in_df_hardcoded(single_trace, overhead):
     rt_dict = {}
     for _, span in single_trace.iterrows():
         rt_dict[span['svc_name']] = span['rt']
@@ -758,11 +786,13 @@ def calc_exclusive_time_in_df(single_trace, overhead):
             if span["svc_name"] == "sslateingress":
                 span["ct"] = span["rt"] - rt_dict["frontend"]
             elif span["svc_name"] == "frontend":
+                ## NOTE: hardcoded for online boutique checkoutcart request type
                 span["ct"] = span["rt"] - rt_dict["checkoutservice"]
                 logger.debug(f"parent_svc: {span['svc_name']}, parent_rt: {span['rt']}, child_rt: {rt_dict['checkoutservice']}, parent_xt: {span['ct']}")
             else:
                 span["ct"] = span["rt"]
-        except KeyError:
+        except Exception as e:
+            logger.error(f"Exception: {e}")
             logger.error(f"KeyError: {span['svc_name']}")
             logger.error(f"rt_dict: {rt_dict}")
             return False
@@ -789,6 +819,26 @@ def calc_exclusive_time_in_df(single_trace, overhead):
     #     if parent_span["xt"] < 0:
     #         return False
     # return True
+
+
+def calc_exclusive_time_in_df(single_trace, overhead):
+    for _, parent_span in single_trace.iterrows():
+        ts = time.time()
+        child_spans = single_trace[single_trace["parent_span_id"] == parent_span["span_id"]]
+        overhead["child_spans"] = overhead.get("child_spans", 0) + (time.time() - ts)
+        if child_spans.empty:
+            exclude_child_rt = 0
+        else:
+            ts = time.time()
+            # exclude_child_rt = calculate_exclude_child_rt_in_df(child_spans)
+            row_with_max_rt = child_spans.loc[child_spans["rt"].idxmax()]
+            exclude_child_rt = row_with_max_rt["rt"]
+            overhead["child_rt"] = overhead.get("child_rt", 0) + (time.time() - ts)
+        parent_span["xt"] = parent_span["rt"] - exclude_child_rt
+        logger.debug(f"parent,{parent_span['svc_name']}, parent_rt: {parent_span['rt']}, exclude_child_rt: {exclude_child_rt}, parent_xt: {parent_span['xt']}")
+        if parent_span["xt"] < 0:
+            return False
+    return True
 
 def is_parallel_execution_in_df(span_a, span_b):
     if span_a["et"] > span_b["st"] and span_b["et"] > span_a["st"] or span_b["et"] > span_a["st"] and span_a["et"] > span_b["st"]:

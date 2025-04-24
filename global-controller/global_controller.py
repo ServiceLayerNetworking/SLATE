@@ -151,18 +151,29 @@ benchmark_name = ""
 required_total_num_services = 0
 ROUTING_RULE = "LOCAL" # It will be updated by read_config_file function.
 ROUTING_RULE_SET = ["LOCAL", \
-                "SLATE", \
-                "REMOTE", \
-                "MCLB", \
-                "WATERFALL", \
-                "WATERFALL2", \
-                "SLATE-without-jumping", \
-                "SLATE-with-jumping-local", \
-                "SLATE-with-jumping-global-with-optimizer-without-continuous-profiling", \
-                "SLATE-with-jumping-global-with-optimizer-with-continuous-profiling", \
-                "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling", \
-                "SLATE-with-jumping-global-without-optimizer-with-continuous-profiling", \
-                ]
+                    "SLATE", \
+                    "REMOTE", \
+                    "MCLB", \
+                    "WATERFALL", \
+                    "WATERFALL2", \
+                    "SLATE-without-jumping", \
+                    "SLATE-with-jumping-local", \
+                    
+                    "SLATE-with-jumping-global-with-optimizer-with-continuous-profiling", \
+                    "SLATE-with-jumping-global-with-optimizer-without-continuous-profiling", \
+                    
+                    "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling-init-with-multi-region-routing", \
+                    "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling-init-with-optimizer", \
+                    
+                    "SLATE-without-jumping-global-with-optimizer-only-once-without-continuous-profiling", \
+                    "SLATE-without-jumping-global-without-optimizer-without-continuous-profiling-init-multi-region-routing-only-once", \
+
+                    "SLATE-without-jumping-global-with-optimizer-with-continuous-profiling", \
+
+                    "SLATE-without-jumping-global-with-optimizer-without-continuous-profiling", \
+                    ]
+max_routing_rule_weight = 0.85
+min_routing_rule_weight = 0.05
 CAPACITY = 0 # If it is runtime -> training_phase() -> max_capacity_per_service() -> set max_capacity_per_service[svc] = CAPACITY
 max_capacity_per_service = dict() # max_capacity_per_service[svc][region] = CAPACITY
 hillclimbing_distribution_history = list() #list(dict())
@@ -348,15 +359,16 @@ def decide_rollback_or_not(svc, method_path):
     """
     pass
 
-def create_default_multi_region_routing_df_min_remote_weight(percentage_df, min_remote_weight=0.03):
+def create_default_multi_region_routing_df_min_routing_rule_weight_for_all_hops(percentage_df):
+    global min_routing_rule_weight
     default_df = percentage_df.copy()
     regions = default_df['src_cid'].unique()
     num_regions = len(regions)
-    local_weight = 1.0 - ((num_regions - 1) * min_remote_weight)
+    local_weight = 1.0 - ((num_regions - 1) * min_routing_rule_weight)
     if local_weight <= 0:
         logger.warning(f"Calculated local_weight is {local_weight}, which is invalid. Adjusting weights to equal distribution.")
         local_weight = 1.0 / num_regions
-        min_remote_weight = 1.0 / num_regions
+        min_routing_rule_weight = 1.0 / num_regions
     result_records = []
     grouped = default_df.groupby(['src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint', 'src_cid'])
     for (src_svc, dst_svc, src_endpoint, dst_endpoint, src_region), group in grouped:
@@ -369,7 +381,7 @@ def create_default_multi_region_routing_df_min_remote_weight(percentage_df, min_
         for dst_region in regions:
             if not ((default_df['dst_svc'] == dst_svc) & (default_df['dst_cid'] == dst_region)).any():
                 continue
-            weight = local_weight if src_region == dst_region else min_remote_weight
+            weight = local_weight if src_region == dst_region else min_routing_rule_weight
             record = {
                 'src_svc': src_svc,
                 'dst_svc': dst_svc,
@@ -386,22 +398,81 @@ def create_default_multi_region_routing_df_min_remote_weight(percentage_df, min_
     return result_df
 
 
-# def create_default_multi_region_routing_df_max_local_weight(percentage_df, max_local_weight=0.9):
+def create_default_multi_region_routing_df_min_routing_rule_weight_only_for_sslateingress(percentage_df, min_routing_rule_weight=0.05):
+    default_df = percentage_df.copy()
+    regions = default_df['src_cid'].unique()
+    num_regions = len(regions)
+    
+    # Calculate local weight for multi-region services
+    local_weight = 1.0 - ((num_regions - 1) * min_routing_rule_weight)
+    if local_weight <= 0:
+        logger.warning(f"Calculated local_weight is {local_weight}, which is invalid. Adjusting weights to equal distribution.")
+        local_weight = 1.0 / num_regions
+        min_routing_rule_weight = 1.0 / num_regions
+    
+    result_records = []
+    grouped = default_df.groupby(['src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint', 'src_cid'])
+    
+    for (src_svc, dst_svc, src_endpoint, dst_endpoint, src_region), group in grouped:
+        # Pass through SOURCE records unchanged
+        if src_svc == "SOURCE":
+            result_records.append(group.to_dict('records')[0])
+            continue
+        
+        first_row = group.iloc[0]
+        flow = first_row['flow']
+        total = first_row['total']
+        
+        # Determine if this service should use multi-region routing
+        use_multi_region = (src_svc == "sslateingress")
+        
+        for dst_region in regions:
+            # Skip if destination service doesn't exist in this region
+            if not ((default_df['dst_svc'] == dst_svc) & (default_df['dst_cid'] == dst_region)).any():
+                continue
+            
+            # Set weight based on routing policy
+            if use_multi_region:
+                # Multi-region routing for sslateingress
+                weight = local_weight if src_region == dst_region else min_routing_rule_weight
+            else:
+                # Local routing only for all other services
+                weight = 1.0 if src_region == dst_region else 0.0
+            
+            record = {
+                'src_svc': src_svc,
+                'dst_svc': dst_svc,
+                'src_endpoint': src_endpoint,
+                'dst_endpoint': dst_endpoint,
+                'src_cid': src_region,
+                'dst_cid': dst_region,
+                'flow': flow * weight,  # Adjust flow based on weight
+                'total': total,
+                'weight': weight
+            }
+            result_records.append(record)
+    
+    result_df = pd.DataFrame(result_records)
+    return result_df
+
+
+# def create_default_multi_region_routing_df_max_local_weight(percentage_df):
 #     """
 #     Creates a default routing DataFrame where each source region routes primarily to itself
 #     but also routes a small percentage to all other regions.
     
 #     Args:
 #         percentage_df (pd.DataFrame): The optimizer output DataFrame to use as a template
-#         max_local_weight (float): Weight for local region (default 0.9 or 90%)
+#         max_routing_rule_weight (float): Weight for local region (default 0.9 or 90%)
         
 #     Returns:
 #         pd.DataFrame: A new DataFrame with multi-region routing rules
 #     """
+#     global max_routing_rule_weight
 #     default_df = percentage_df.copy()
 #     regions = default_df['src_cid'].unique()
 #     num_regions = len(regions)
-#     remote_weight = (1.0 - max_local_weight) / (num_regions - 1) if num_regions > 1 else 0
+#     remote_weight = (1.0 - max_routing_rule_weight) / (num_regions - 1) if num_regions > 1 else 0
 #     result_records = []
 #     grouped = default_df.groupby(['src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint', 'src_cid'])
 #     for (src_svc, dst_svc, src_endpoint, dst_endpoint, src_region), group in grouped:
@@ -414,7 +485,7 @@ def create_default_multi_region_routing_df_min_remote_weight(percentage_df, min_
 #         for dst_region in regions:
 #             if not ((default_df['dst_svc'] == dst_svc) & (default_df['dst_cid'] == dst_region)).any():
 #                 continue
-#             weight = max_local_weight if src_region == dst_region else remote_weight
+#             weight = max_routing_rule_weight if src_region == dst_region else remote_weight
 #             record = {
 #                 'src_svc': src_svc,
 #                 'dst_svc': dst_svc,
@@ -459,6 +530,8 @@ def perform_jumping():
     global temp_counter
 
     if mode == "profile":
+        return
+    if "with-jumping-global" not in ROUTING_RULE:
         return
     global should_we_rollback
     """
@@ -505,21 +578,27 @@ def perform_jumping():
         # we haven't seen the optimizer output yet just return
         return
     jumping_ruleset_num_iterations += 1
-    logger.info(f"loghill (current ruleset {cur_jumping_ruleset} prev_processing_latency: {prev_processing_latency}, cur_processing_latency: {cur_processing_latency}")
+    logger.info(f"loghill current ruleset {cur_jumping_ruleset} prev_processing_latency: {prev_processing_latency}, cur_processing_latency: {cur_processing_latency}")
 
+    latency_diff = abs(cur_processing_latency[0] - prev_processing_latency[0])
+    if latency_diff < 30:
+        logger.info(f"loghill latency_diff is less than threshold(30). latency_diff: {latency_diff}, prev_processing_latency: {prev_processing_latency[0]}, cur_processing_latency: {cur_processing_latency[0]}. Skip this jumping iteration")
+        return
+    
+    logger.info(f"loghill latency_diff is greater than threshold(30). latency_diff: {latency_diff}, prev_processing_latency: {prev_processing_latency[0]}, cur_processing_latency: {cur_processing_latency[0]}. Execute this jumping iteration")
+        
     ruleset_overperformance = calculate_ruleset_overperformance(jumping_df.copy(), cur_processing_latencies, parent_svc=parent_svc, child_svc=child_svc)
     prev_ruleset_overperformance = global_prev_ruleset_overperformance.copy()
     global_prev_ruleset_overperformance = ruleset_overperformance.copy()
-    logger.info(f"loghill ruleset_overperformance: {ruleset_overperformance}")
-
     if rules_are_different(cur_last_seen_opt_output, percentage_df, maxThreshold=0.1) and len(percentage_df) > 0:
-        logger.info(f"loghill rules are different, stepping towards optimizer output")
-        logger.info("*"*50)
+        logger.info(f"loghill PROBABLY THIS IS DEFENSIVE JUMPING PART. rules are different, stepping towards optimizer output")
+        logger.info("*"*80)
         logger.info(f"old rules:\n{compute_traffic_matrix(cur_last_seen_opt_output)}")
-        logger.info("*"*50)
+        logger.info("*"*80)
         logger.info(f"new rules:\n{compute_traffic_matrix(percentage_df)}")
+        logger.info("*"*80)
         logger.info(f"cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
-        logger.info("*"*50)
+        logger.info("*"*80)
         # here, we want to start defensive jumping towards the optimizer output.
         # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
         # use_optimizer_output = True
@@ -530,12 +609,14 @@ def perform_jumping():
         # in processing_latencies will be based on the percentage_df.
         # jumping_df = percentage_df.copy()
         if len(jumping_df) == 0:
-            if ROUTING_RULE == "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling":
-                # jumping_df = create_default_multi_region_routing_df_max_local_weight(percentage_df, max_local_weight=0.9)
-                jumping_df = create_default_multi_region_routing_df_min_remote_weight(percentage_df, min_remote_weight=0.03)
-                sim_jumping_df = make_percentage_df_sim_percentage_df(jumping_df)
+            if ROUTING_RULE == "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling-init-with-multi-region-routing":
+                # jumping_df = create_default_multi_region_routing_df_max_local_weight(percentage_df)
+                jumping_df = create_default_multi_region_routing_df_min_routing_rule_weight_only_for_sslateingress(percentage_df)
+                sim_jumping_df = make_percentage_df_sim_df(jumping_df)
                 logger.info(f"create_default_multi_region_routing_df, jumping_df:\n{sim_jumping_df.to_csv()}")
-            else:
+            # elif ROUTING_RULE == "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling-init-with-optimizer":
+            #     jumping_df = keep_min_multi_region_routing(percentage_df.copy())
+            else: # "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling-init-with-optimizer"
                 jumping_df = percentage_df.copy()
                 logger.info(f"jumping_df is empty, copying percentage_df to jumping_df")
             # this means that the rules are different from what we last saw, but we haven't started jumping yet / don't have a state, so we can just return.
@@ -547,10 +628,9 @@ def perform_jumping():
         # clear the prev processing latencies, because we will be making a measurement based on the current rules, compared to the proposed (step) rules.
         global_prev_processing_latencies.clear()
         return
-    else:
-        logger.info(f"loghill rules are not different, jumping_towards_optimizer: {jumping_towards_optimizer}")
-        
-        
+    
+    
+    logger.info(f"loghill rules are not different, jumping_towards_optimizer: {jumping_towards_optimizer}")
     # if overperformances_are_different(prev_ruleset_overperformance, ruleset_overperformance, maxPctDiff=3) and not jumping_towards_optimizer:
     if not jumping_towards_optimizer:
         if processing_latencies_delta_are_different(cur_processing_latencies, prev_processing_latencies, cur_aggregated_rps, prev_aggregated_rps, maxPctDiff=1.5):
@@ -565,7 +645,7 @@ def perform_jumping():
         else:
             logger.info(f"loghill detected no overperformance change, continuing jumping in the disjoint rulesets")
     else:
-        logger.info(f"loghill jumping towards optimizer, not changing ruleset")
+        logger.info(f"loghill THIS IS ALSO PROBABLY DEFENSIVE JUMPING. jumping towards optimizer, not changing ruleset")
 
     if currently_globally_oscillating:
         # we are oscillating and the overperformances are the same, so we should stop jumping.
@@ -592,7 +672,7 @@ def perform_jumping():
             logger.info(f"loghill no more rulesets to jump to, starting oscillation detection (currently_globally_oscillating=True)")
             return
 
-    ## Is this defensive jumping?
+    ## (gangmuk): Is this defensive jumping?
     if jumping_towards_optimizer:
         logger.error(f"THIS IS DEFENSIVE JUMPING PART. IT SHOULD NOT BE PRINTED")
         # we perform the first jumping iteration here (this means there will be some delay between detecting rule changes and starting to jump)
@@ -702,8 +782,8 @@ def perform_jumping():
                     completed_rulesets.add(cur_jumping_ruleset)
                     cur_jumping_ruleset = pick_best_ruleset(ruleset_overperformance, completed_rulesets)
                 else:
-                    if ROUTING_RULE == "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling":
-                        adjusted_df = enforce_minimum_remote_weights(adjusted_df)
+                    # if ROUTING_RULE == "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling":
+                    #     adjusted_df = enforce_minimum_remote_weights(adjusted_df)
                     jumping_df = adjusted_df.copy()
             else:
                 logger.info(f"failing to adjust ruleset, no ruleset to adjust")
@@ -734,7 +814,7 @@ def rules_are_different(df1: pd.DataFrame, df2: pd.DataFrame, maxThreshold=0.1):
     # Check rules in df1
     for idx in df1.index:
         if idx in df2.index and abs(df1.loc[idx]["weight"] - df2.loc[idx]["weight"]) > maxThreshold:
-            logger.info(f"rule is different, service {df1.loc[idx]['src_svc']} {df1.loc[idx]['dst_svc']}, regions, {df1.loc[idx]['src_cid']} {df1.loc[idx]['dst_cid']}, weight {df1.loc[idx]['weight']} vs {df2.loc[idx]['weight']}")
+            logger.info(f"loghill Rule has different weights: {df1.loc[idx]['weight']} vs {df2.loc[idx]['weight']}, region, {idx[4]} to {idx[5]}, svc, {idx[0]} to {idx[1]}")
             return True
 
     # # Check rules in df2
@@ -1409,9 +1489,8 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict, 
                     overperformance[src_traffic_class][dst_traffic_class][src_region] = dict()
                 # overperformance[dst_traffic_class][src_region][dst_region] = (expected_latency_in_dst_region - actual_latency_in_dst_region) * ruleset_rps_in_dst_region
                 overperformance[src_traffic_class][dst_traffic_class][src_region][dst_region] = (expected_latency_in_dst_region - actual_latency_in_dst_region) * ruleset_rps_in_dst_region
-
                 total_load_in_dst_region = aggregated_rps.get(dst_region, {}).get(bottleneck_service, {}).get(dst_traffic_class, 0)
-                logger.info(f"loghill calculate_ruleset_overperformance: {src_traffic_class}, {src_region} ->  {dst_region}, expected_latency: {expected_latency_in_dst_region:.2f}, actual_latency: {actual_latency_in_dst_region:.2f}, overperformance: {overperformance[src_traffic_class][dst_traffic_class][src_region][dst_region]}")
+                logger.info(f"loghill {src_traffic_class}, {src_region} -->  {dst_region}, expected_latency: {expected_latency_in_dst_region:.2f}, actual_latency: {actual_latency_in_dst_region:.2f},ruleset_rps_in_dst_region,{ruleset_rps_in_dst_region:.0f}, overperformance: {overperformance[src_traffic_class][dst_traffic_class][src_region][dst_region]:.2f}")
     return overperformance
 
 def get_expected_latency_for_traffic_class(region: str, svc: str, traffic_class: str) -> int:
@@ -1443,39 +1522,43 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, src_traffic_class: str, d
     it will find the average performance in the source region, partition the destination regions into underperformers and overperformers,
     and adjust the ruleset accordingly. second parameter is a boolean indicating if the ruleset was adjusted.
     """
+    global max_routing_rule_weight
+    global min_routing_rule_weight
     global bottleneck_service
-    # first, get the average performance of the ruleset in the source region
-    # then, partition the destination regions into underperformers and overperformers
-    # adjust the ruleset based on the overperformance of the ruleset.
-    # return the adjusted ruleset.
+    
+    # Return early if no overperformance data
     if len(overperformance) == 0:
         logger.debug(f"loghill no overperformance for ruleset [{region}]")
         return ruleset, False
         
-    # get the destination regions, and the average performance of the ruleset (for those destination regions)
-    src_svc, dst_svc = src_traffic_class.split("@")[0]
-    src_endpoint = dst_traffic_class.split("@")[0]
-    dst_endpoint = src_traffic_class, dst_traffic_class
+    # Parse traffic class components
+    src_svc = src_traffic_class.split("@")[0]
+    dst_svc = dst_traffic_class.split("@")[0]
+    src_endpoint = src_traffic_class
+    dst_endpoint = dst_traffic_class
+
     dst_cids = list(overperformance.keys())
     avg_performance = sum([overperformance[dst_cid] for dst_cid in dst_cids]) / len(dst_cids)
-    # partition the destination regions into underperformers and overperformers
+    
+    # Partition destination regions into underperformers and overperformers
     underperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] < avg_performance]
     overperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] >= avg_performance]
     logger.info(f"loghill for ruleset [{region}, {src_traffic_class}, {dst_traffic_class}] underperformers: {underperformers}, overperformers: {overperformers}")
 
-    # proportionally adjust underperformers and overperformers.
-    # calculate the weight each underperformer/overperformer has wieh their respective set, and
-    # add/subtract that weight * step_size to the weight of the rule.
-    # todo do we need to normalize the weights? (weight based on distance from average performance)
-    # also todo, we need to make sure the weights don't go below 0 or above 1 (globally) and that the weights always sum to 1.
     adjusted_ruleset = ruleset.copy()
-    out_of_bounds = False
+    was_adjusted = False  # Flag to track if any adjustments were made
+    
+    # Create a dictionary to track weight redistributions
+    weight_redistribution = {}
+    total_weight_reduction = 0.0
+    
+    # First pass: determine how much weight we can take from underperformers
     for dst_cid in underperformers:
         total_underperformance = sum([overperformance[dst_cid] for dst_cid in underperformers])
-        logger.info(f"loghill underperformer: {dst_cid}, total_underperformance: {total_underperformance}")
-        weight = overperformance[dst_cid] / total_underperformance if total_underperformance != 0 else 0
-        # make sure we dont go below 0
-        mask = (
+        weight_proportion = overperformance[dst_cid] / total_underperformance if total_underperformance != 0 else 0
+        
+        # Define filter condition for this rule
+        filter_condition = (
             (adjusted_ruleset["src_cid"] == region) &
             (adjusted_ruleset["dst_cid"] == dst_cid) &
             (adjusted_ruleset["src_svc"] == src_svc) &
@@ -1483,63 +1566,266 @@ def adjust_ruleset(ruleset: pd.DataFrame, region: str, src_traffic_class: str, d
             (adjusted_ruleset["src_endpoint"] == src_endpoint) &
             (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
         )
-        if len(adjusted_ruleset.loc[mask]) == 0:
-            logger.info(f"loghill underperformer: {dst_cid}, no rule found (mask: {mask}, ruleset: \n{adjusted_ruleset})")
+        
+        # Skip if no matching rule
+        if len(adjusted_ruleset.loc[filter_condition]) == 0:
+            logger.info(f"loghill underperformer: {dst_cid}, no rule found")
             continue
-        cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
-        step = weight * step_size
-        if cur_weight - step < 0:
-            out_of_bounds = True
-        else:
-            logger.info(f"loghill underperformer: {dst_cid}, cur_weight: {cur_weight}, step: {step}")
-            adjusted_ruleset.loc[(adjusted_ruleset["src_cid"] == region) & (adjusted_ruleset["dst_cid"] == dst_cid) 
-                             & (adjusted_ruleset["src_svc"] == src_svc) & (adjusted_ruleset["dst_svc"] == dst_svc) 
-                             & (adjusted_ruleset["src_endpoint"] == src_endpoint) & (adjusted_ruleset["dst_endpoint"] == dst_endpoint), "weight"] -= weight * step_size
-    for dst_cid in overperformers:
-        total_overperformance = sum([overperformance[dst_cid] for dst_cid in overperformers])
-        logger.info(f"loghill total_overperformance: {total_overperformance}")
-        weight = overperformance[dst_cid] / total_overperformance if total_overperformance != 0 else 0
-        # make sure we dont go above 1
-        mask = (
-            (adjusted_ruleset["src_cid"] == region) &
-            (adjusted_ruleset["dst_cid"] == dst_cid) &
-            (adjusted_ruleset["src_svc"] == src_svc) &
-            (adjusted_ruleset["dst_svc"] == dst_svc) &
-            (adjusted_ruleset["src_endpoint"] == src_endpoint) &
-            (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
-        )
-        if len(adjusted_ruleset.loc[mask]) == 0:
-            logger.info(f"loghill overperformer: {dst_cid}, no rule found (mask: {mask}, ruleset: \n{adjusted_ruleset})")
+            
+        cur_weight = adjusted_ruleset.loc[filter_condition, "weight"].values[0]
+        proposed_step = weight_proportion * step_size
+        
+        # Calculate the maximum reduction possible (ensuring we don't go below min_routing_rule_weight)
+        max_possible_reduction = cur_weight - min_routing_rule_weight
+        actual_reduction = min(proposed_step, max_possible_reduction)
+        
+        if actual_reduction <= 0:
+            logger.info(f"Skip,region,{region},dst_cid,{dst_cid},src_traffic_class,{src_traffic_class}, no reduction possible: {cur_weight} - {proposed_step} < {min_routing_rule_weight}")
             continue
-        cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
-        step = weight * step_size
-        if cur_weight + step > 1:
-            out_of_bounds = True
-        else:
-            logger.info(f"loghill overperformer: {dst_cid}, weight: {weight}, step: {step}")
-            adjusted_ruleset.loc[(adjusted_ruleset["src_cid"] == region) & (adjusted_ruleset["dst_cid"] == dst_cid) 
-                                & (adjusted_ruleset["src_svc"] == src_svc) & (adjusted_ruleset["dst_svc"] == dst_svc) 
-                                & (adjusted_ruleset["src_endpoint"] == src_endpoint) & (adjusted_ruleset["dst_endpoint"] == dst_endpoint), "weight"] += weight * step_size
-    # log the old and adjusted rulesets, with just the weights (something in the form of source region -> destination region -> weight for old and new.)
-    # hold the dest service (frontend) and the source service (sslateingress) constant.
-    logger.info(f"loghill (on {region} {src_traffic_class} {dst_traffic_class})\
+            
+        # Save the weight reduction for this destination
+        weight_redistribution[dst_cid] = -actual_reduction
+        total_weight_reduction += actual_reduction
+        
+        # Update the weight
+        prev_weight = adjusted_ruleset.loc[filter_condition, "weight"].values[0]
+        adjusted_ruleset.loc[filter_condition, "weight"] -= actual_reduction
+        was_adjusted = True
+        
+        adjusted_routing_path = adjusted_ruleset.loc[filter_condition]
+        adjusted_routing_weight = adjusted_routing_path["weight"].values[0]
+        logger.info(f"loghill underperformer: {region},{dst_cid},{src_svc},cur_weight,{cur_weight:.2f},adjusted_routing_weight,{adjusted_routing_weight:.2f},weight,{weight_proportion:.2f},step_size,{step_size},step,{actual_reduction:.2f}")
+    
+    # Second pass: Redistribute the collected weight to overperformers
+    if total_weight_reduction > 0 and len(overperformers) > 0:
+        # Calculate overperformance proportions
+        positive_overperformers = []
+        total_positive_overperformance = 0
+        
+        for dst_cid in overperformers:
+            if overperformance[dst_cid] > 0:  # Only consider positive overperformers
+                positive_overperformers.append(dst_cid)
+                total_positive_overperformance += overperformance[dst_cid]
+        
+        # Redistribute weight only if we have positive overperformers
+        if total_positive_overperformance > 0:
+            for dst_cid in positive_overperformers:
+                weight_proportion = overperformance[dst_cid] / total_positive_overperformance
+                # Define filter condition for this rule
+                filter_condition = (
+                    (adjusted_ruleset["src_cid"] == region) &
+                    (adjusted_ruleset["dst_cid"] == dst_cid) &
+                    (adjusted_ruleset["src_svc"] == src_svc) &
+                    (adjusted_ruleset["dst_svc"] == dst_svc) &
+                    (adjusted_ruleset["src_endpoint"] == src_endpoint) &
+                    (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
+                )
+                
+                # Skip if no matching rule
+                if len(adjusted_ruleset.loc[filter_condition]) == 0:
+                    logger.info(f"loghill overperformer: {dst_cid}, no rule found")
+                    continue
+                    
+                cur_weight = adjusted_ruleset.loc[filter_condition, "weight"].values[0]
+                weight_to_add = weight_proportion * total_weight_reduction
+                
+                # Ensure we don't exceed max_routing_rule_weight
+                if cur_weight + weight_to_add > max_routing_rule_weight:
+                    weight_to_add = max_routing_rule_weight - cur_weight
+                    logger.info(f"loghill overperformer: {dst_cid}, limiting weight addition to {weight_to_add} to avoid exceeding max_routing_rule_weight")
+                
+                if weight_to_add <= 0:
+                    logger.info(f"Skip,region,{region},dst_cid,{dst_cid},src_traffic_class,{src_traffic_class}, no addition possible")
+                    continue
+                
+                # Update the weight
+                prev_weight = adjusted_ruleset.loc[filter_condition, "weight"].values[0]
+                adjusted_ruleset.loc[filter_condition, "weight"] += weight_to_add
+                was_adjusted = True
+                
+                adjusted_routing_path = adjusted_ruleset.loc[filter_condition]
+                adjusted_routing_weight = adjusted_routing_path["weight"].values[0]
+                logger.info(f"loghill overperformer: {region},{dst_cid},{src_svc},cur_weight,{cur_weight:.2f},adjusted_routing_weight,{adjusted_routing_weight:.2f},weight,{weight_proportion:.2f},weight_to_add,{weight_to_add:.2f}")
+    
+    # Final sanity check: ensure all weights are within valid boundaries
+    for _, row in adjusted_ruleset.iterrows():
+        src_cid = row["src_cid"]
+        dst_cid = row["dst_cid"]
+        if row["src_svc"] == src_svc and row["dst_svc"] == dst_svc and row["src_endpoint"] == src_endpoint and row["dst_endpoint"] == dst_endpoint:
+            if row["weight"] < min_routing_rule_weight:
+                logger.info(f"loghill fixing weight: {src_cid} -> {dst_cid} from {row['weight']} to {min_routing_rule_weight} (min boundary)")
+                adjusted_ruleset.loc[
+                    (adjusted_ruleset["src_cid"] == src_cid) &
+                    (adjusted_ruleset["dst_cid"] == dst_cid) &
+                    (adjusted_ruleset["src_svc"] == src_svc) &
+                    (adjusted_ruleset["dst_svc"] == dst_svc) &
+                    (adjusted_ruleset["src_endpoint"] == src_endpoint) &
+                    (adjusted_ruleset["dst_endpoint"] == dst_endpoint),
+                    "weight"
+                ] = min_routing_rule_weight
+                was_adjusted = True
+            elif row["weight"] > max_routing_rule_weight:
+                logger.info(f"loghill fixing weight: {src_cid} -> {dst_cid} from {row['weight']} to {max_routing_rule_weight} (max boundary)")
+                adjusted_ruleset.loc[
+                    (adjusted_ruleset["src_cid"] == src_cid) &
+                    (adjusted_ruleset["dst_cid"] == dst_cid) &
+                    (adjusted_ruleset["src_svc"] == src_svc) &
+                    (adjusted_ruleset["dst_svc"] == dst_svc) &
+                    (adjusted_ruleset["src_endpoint"] == src_endpoint) &
+                    (adjusted_ruleset["dst_endpoint"] == dst_endpoint),
+                    "weight"
+                ] = max_routing_rule_weight
+                was_adjusted = True
+    
+    # Log the old and adjusted rulesets
+    logger.info(f"loghill (on {region} {src_traffic_class} {dst_traffic_class}) \
                     \n\n \
-                    old ruleset: {compute_traffic_matrix(ruleset, src_service=src_svc, dst_service=dst_svc)} \
+                    old ruleset,region,{region},src_svc,{src_svc},dst_svc,{dst_svc},\n{compute_traffic_matrix(ruleset, src_service=src_svc, dst_service=dst_svc)} \
                     \n\n \
-                    adjusted ruleset: {compute_traffic_matrix(adjusted_ruleset, src_service=src_svc, dst_service=dst_svc)} \
+                    adjusted ruleset,region,{region},src_svc,{src_svc},dst_svc,{dst_svc},\n{compute_traffic_matrix(adjusted_ruleset, src_service=src_svc, dst_service=dst_svc)} \
                     \n")
-    return adjusted_ruleset if not out_of_bounds else ruleset, not out_of_bounds
+    
+    return adjusted_ruleset, was_adjusted
 
 
-def enforce_minimum_remote_weights(routing_df, min_remote_weight=0.03):
+# def adjust_ruleset(ruleset: pd.DataFrame, region: str, src_traffic_class: str, dst_traffic_class: str, overperformance: dict, step_size=0.05) -> tuple[pd.DataFrame, bool]:
+#     """
+#     adjust_ruleset will adjust the (source region, traffic_class) ruleset based on the overperformance of the ruleset.
+#     overperformance is expected to be in the form of a dictionary of destination region to overperformance.
+#     it will find the average performance in the source region, partition the destination regions into underperformers and overperformers,
+#     and adjust the ruleset accordingly. second parameter is a boolean indicating if the ruleset was adjusted.
+#     """
+#     global max_routing_rule_weight
+#     global min_routing_rule_weight
+#     if ROUTING_RULE == "SLATE-with-global-jumping-without-optimizer-without-continuous-profiling":
+#         min_routing_rule_weight = 0.0
+#         max_routing_rule_weight = 1.0
+#     global bottleneck_service
+#     # first, get the average performance of the ruleset in the source region
+#     # then, partition the destination regions into underperformers and overperformers
+#     # adjust the ruleset based on the overperformance of the ruleset.
+#     # return the adjusted ruleset.
+#     if len(overperformance) == 0:
+#         logger.debug(f"loghill no overperformance for ruleset [{region}]")
+#         return ruleset, False
+        
+#     # get the destination regions, and the average performance of the ruleset (for those destination regions)
+#     src_svc = src_traffic_class.split("@")[0]
+#     dst_svc = dst_traffic_class.split("@")[0]
+#     src_endpoint = src_traffic_class
+#     dst_endpoint = dst_traffic_class
+
+#     dst_cids = list(overperformance.keys())
+#     avg_performance = sum([overperformance[dst_cid] for dst_cid in dst_cids]) / len(dst_cids)
+#     # partition the destination regions into underperformers and overperformers
+#     underperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] < avg_performance]
+#     overperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] >= avg_performance]
+#     logger.info(f"loghill for ruleset [{region}, {src_traffic_class}, {dst_traffic_class}] underperformers: {underperformers}, overperformers: {overperformers}")
+
+#     # proportionally adjust underperformers and overperformers.
+#     # calculate the weight each underperformer/overperformer has wieh their respective set, and
+#     # add/subtract that weight * step_size to the weight of the rule.
+#     # todo do we need to normalize the weights? (weight based on distance from average performance)
+#     # also todo, we need to make sure the weights don't go below 0 or above 1 (globally) and that the weights always sum to 1.
+#     adjusted_ruleset = ruleset.copy()
+#     out_of_bounds = False
+#     for dst_cid in underperformers:
+#         total_underperformance = sum([overperformance[dst_cid] for dst_cid in underperformers])
+#         weight = overperformance[dst_cid] / total_underperformance if total_underperformance != 0 else 0
+#         logger.info(f"loghill underperformer: {dst_cid}, total_underperformance: {total_underperformance}, weight: {weight}")
+#         # make sure we dont go below 0
+#         mask = (
+#             (adjusted_ruleset["src_cid"] == region) &
+#             (adjusted_ruleset["dst_cid"] == dst_cid) &
+#             (adjusted_ruleset["src_svc"] == src_svc) &
+#             (adjusted_ruleset["dst_svc"] == dst_svc) &
+#             (adjusted_ruleset["src_endpoint"] == src_endpoint) &
+#             (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
+#         )
+#         if len(adjusted_ruleset.loc[mask]) == 0:
+#             logger.info(f"loghill underperformer: {dst_cid}, no rule found (mask: {mask}, ruleset: \n{adjusted_ruleset})")
+#             continue
+#         cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
+#         step = weight * step_size
+#         if cur_weight - step < 0:
+#             out_of_bounds = True
+#         else:
+#             filter_condition = (
+#                 (adjusted_ruleset["src_cid"] == region) & 
+#                 (adjusted_ruleset["dst_cid"] == dst_cid) & 
+#                 (adjusted_ruleset["src_svc"] == src_svc) & 
+#                 (adjusted_ruleset["dst_svc"] == dst_svc) & 
+#                 (adjusted_ruleset["src_endpoint"] == src_endpoint) & 
+#                 (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
+#             )
+#             if adjusted_ruleset.loc[filter_condition, "weight"].values[0] - weight * step_size < min_routing_rule_weight:
+#                 logger.info(f"Skip,region,{region},dst_cid,{dst_cid},src_traffic_class,{src_traffic_class}, adjusted_ruleset: {adjusted_ruleset.loc[filter_condition, 'weight'].values[0]} - {weight * step_size} < {min_routing_rule_weight}")
+#             else:
+#                 prev_weight = adjusted_ruleset.loc[filter_condition, "weight"].values[0]
+#                 adjusted_ruleset.loc[filter_condition, "weight"] -= weight * step_size
+#                 logger.info(f"region,{region},dst_cid,{dst_cid},src_traffic_class,{src_traffic_class}, adjusted_ruleset: {prev_weight} -> {adjusted_ruleset.loc[filter_condition, 'weight'].values[0]}")
+#                 adjusted_routing_path = adjusted_ruleset.loc[filter_condition]
+#                 adjusted_routing_weight = adjusted_routing_path["weight"].values[0]
+#                 logger.info(f"loghill underperformer: {region},{dst_cid},{src_svc},cur_weight,{cur_weight},adjusted routing weight,{adjusted_routing_weight},weight,{weight},step_size,{step_size},step,{step}")
+#     for dst_cid in overperformers:
+#         total_overperformance = sum([overperformance[dst_cid] for dst_cid in overperformers])
+#         weight = overperformance[dst_cid] / total_overperformance if total_overperformance != 0 else 0
+#         logger.info(f"loghill overperformer: {dst_cid}, total_overperformance: {total_overperformance}, weight: {weight}")
+#         # make sure we dont go above 1
+#         mask = (
+#             (adjusted_ruleset["src_cid"] == region) &
+#             (adjusted_ruleset["dst_cid"] == dst_cid) &
+#             (adjusted_ruleset["src_svc"] == src_svc) &
+#             (adjusted_ruleset["dst_svc"] == dst_svc) &
+#             (adjusted_ruleset["src_endpoint"] == src_endpoint) &
+#             (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
+#         )
+#         if len(adjusted_ruleset.loc[mask]) == 0:
+#             logger.info(f"loghill overperformer: {dst_cid}, no rule found (mask: {mask}, ruleset: \n{adjusted_ruleset})")
+#             continue
+#         cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
+#         step = weight * step_size
+#         if cur_weight + step > 1:
+#             out_of_bounds = True
+#         else:
+#             # Define filter condition once to avoid repetition
+#             filter_condition = (
+#                 (adjusted_ruleset["src_cid"] == region) & 
+#                 (adjusted_ruleset["dst_cid"] == dst_cid) & 
+#                 (adjusted_ruleset["src_svc"] == src_svc) & 
+#                 (adjusted_ruleset["dst_svc"] == dst_svc) & 
+#                 (adjusted_ruleset["src_endpoint"] == src_endpoint) & 
+#                 (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
+#             )
+#             if adjusted_ruleset.loc[filter_condition, "weight"].values[0] + weight * step_size > max_routing_rule_weight:
+#                 logger.info(f"Skip,region,{region},dst_cid,{dst_cid},src_traffic_class,{src_traffic_class}, adjusted_ruleset: {adjusted_ruleset.loc[filter_condition, 'weight'].values[0]} + {weight * step_size} > {max_routing_rule_weight}")
+#             else:
+#                 adjusted_ruleset.loc[filter_condition, "weight"] += weight * step_size
+#                 adjusted_routing_path = adjusted_ruleset.loc[filter_condition]
+#                 adjusted_routing_weight = adjusted_routing_path["weight"].values[0]
+#                 logger.info(f"loghill overperformer: {region},{dst_cid},{src_svc},cur_weight,{cur_weight},adjusted routing weight,{adjusted_routing_weight},weight,{weight},step_size,{step_size},step,{step}")
+            
+#     # log the old and adjusted rulesets, with just the weights (something in the form of source region -> destination region -> weight for old and new.)
+#     # hold the dest service (frontend) and the source service (sslateingress) constant.
+#     logger.info(f"loghill (on {region} {src_traffic_class} {dst_traffic_class}) \
+#                     \n\n \
+#                     old ruleset,region,{region},src_svc,{src_svc},dst_svc,{dst_svc},\n{compute_traffic_matrix(ruleset, src_service=src_svc, dst_service=dst_svc)} \
+#                     \n\n \
+#                     adjusted ruleset,region,{region},src_svc,{src_svc},dst_svc,{dst_svc},\n{compute_traffic_matrix(adjusted_ruleset, src_service=src_svc, dst_service=dst_svc)} \
+#                     \n")
+#     return adjusted_ruleset if not out_of_bounds else ruleset, not out_of_bounds
+
+
+def enforce_minimum_remote_weights(routing_df):
     """
     Enforces minimum weights for remote regions to ensure multi-region routing.
     Args:
         routing_df (pd.DataFrame): The routing rules DataFrame
-        min_remote_weight (float): Minimum weight for each remote region (default: 0.03 or 3%)
+        min_routing_rule_weight (float): Minimum weight for each remote region (default: 0.03 or 3%)
     Returns:
         pd.DataFrame: Updated routing DataFrame with minimum weights enforced
     """
+    global min_routing_rule_weight
     result_df = routing_df.copy()
     source_groups = result_df.groupby(['src_svc', 'src_endpoint', 'src_cid'])
     for (src_svc, src_endpoint, src_region), group_indices in source_groups.groups.items():
@@ -1556,9 +1842,9 @@ def enforce_minimum_remote_weights(routing_df, min_remote_weight=0.03):
             continue
         needs_adjustment = False
         for idx in remote_indices:
-            if result_df.loc[idx, 'weight'] < min_remote_weight:
+            if result_df.loc[idx, 'weight'] < min_routing_rule_weight:
                 needs_adjustment = True
-                result_df.loc[idx, 'weight'] = min_remote_weight
+                result_df.loc[idx, 'weight'] = min_routing_rule_weight
         if needs_adjustment and local_index is not None:
             remote_sum = sum(result_df.loc[idx, 'weight'] for idx in remote_indices)
             local_weight = 1.0 - remote_sum
@@ -2174,7 +2460,7 @@ def handleProxyLoad():
                 logger.debug(f"{svc}, {region}, percentage_df is not empty")
                 temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
                 if len(temp_df) == 0:
-                    logger.warning(f"WARNING, Rollback to local routing. {region}, {svc}. percentage_df becomes empty after filtering.")
+                    logger.debug(f"WARNING, Rollback to local routing. {region}, {svc}. percentage_df becomes empty after filtering.")
                     _, csv_string = local_and_failover_routing_rule(svc, region)
                     return csv_string
                 temp_df = verify_return_df(temp_df, region)
@@ -2209,7 +2495,7 @@ def handleProxyLoad():
                 if use_optimizer_output or not jumping_feature_enabled or jumping_df.empty:
                     temp_df = percentage_df.loc[(percentage_df['src_svc'] == svc) & (percentage_df['src_cid'] == region)].copy()
                 else:
-                    if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0 and False:
+                    if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.3) and len(percentage_df) > 0:
                         logger.info(f"(proxyLoad) loghill rules are different, changing jumping base rules, old rules:\n{compute_traffic_matrix(jumping_last_seen_opt_output)}, new rules:\n{compute_traffic_matrix(percentage_df)}, cur jumping_df:\n{compute_traffic_matrix(jumping_df)}")
                         # here, we want to start defensive jumping towards the optimizer output.
                         # we want to jump from jumping_df (which is the current state) to percentage_df (which is the optimizer output).
@@ -2321,9 +2607,9 @@ def get_root_node_rps(ep_str_callgraph_table):
     root_node_rps = dict()
     for hashed_cg_key in ep_str_callgraph_table:
         root_ep[hashed_cg_key] = opt_func.find_root_node(ep_str_callgraph_table[hashed_cg_key])
-        logger.debug(f"root_ep[{hashed_cg_key}]: {root_ep}")
+        logger.info(f"root_ep[{hashed_cg_key}]: {root_ep}")
     if len(root_ep) != 0:
-        logger.debug('root_node_rps,hashed_cg_key,region,svc_name,endpoint,rps')
+        logger.info('root_node_rps,hashed_cg_key,region,svc_name,endpoint,rps')
         for hashed_cg_key in root_ep:
             for region in aggregated_rps:
                 for svc_name in aggregated_rps[region]:
@@ -2334,7 +2620,7 @@ def get_root_node_rps(ep_str_callgraph_table):
                             if svc_name not in root_node_rps[region]:
                                 root_node_rps[region][svc_name] = dict()
                             root_node_rps[region][svc_name][endpoint] = aggregated_rps[region][svc_name][endpoint]
-                            logger.debug(f'root_node_rps,{hashed_cg_key},{region},{svc_name},{endpoint},{root_node_rps[region][svc_name][endpoint]}')
+                            logger.info(f'root_node_rps,{hashed_cg_key},{region},{svc_name},{endpoint},{root_node_rps[region][svc_name][endpoint]}')
     return root_node_rps
 
 
@@ -2490,18 +2776,18 @@ def get_total_endpoint_level_rps(aggregated_rps):
     return total_endpoint_level_rps
 
 
-def make_percentage_df_sim_percentage_df(percentage_df):
-    sim_percentage_df = percentage_df.copy()
-    # sim_percentage_df.drop(columns=['src_endpoint', "dst_endpoint"], inplace=True)
-    sim_percentage_df.insert(loc=0, column="counter", value=temp_counter)
-    sim_percentage_df = sim_percentage_df.reset_index(drop=True)
-    sim_percentage_df.index = [''] * len(sim_percentage_df)
+def make_percentage_df_sim_df(percentage_df):
+    sim_df = percentage_df.copy()
+    # sim_df.drop(columns=['src_endpoint', "dst_endpoint"], inplace=True)
+    sim_df.insert(loc=0, column="counter", value=temp_counter)
+    sim_df = sim_df.reset_index(drop=True)
+    sim_df.index = [''] * len(sim_df)
     '''
-    column of sim_percentage_df dataframe: ['counter', 'src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint', 'src_cid', 'dst_cid', 'flow', 'total', 'weight']
+    column of sim_df dataframe: ['counter', 'src_svc', 'dst_svc', 'src_endpoint', 'dst_endpoint', 'src_cid', 'dst_cid', 'flow', 'total', 'weight']
     '''
     # if "routing_history.csv" in fn:
-    #     logger.info(f"sim_percentage_df:\n{sim_percentage_df.to_csv()}")
-    return sim_percentage_df
+    #     logger.info(f"sim_df:\n{sim_df.to_csv()}")
+    return sim_df
 
 def write_optimizer_output(temp_counter, percentage_df, desc, fn):
     if percentage_df.empty:
@@ -2509,11 +2795,11 @@ def write_optimizer_output(temp_counter, percentage_df, desc, fn):
             with open(fn, "a") as f:
                 f.write(f"idx,{temp_counter},fail,{desc}\n")
     else:
-        sim_percentage_df = make_percentage_df_sim_percentage_df(percentage_df)
+        sim_df = make_percentage_df_sim_df(percentage_df)
         if os.path.isfile(fn) == False:
-            sim_percentage_df.to_csv(fn, mode="w")
+            sim_df.to_csv(fn, mode="w")
         else:
-            sim_percentage_df.to_csv(fn, mode="a")
+            sim_df.to_csv(fn, mode="a")
         
 
 
@@ -2622,17 +2908,23 @@ def optimizer_entrypoint():
     
     
     if "SLATE" in ROUTING_RULE:
+        global num_of_optimizer_runs
         desc = "Empty for description for now"
         write_optimizer_output(temp_counter, percentage_df, desc, "routing_history.csv")
-        # logger.info(f"loghill writing jumping_routing_history.csv {percentage_df if use_optimizer_output or not jumping_feature_enabled else jumping_df} and {jumping_df}")
         write_optimizer_output(temp_counter, percentage_df if use_optimizer_output or not jumping_feature_enabled else jumping_df, desc, "jumping_routing_history.csv")
-        global num_of_optimizer_runs
-        if ROUTING_RULE.startswith("SLATE-with-jumping-global-without-optimizer"):
-            if num_of_optimizer_runs == 0:
-                logger.info(f"Run the optimizer only once for {ROUTING_RULE} (num_of_optimizer_runs: {num_of_optimizer_runs})")
+        
+        if ROUTING_RULE.startswith("SLATE-with-jumping-global-without-optimizer") or \
+            ROUTING_RULE == "SLATE-without-jumping-global-with-optimizer-only-once-without-continuous-profiling" or \
+                ROUTING_RULE == "SLATE-without-jumping-global-without-optimizer-without-continuous-profiling-init-multi-region-routing-only-once":
+            if num_of_optimizer_runs < 3:
+                if ROUTING_RULE == "SLATE-without-jumping-global-with-optimizer-only-once-without-continuous-profiling":
+                    logger.info(f"Run the optimizer only once for {ROUTING_RULE} (num_of_optimizer_runs: {num_of_optimizer_runs})")
+                elif ROUTING_RULE == "SLATE-without-jumping-global-without-optimizer-without-continuous-profiling-init-multi-region-routing-only-once":
+                    logger.info(f"Run the multi-region routing only once for {ROUTING_RULE} (num_of_optimizer_runs: {num_of_optimizer_runs})")
             else:
                 logger.info(f"Skip optimizer for {ROUTING_RULE}, num_of_optimizer_runs({num_of_optimizer_runs}) > 0")
                 return
+            
         num_of_optimizer_runs += 1
         if benchmark_name == "usecase1-cascading":
             logger.info(f"WARNING: Keep the capacity threshold for SLATE for usecase1-cascading")
@@ -2653,7 +2945,7 @@ def optimizer_entrypoint():
             total_ep_str_callgraph_rps[hashed_cg_key] = dict()
             for parent_ep_str in ep_str_callgraph_table[hashed_cg_key]:
                 total_ep_str_callgraph_rps[hashed_cg_key][parent_ep_str] = total_endpoint_level_rps[parent_ep_str]
-                logger.info(f"total_ep_str_callgraph_rps[{hashed_cg_key}][{parent_ep_str}]: {total_ep_str_callgraph_rps[hashed_cg_key][parent_ep_str]}")
+                logger.debug(f"total_ep_str_callgraph_rps[{hashed_cg_key}][{parent_ep_str}]: {total_ep_str_callgraph_rps[hashed_cg_key][parent_ep_str]}")
         with coef_dict_mutex:
             copy_coef_dict = copy.deepcopy(coef_dict)
         cur_percentage_df, desc = opt.run_optimizer(copy_coef_dict, \
@@ -2676,22 +2968,35 @@ def optimizer_entrypoint():
         state = "empty"
         logger.info(f"temp_counter,{temp_counter}, optimizer took {int(time.time()-optimizer_start_ts)}s")
         if not cur_percentage_df.empty:
+            if ROUTING_RULE == "SLATE-without-jumping-global-without-optimizer-without-continuous-profiling-init-multi-region-routing-only-once" or \
+                ROUTING_RULE == "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling-init-with-multi-region-routing":
+                    cur_percentage_df = create_default_multi_region_routing_df_min_routing_rule_weight_only_for_sslateingress(cur_percentage_df)
             percentage_df = cur_percentage_df
-            sim_percentage_df = make_percentage_df_sim_percentage_df(percentage_df)
-            logger.info(f"Optimizer run: {num_of_optimizer_runs}, sim_percentage_df:\n{sim_percentage_df.to_csv()}")
+            sim_df = make_percentage_df_sim_df(percentage_df)
+            logger.info(f"Optimizer run: {num_of_optimizer_runs}, sim_df:\n{sim_df.to_csv()}")
             
-            
+            # if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.15) and len(percentage_df) > 0:
+            #     logger.info(f"(loghill optimizer_entrypoint) rules are different, changing base rules")
+            #     jumping_ruleset_num_iterations = 0
+            #     currently_globally_oscillating = False
+
+            #     jumping_df = percentage_df.copy()
+            #     prev_jumping_df = percentage_df.copy()
+            #     jumping_last_seen_opt_output = percentage_df.copy()
+            #     global_prev_processing_latencies.clear()
+            #     global_processing_latencies.clear()
+            #     completed_rulesets.clear()
             if rules_are_different(jumping_last_seen_opt_output, percentage_df, maxThreshold=0.15) and len(percentage_df) > 0:
                 logger.info(f"(loghill optimizer_entrypoint) rules are different, changing base rules")
                 jumping_ruleset_num_iterations = 0
                 currently_globally_oscillating = False
-                if ROUTING_RULE == "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling":
-                    # jumping_df = create_default_multi_region_routing_df_max_local_weight(percentage_df, max_local_weight=0.9)
-                    jumping_df = create_default_multi_region_routing_df_min_remote_weight(percentage_df, min_remote_weight=0.03)
-                    sim_jumping_df = make_percentage_df_sim_percentage_df(jumping_df)
+                if ROUTING_RULE == "SLATE-with-jumping-global-without-optimizer-without-continuous-profiling-init-with-multi-region-routing" or \
+                    ROUTING_RULE == "SLATE-without-jumping-global-without-optimizer-without-continuous-profiling-init-multi-region-routing-only-once":
+                    jumping_df = create_default_multi_region_routing_df_min_routing_rule_weight_only_for_sslateingress(percentage_df)
+                    sim_jumping_df = make_percentage_df_sim_df(jumping_df)
                     logger.info(f"create_default_multi_region_routing_df, jumping_df:\n{sim_jumping_df.to_csv()}")
                     prev_jumping_df = jumping_df.copy()
-                    jumping_last_seen_opt_output = jumping_df.copy()
+                    jumping_last_seen_opt_output = percentage_df.copy()
                 else:
                     jumping_df = percentage_df.copy()
                     prev_jumping_df = percentage_df.copy()
@@ -3034,20 +3339,48 @@ def filter_incomplete_traces(given_traces):
 
 
 def filter_incomplete_trace_for_multi_traffic_class_in_df(given_df):
+    """
+    Filters DataFrame to separate complete and incomplete traces based on predefined span count requirements.
+    A trace is complete when it has exactly the required number of spans for its endpoint type.
+    
+    Args:
+        given_df: DataFrame containing trace data with trace_id, span_id, and endpoint columns
+        
+    Returns:
+        tuple: (complete_traces_df, incomplete_traces_df)
+    """
+    # Create a copy to avoid modifying the original
     working_df = given_df.copy()
+    
+    # Calculate the number of spans for each trace_id
     working_df['num_span'] = working_df.groupby('trace_id')['span_id'].transform('count')
-    conditions = [
-        working_df['endpoint'] == "frontend@POST@/cart",
-        working_df['endpoint'] == "frontend@POST@/cart/checkout",
-        working_df['endpoint'] == "sslateingress@POST@/singlecore",
-        working_df['endpoint'] == "sslateingress@POST@/multicore",
-    ]
-    values = [4, 8, 2, 2]
-    working_df['required_total_num_services'] = np.select(conditions, values, default=0)
-    trace_ids_with_complete_spans = working_df[working_df['num_span'] == working_df['required_total_num_services']]['trace_id'].unique()
-    df_complete = working_df[working_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
-    df_incom = working_df[~working_df['trace_id'].isin(trace_ids_with_complete_spans)].copy()
-    return df_complete, df_incom
+    
+    # Define endpoint-to-required-spans mapping
+    endpoint_requirements = {
+        # Online Boutique endpoints
+        "frontend@POST@/cart": 4,              # addtocart
+        "frontend@POST@/cart/checkout": 8,     # checkout
+        "frontend@POST@/cart/empty": 3,        # emptycart
+        
+        # CoreContrast endpoints
+        "sslateingress@POST@/singlecore": 2,
+        "sslateingress@POST@/multicore": 2
+    }
+    
+    # Assign required span count based on endpoint
+    working_df['required_total_num_services'] = 0  # Default value
+    for endpoint, required_count in endpoint_requirements.items():
+        working_df.loc[working_df['endpoint'] == endpoint, 'required_total_num_services'] = required_count
+    
+    # Identify complete traces (where span count equals required count)
+    complete_traces_mask = working_df['num_span'] == working_df['required_total_num_services']
+    complete_trace_ids = working_df[complete_traces_mask]['trace_id'].unique()
+    
+    # Split into complete and incomplete dataframes
+    df_complete = working_df[working_df['trace_id'].isin(complete_trace_ids)].copy()
+    df_incomplete = working_df[~working_df['trace_id'].isin(complete_trace_ids)].copy()
+    
+    return df_complete, df_incomplete
 
 
 def filter_incomplete_trace_in_df(given_df):
@@ -3491,6 +3824,8 @@ def training_phase():
     ts = time.time()
     # df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_in_df(df_incomplete_traces)
     df_new_complete_traces, df_incomplete_traces = filter_incomplete_trace_for_multi_traffic_class_in_df(df_incomplete_traces)
+
+    logger.info(f"df_incomplete_traces.to_csv(): {df_incomplete_traces.to_csv()}")
     
     print_len_df_trace(df_new_complete_traces, "training_phase, df_new_complete_traces")
     print_len_df_trace(df_incomplete_traces, "training_phase, df_incomplete_traces-2")
@@ -3500,9 +3835,14 @@ def training_phase():
     assert len(global_stitched_df) == 0
     
     ## single-threaded
+    """
+    global_stitched_df.columns = ['cluster_id', 'svc_name', 'method', 'url', 'trace_id', 'span_id', 'parent_span_id', 'st', 'et', 'rt', 'xt', 'ct', 'call_size', 'endpoint', 'inflight', 'rps', 'added_time', 'load_bucket', 'num_span', 'required_total_num_services']
+    """
     global_stitched_df = tst.stitch_time_in_df(df_new_complete_traces, ep_str_callgraph_table)
     ## multi-threaded
     # global_stitched_df = tst.stitch_time_in_df_parallel(df_new_complete_traces, ep_str_callgraph_table, num_workers=8)
+
+    
     
     print_len_df_trace(global_stitched_df, "training_phase, global_stitched_df")
     logger.info(f"stitch_time_in_df took {int(time.time()-ts)}s")
@@ -3807,9 +4147,12 @@ def aggregated_rps_routine():
 
     # root_node_rps[region][svc_name][endpoint]: rps
     agg_root_node_rps = get_root_node_rps(ep_str_callgraph_table)
-    for region in agg_root_node_rps:
-        # NOTE: hardcoded
-        agg_root_node_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"] = aggregated_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"]
+    
+
+    ## NOTE: hardcoded for online boutique checkoutcart
+    # for region in agg_root_node_rps:
+    #     agg_root_node_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"] = aggregated_rps[region]["sslateingress"]["sslateingress@POST@/cart/checkout"]
+
     
     # if check_root_node_rps_condition(agg_root_node_rps) > 0:
     record_endpoint_rps(aggregated_rps, temp_counter)
@@ -4058,7 +4401,9 @@ def update_traces():
             temp_df = new_global_stitched_df[(new_global_stitched_df['cluster_id'] == region) & (new_global_stitched_df['svc_name'] == target_svc_name)]
             if has_enough_data(temp_df):
                 logger.info("SKIP model update")
-                continue
+                #######################
+                # continue
+                #######################
                 global_stitched_df = global_stitched_df[~((global_stitched_df['cluster_id'] == region) | (global_stitched_df['svc_name'] == target_svc_name))
                 ]
                 global_stitched_df = pd.concat([global_stitched_df, temp_df], ignore_index=True)
