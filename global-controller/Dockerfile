@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip3 install -r requirements.txt
 
 COPY . /app
-COPY ./vimrc_file /root/.vimrc
+# COPY ./vimrc_file /root/.vimrc
 
 
 ENTRYPOINT ["python3"]
