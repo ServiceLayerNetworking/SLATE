@@ -93,7 +93,7 @@ def run_optimizer(\
         inter_cluster_latency, \
         endpoint_sizes, \
         DOLLAR_PER_MS, \
-        max_rps=1000, \
+        max_rps=600, \
         normalization_dict=dict()):
         # 'max_rps' will be used in MM1 model as a representation of 1 utilization.
     logger = logging.getLogger(__name__)
@@ -235,8 +235,8 @@ def run_optimizer(\
         
     for index, row in compute_df.iterrows():
         coefs = row['coef']
-        logger.debug(f"target svc,endpoint: {row['svc_name']}, {row['endpoint']}")
-        logger.debug(coefs)
+        logger.info(f"target svc,endpoint: {row['svc_name']}, {row['endpoint']}")
+        logger.info(coefs)
         for dependent_ep in coefs:
             if dependent_ep != 'intercept':
                 dependent_arc_name = opt_func.get_compute_arc_var_name(dependent_ep, row['src_cid'])
@@ -260,20 +260,120 @@ def run_optimizer(\
                     rh = coefs[dependent_ep] * compute_load[dependent_arc_name]
                     rh += coefs['intercept']
                     lh = compute_latency[index]
-                else: # mm1 model
+                elif degree == 111: # original mm1 model. not working
                     a = coefs[dependent_ep]
                     b = coefs['intercept']
-                    rh = (a/(max_rps - compute_load[dependent_arc_name])) + b
+                    try:
+                        # rh = (a/(max_rps - compute_load[dependent_arc_name])) + b
+                        
+                        # Reformulate as: (latency - b) * (max_rps - compute_load) = a
+                        lh = compute_latency[index] - b
+                        rh = a
+                        gurobi_model.addConstr(lh * (max_rps - compute_load[dependent_arc_name]) == rh, name=f'latency_function_{index}')
+                    except Exception as e:
+                        logger.error(f'Exception: {type(e).__name__}, {e}')
+                        logger.error(f'compute_load[{dependent_arc_name}]: {compute_load[dependent_arc_name]}')
+                        logger.error(f'max_rps: {max_rps}')
+                        logger.error(f"(max_rps - compute_load[{dependent_arc_name}]): {(max_rps - compute_load[dependent_arc_name])}")
                     lh = compute_latency[index]
                     # lh = (compute_latency[index] - b) * (max_rps - compute_load[dependent_arc_name])
                     # rh = a
                     logger.info(f'MM1 model, a: {a}, b: {b}, max_rps: {max_rps}, compute_load[{dependent_arc_name}]: {compute_load[dependent_arc_name]}')
-                constraint_file.write(f"{lh}\n")
-                constraint_file.write("==\n")
-                constraint_file.write(f"{rh}\n")
-                constraint_file.write("-"*80)
-                constraint_file.write("\n")
-                gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
+                elif degree == 222:  # mm1 model approximated with piecewise linear function
+                    a = coefs[dependent_ep]
+                    b = coefs['intercept']
+                    
+                    # Create utilization variable (bounded between 0 and 0.95)
+                    utilization = gurobi_model.addVar(name=f"util_{dependent_arc_name}", lb=0, ub=0.95)
+                    
+                    # Link utilization to compute_load
+                    gurobi_model.addConstr(utilization * max_rps == compute_load[dependent_arc_name], 
+                                        name=f"util_def_{dependent_arc_name}")
+                    constraint_file.write(f"utilization * {max_rps}\n")
+                    constraint_file.write("==\n")
+                    constraint_file.write(f"compute_load[{dependent_arc_name}]\n")
+                    constraint_file.write("-"*80)
+                    constraint_file.write("\n")
+                    
+                    # Create piecewise approximation for 1/(1-utilization)
+                    breakpoints = [0, 0.2, 0.4, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95]
+                    values = [1/(1-u) for u in breakpoints]
+                    
+                    # Variable for the 1/(1-utilization) term
+                    inverse_term = gurobi_model.addVar(name=f"inverse_{dependent_arc_name}")
+                    
+                    # Add piecewise linear constraint
+                    gurobi_model.addGenConstrPWL(utilization, inverse_term, breakpoints, values, 
+                                            name=f"pwl_inverse_{dependent_arc_name}")
+                    constraint_file.write(f"PWL Constraint: inverse_term = PWL(utilization)\n")
+                    constraint_file.write(f"Breakpoints: {breakpoints}\n")
+                    constraint_file.write(f"Values: {values}\n")
+                    constraint_file.write("-"*80)
+                    constraint_file.write("\n")
+                    
+                    # Add final latency constraint
+                    factor = a/max_rps
+                    gurobi_model.addConstr(compute_latency[index] == factor * inverse_term + b, 
+                                        name=f"latency_function_{index}")
+                    constraint_file.write(f"compute_latency[{index}]\n")
+                    constraint_file.write("==\n")
+                    constraint_file.write(f"{factor} * inverse_term + {b}\n")
+                    constraint_file.write("-"*80)
+                    constraint_file.write("\n")
+                    
+                    logger.info(f'MM1 model with utilization PWL, a: {a}, b: {b}, max_rps: {max_rps}')
+                elif degree == 333:
+                    # a = coefs[dependent_ep]
+                    # b = coefs['intercept']
+                    # # Create utilization variable (bounded between 0 and 0.95)
+                    # utilization = gurobi_model.addVar(name=f"util_{dependent_arc_name}", lb=0, ub=0.95)
+                    # # load shedding variable
+                    # load_shed = gurobi_model.addVar(name=f"shed_{dependent_arc_name}", lb=0)
+                    # # relate utilization to compute_load with load shedding
+                    # gurobi_model.addConstr(
+                    #     utilization * max_rps + load_shed == compute_load[dependent_arc_name], 
+                    #     name=f"util_def_{dependent_arc_name}"
+                    # )
+                    # # Create piecewise approximation for 1/(1-utilization)
+                    # breakpoints = [0, 0.2, 0.4, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95]
+                    # values = [1/(1-u) for u in breakpoints]
+                    # # Variable for the 1/(1-utilization) term
+                    # inverse_term = gurobi_model.addVar(name=f"inverse_{dependent_arc_name}")
+                    # # Add piecewise linear constraint
+                    # gurobi_model.addGenConstrPWL(utilization, inverse_term, breakpoints, values, name=f"pwl_inverse_{dependent_arc_name}")
+                    # # Add final latency constraint
+                    # factor = a/max_rps
+                    # gurobi_model.addConstr(compute_latency[index] == factor * inverse_term + b, name=f"latency_function_{index}")
+                    # logger.info(f'MM1 model with utilization PWL and load shedding, a: {a}, b: {b}, max_rps: {max_rps}')
+                    
+                    ## hardcoded mm1 parameter for record service
+                    ## TODO: loading from coef.csv in global_controller.py->coef_dict->compute_df->coefs
+                    if 'record-service' in row['svc_name']:
+                        mm1_a = 0.62  # From your MM1 fit
+                        mm1_c = 1.05  # From your MM1 fit
+                        mm1_b = 0.62  # From your MM1 fit
+                    elif 'sslateingress' in row['svc_name']:
+                        mm1_a = 0.001  # From your MM1 fit
+                        mm1_c = 1.05  # From your MM1 fit
+                        mm1_b = 5  # From your MM1 fit
+                    max_safe_util = mm1_c - 0.05  # Keep a safety margin
+                    utilization = gurobi_model.addVar(name=f"util_{dependent_arc_name}", lb=0, ub=max_safe_util)
+                    load_shed = gurobi_model.addVar(name=f"shed_{dependent_arc_name}", lb=0)
+                    gurobi_model.addConstr(utilization * max_rps + load_shed == compute_load[dependent_arc_name],  name=f"util_def_{dependent_arc_name}")
+                    breakpoints = [0, 0.2, 0.4, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.99, 0.999, max_safe_util]
+                    values = [mm1_a/(mm1_c-u) + mm1_b for u in breakpoints]
+                    latency_term = gurobi_model.addVar(name=f"latency_term_{dependent_arc_name}")
+                    gurobi_model.addGenConstrPWL(utilization, latency_term, breakpoints, values, name=f"pwl_mm1_{dependent_arc_name}")
+                    gurobi_model.addConstr(compute_latency[index] == latency_term,  name=f"latency_function_{index}")
+                    logger.info(f'MM1 model for {row["svc_name"]} with custom parameters: a={mm1_a}, c={mm1_c}, b={mm1_b}, max_safe_util={max_safe_util}')
+                    
+                if degree <= 111:
+                    constraint_file.write(f"{lh}\n")
+                    constraint_file.write("==\n")
+                    constraint_file.write(f"{rh}\n")
+                    constraint_file.write("-"*80)
+                    constraint_file.write("\n")
+                    gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
     gurobi_model.update()
 
 
@@ -508,7 +608,16 @@ def run_optimizer(\
     #############################################################
 
     if objective == "avg_latency":
-        gurobi_model.setObjective(total_latency_sum, gp.GRB.MINIMIZE)
+        if degree == 333: # mm1 model with load shedding
+            load_shed_vars = []
+            for v in gurobi_model.getVars():
+                if v.varName.startswith("shed_"):
+                    load_shed_vars.append(v)
+            shed_penalty = 1000000  # High penalty to avoid shedding unless necessary
+            load_shed_sum = gp.quicksum(load_shed_vars)
+            gurobi_model.setObjective(total_latency_sum + shed_penalty * load_shed_sum, gp.GRB.MINIMIZE)
+        else:
+            gurobi_model.setObjective(total_latency_sum, gp.GRB.MINIMIZE)
     elif objective == "end_to_end_latency":
         gurobi_model.setObjective(max_end_to_end_latency, gp.GRB.MINIMIZE)
     elif objective == "egress_cost":

@@ -104,6 +104,8 @@ jumping_ruleset_convergence_iterations = 10
 cur_jumping_ruleset = ("", "", "")
 completed_rulesets = set()
 historical_svc_latencies = dict() # svc -> list of latencies
+jumping_warm_start_counter = 0
+jumping_warm_start_thresh = 5
 # optimizer_cnt = 0
 endpoint_rps_cnt = 0
 inter_cluster_latency = dict()
@@ -139,6 +141,7 @@ trainig_input_trace_file="trace.csv" # NOTE: It should be updated when the app i
 x_feature = "rps_dict" # "num_inflightglobal norm_dict"
 target_y = "xt"
 
+global_max_rps_per_svc_mm1 = 650
 '''config'''
 mode = ""
 MODE_SET = ["profile", "runtime", "before_start"]
@@ -358,9 +361,17 @@ def perform_jumping():
     global processing_latencies_mutex
     global mode
     global temp_counter
+    global jumping_warm_start_counter
+    global jumping_warm_start_thresh
 
     if mode == "profile":
         return
+
+    if jumping_warm_start_counter < jumping_warm_start_thresh:
+        jumping_warm_start_counter += 1
+        logger.info(f"jumping warm start counter: {jumping_warm_start_counter}, (thresh {jumping_warm_start_thresh}) returning")
+        return
+
     global should_we_rollback
     """
     if use_optimizer_output is true, /proxyLoad will use percentage_df to route traffic.
@@ -574,8 +585,8 @@ def perform_jumping():
             # apply this overperformance to jumping_df, and then apply the jumping_df to the actual routing rules.
             if cur_jumping_ruleset != ("", "", ""):
                 rs_overperformance = ruleset_overperformance.get(cur_jumping_ruleset[1], {}).get(cur_jumping_ruleset[2], {}).get(cur_jumping_ruleset[0], {})
-                adjusted_df, did_adjust = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset[0], cur_jumping_ruleset[1], cur_jumping_ruleset[2], rs_overperformance, step_size=0.1)
-                if not did_adjust:
+                adjusted_df, out_of_bounds = adjust_ruleset(prev_jumping_df, cur_jumping_ruleset[0], cur_jumping_ruleset[1], cur_jumping_ruleset[2], rs_overperformance, step_size=0.05)
+                if out_of_bounds:
                     # add this to completed rulesets
                     logger.info(f"loghill ruleset did not adjust, adding ruleset {cur_jumping_ruleset} to completed rulesets")
                     completed_rulesets.add(cur_jumping_ruleset)
@@ -1283,6 +1294,8 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict, 
 
                 total_load_in_src_region = aggregated_rps.get(src_region, {}).get(parent_of_bottleneck_service, {}).get(src_traffic_class, 0)
                 ruleset_rps_in_dst_region = total_load_in_src_region * src_rules[src_rules["dst_cid"] == dst_region]["weight"].values[0]
+
+                write_expected_vs_actual_perf(src_traffic_class, dst_traffic_class, src_region, dst_region, expected_latency_in_dst_region, actual_latency_in_dst_region, ruleset_rps_in_dst_region)
                 if src_traffic_class not in overperformance:
                     overperformance[src_traffic_class] = dict()
                 if dst_traffic_class not in overperformance[src_traffic_class]:
@@ -1317,100 +1330,265 @@ def get_expected_latency_for_traffic_class(region: str, svc: str, traffic_class:
     methodpath = traffic_class.split("@")[1] + "@" + traffic_class.split("@")[2]
     return get_expected_latency_for_rule(normalized_load, svc, methodpath)
 
-
-def adjust_ruleset(ruleset: pd.DataFrame, region: str, src_traffic_class: str, dst_traffic_class: str, overperformance: dict, step_size=0.05) -> tuple[pd.DataFrame, bool]:
+def adjust_ruleset(
+    ruleset: pd.DataFrame,
+    region: str,
+    src_traffic_class: str,
+    dst_traffic_class: str,
+    overperformance: dict,
+    step_size=0.05
+) -> tuple[pd.DataFrame, bool]:
     """
-    adjust_ruleset will adjust the (source region, traffic_class) ruleset based on the overperformance of the ruleset.
-    overperformance is expected to be in the form of a dictionary of destination region to overperformance.
-    it will find the average performance in the source region, partition the destination regions into underperformers and overperformers,
-    and adjust the ruleset accordingly. second parameter is a boolean indicating if the ruleset was adjusted.
+    Adjust the ruleset based on overperformance; if any recomputed flow
+    exceeds global_max_rps_per_svc_mm1 for non-SOURCE rows, drop those
+    offenders and retry recursively.
     """
     global bottleneck_service
-    # first, get the average performance of the ruleset in the source region
-    # then, partition the destination regions into underperformers and overperformers
-    # adjust the ruleset based on the overperformance of the ruleset.
-    # return the adjusted ruleset.
-    if len(overperformance) == 0:
+    global global_max_rps_per_svc_mm1
+
+    if not overperformance:
         logger.debug(f"loghill no overperformance for ruleset [{region}]")
         return ruleset, False
-    
-    # get the destination regions, and the average performance of the ruleset (for those destination regions)
-    src_svc, dst_svc, src_endpoint, dst_endpoint = src_traffic_class.split("@")[0], dst_traffic_class.split("@")[0], src_traffic_class, dst_traffic_class
-    dst_cids = list(overperformance.keys())
-    avg_performance = sum([overperformance[dst_cid] for dst_cid in dst_cids]) / len(dst_cids)
-    # partition the destination regions into underperformers and overperformers
-    underperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] < avg_performance]
-    overperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] >= avg_performance]
-    logger.info(f"loghill for ruleset [{region}, {src_traffic_class}, {dst_traffic_class}] underperformers: {underperformers}, overperformers: {overperformers}")
 
-    # proportionally adjust underperformers and overperformers.
-    # calculate the weight each underperformer/overperformer has wieh their respective set, and
-    # add/subtract that weight * step_size to the weight of the rule.
-    # todo do we need to normalize the weights? (weight based on distance from average performance)
-    # also todo, we need to make sure the weights don't go below 0 or above 1 (globally) and that the weights always sum to 1.
-    adjusted_ruleset = ruleset.copy()
+    if len(overperformance) == 1:
+        # can't adjust if there's only one destination region
+        logger.debug(f"loghill found only one destination region for ruleset [{region}], returning original ruleset")
+        return ruleset, False
+        
+
+    # parse traffic‑class components
+    src_svc = src_traffic_class.split("@")[0]
+    dst_svc = dst_traffic_class.split("@")[0]
+    src_ep = src_traffic_class
+    dst_ep = dst_traffic_class
+
+    dst_cids = list(overperformance.keys())
+    avg_perf = sum(overperformance.values()) / len(dst_cids)
+
+    under = [c for c, p in overperformance.items() if p < avg_perf]
+    over  = [c for c, p in overperformance.items() if p >= avg_perf]
+    logger.info(f"loghill [{region} {src_ep}->{dst_ep}] underperformers={under}, overperformers={over}")
+
+    adjusted = ruleset.copy()
     out_of_bounds = False
-    for dst_cid in underperformers:
-        total_underperformance = sum([overperformance[dst_cid] for dst_cid in underperformers])
-        logger.info(f"loghill underperformer: {dst_cid}, total_underperformance: {total_underperformance}")
-        weight = overperformance[dst_cid] / total_underperformance if total_underperformance != 0 else 0
-        # make sure we dont go below 0
+
+    # adjust underperformers
+    total_under_dev = sum((avg_perf - overperformance[c]) for c in under)
+    for c in under:
+        dev = avg_perf - overperformance[c]
+        weight_frac = dev / total_under_dev if total_under_dev > 0 else 0
+        step = weight_frac * step_size
+
         mask = (
-            (adjusted_ruleset["src_cid"] == region) &
-            (adjusted_ruleset["dst_cid"] == dst_cid) &
-            (adjusted_ruleset["src_svc"] == src_svc) &
-            (adjusted_ruleset["dst_svc"] == dst_svc) &
-            (adjusted_ruleset["src_endpoint"] == src_endpoint) &
-            (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
+            (adjusted.src_cid == region) &
+            (adjusted.dst_cid == c) &
+            (adjusted.src_svc == src_svc) &
+            (adjusted.dst_svc == dst_svc) &
+            (adjusted.src_endpoint == src_ep) &
+            (adjusted.dst_endpoint == dst_ep)
         )
-        if len(adjusted_ruleset.loc[mask]) == 0:
-            logger.info(f"loghill underperformer: {dst_cid}, no rule found (mask: {mask}, ruleset: \n{adjusted_ruleset})")
+        if mask.sum() == 0:
+            logger.info(f"loghill underperf: no rule found for dst_cid={c}")
             continue
-        cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
-        step = weight * step_size
-        if cur_weight - step < 0:
+
+        cur_w = adjusted.loc[mask, "weight"].iat[0]
+        if cur_w - step < 0:
             out_of_bounds = True
+            logger.warning(f"loghill underperf: weight {cur_w:.4f} - step {step:.4f} < 0 → abort")
         else:
-            logger.info(f"loghill underperformer: {dst_cid}, cur_weight: {cur_weight}, step: {step}")
-            adjusted_ruleset.loc[(adjusted_ruleset["src_cid"] == region) & (adjusted_ruleset["dst_cid"] == dst_cid) 
-                             & (adjusted_ruleset["src_svc"] == src_svc) & (adjusted_ruleset["dst_svc"] == dst_svc) 
-                             & (adjusted_ruleset["src_endpoint"] == src_endpoint) & (adjusted_ruleset["dst_endpoint"] == dst_endpoint), "weight"] -= weight * step_size
-    for dst_cid in overperformers:
-        total_overperformance = sum([overperformance[dst_cid] for dst_cid in overperformers])
-        logger.info(f"loghill total_overperformance: {total_overperformance}")
-        weight = overperformance[dst_cid] / total_overperformance if total_overperformance != 0 else 0
-        # make sure we dont go above 1
+            logger.info(f"loghill underperf: dst={c} cur_w={cur_w:.4f} step={step:.4f}")
+            adjusted.loc[mask, "weight"] = cur_w - step
+
+    # adjust overperformers
+    total_over_dev = sum((overperformance[c] - avg_perf) for c in over)
+    for c in over:
+        dev = overperformance[c] - avg_perf
+        weight_frac = dev / total_over_dev if total_over_dev > 0 else 0
+        step = weight_frac * step_size
+
         mask = (
-            (adjusted_ruleset["src_cid"] == region) &
-            (adjusted_ruleset["dst_cid"] == dst_cid) &
-            (adjusted_ruleset["src_svc"] == src_svc) &
-            (adjusted_ruleset["dst_svc"] == dst_svc) &
-            (adjusted_ruleset["src_endpoint"] == src_endpoint) &
-            (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
+            (adjusted.src_cid == region) &
+            (adjusted.dst_cid == c) &
+            (adjusted.src_svc == src_svc) &
+            (adjusted.dst_svc == dst_svc) &
+            (adjusted.src_endpoint == src_ep) &
+            (adjusted.dst_endpoint == dst_ep)
         )
-        if len(adjusted_ruleset.loc[mask]) == 0:
-            logger.info(f"loghill overperformer: {dst_cid}, no rule found (mask: {mask}, ruleset: \n{adjusted_ruleset})")
+        if mask.sum() == 0:
+            logger.info(f"loghill overperf: no rule found for dst_cid={c}")
             continue
-        cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
-        step = weight * step_size
-        if cur_weight + step > 1:
+
+        cur_w = adjusted.loc[mask, "weight"].iat[0]
+        if cur_w + step > 1:
             out_of_bounds = True
+            logger.warning(f"loghill overperf: weight {cur_w:.4f} + step {step:.4f} > 1 → abort")
         else:
-            logger.info(f"loghill overperformer: {dst_cid}, weight: {weight}, step: {step}")
-            adjusted_ruleset.loc[(adjusted_ruleset["src_cid"] == region) & (adjusted_ruleset["dst_cid"] == dst_cid) 
-                                & (adjusted_ruleset["src_svc"] == src_svc) & (adjusted_ruleset["dst_svc"] == dst_svc) 
-                                & (adjusted_ruleset["src_endpoint"] == src_endpoint) & (adjusted_ruleset["dst_endpoint"] == dst_endpoint), "weight"] += weight * step_size
+            logger.info(f"loghill overperf: dst={c} cur_w={cur_w:.4f} step={step:.4f}")
+            adjusted.loc[mask, "weight"] = cur_w + step
+
+    # recompute flow
+    adjusted["flow"] = (adjusted["weight"] * adjusted["total"]).round().astype(int)
+
+    # --- aggregate flow by dst_cid (excluding the SOURCE rows) and recurse on any exceeding max_RPS ---
+    non_src = adjusted["src_cid"] != "XXXX"    # SOURCE rows carry src_cid="XXXX"
+    # sum up all flows *into* each dst region
+    agg = adjusted[non_src].groupby("dst_cid")["flow"].sum()
+    # find any dst_cid whose total flow exceeds the limit
+    offenders = agg[agg > global_max_rps_per_svc_mm1].index.tolist()
+    if offenders:
+        # log each offender’s total
+        records = [{ "dst_cid": c, "total_flow": int(agg[c]) } for c in offenders]
+        logger.info(
+            f"loghill agg-offenders beyond max_rps={global_max_rps_per_svc_mm1}: "
+            f"{records}, retrying without them"
+        )
+        # drop them from overperformance and retry
+        for c in offenders:
+            overperformance.pop(c, None)
+        return adjust_ruleset(ruleset, region, src_traffic_class, dst_traffic_class, overperformance, step_size)
+
+    # final return
+    if out_of_bounds:
+        logger.info(f"loghill adjustment led to out_of_bounds → abort, returning original ruleset")
+        return ruleset, True
+    else:
+        logger.info(f"loghill adjustment successful for [{region} {src_ep}->{dst_ep}], returning adjusted ruleset")
+        return adjusted, False
+
+
+# def adjust_ruleset(ruleset: pd.DataFrame, region: str, src_traffic_class: str, dst_traffic_class: str, overperformance: dict, step_size=0.05) -> tuple[pd.DataFrame, bool]:
+#     """
+#     adjust_ruleset will adjust the (source region, traffic_class) ruleset based on the overperformance of the ruleset.
+#     overperformance is expected to be in the form of a dictionary of destination region to overperformance.
+#     it will find the average performance in the source region, partition the destination regions into underperformers and overperformers,
+#     and adjust the ruleset accordingly. second parameter is a boolean indicating if the ruleset was adjusted.
+#     """
+#     global bottleneck_service
+#     global global_max_rps_per_svc_mm1
+#     # first, get the average performance of the ruleset in the source region
+#     # then, partition the destination regions into underperformers and overperformers
+#     # adjust the ruleset based on the overperformance of the ruleset.
+#     # return the adjusted ruleset.
+#     if len(overperformance) == 0:
+#         logger.debug(f"loghill no overperformance for ruleset [{region}]")
+#         return ruleset, False
+    
+#     # get the destination regions, and the average performance of the ruleset (for those destination regions)
+#     src_svc, dst_svc, src_endpoint, dst_endpoint = src_traffic_class.split("@")[0], dst_traffic_class.split("@")[0], src_traffic_class, dst_traffic_class
+#     dst_cids = list(overperformance.keys())
+#     avg_performance = sum([overperformance[dst_cid] for dst_cid in dst_cids]) / len(dst_cids)
+#     # partition the destination regions into underperformers and overperformers
+#     underperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] < avg_performance]
+#     overperformers = [dst_cid for dst_cid in dst_cids if overperformance[dst_cid] >= avg_performance]
+#     logger.info(f"loghill for ruleset [{region}, {src_traffic_class}, {dst_traffic_class}] underperformers: {underperformers}, overperformers: {overperformers}")
+#     logger.info(f"loghill adiprerepa ruleset: {ruleset}")
+#     # proportionally adjust underperformers and overperformers.
+#     # calculate the weight each underperformer/overperformer has wieh their respective set, and
+#     # add/subtract that weight * step_size to the weight of the rule.
+#     # todo do we need to normalize the weights? (weight based on distance from average performance)
+#     # also todo, we need to make sure the weights don't go below 0 or above 1 (globally) and that the weights always sum to 1.
+#     adjusted_ruleset = ruleset.copy()
+#     out_of_bounds = False
+#     for dst_cid in underperformers:
+#         total_underperformance = sum([overperformance[dst_cid] for dst_cid in underperformers])
+#         total_underdev = sum((avg_performance - overperformance[r]) for r in underperformers)
+#         dev = avg_performance - overperformance[dst_cid]
+#         weight = dev / total_underdev if total_underdev > 0 else 0
+
+#         # logger.info(f"loghill underperformer: {dst_cid}, total_underperformance: {total_underperformance}")
+#         # weight = overperformance[dst_cid] / total_underperformance if total_underperformance != 0 else 0
+#         # make sure we dont go below 0
+#         mask = (
+#             (adjusted_ruleset["src_cid"] == region) &
+#             (adjusted_ruleset["dst_cid"] == dst_cid) &
+#             (adjusted_ruleset["src_svc"] == src_svc) &
+#             (adjusted_ruleset["dst_svc"] == dst_svc) &
+#             (adjusted_ruleset["src_endpoint"] == src_endpoint) &
+#             (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
+#         )
+#         if len(adjusted_ruleset.loc[mask]) == 0:
+#             logger.info(f"loghill underperformer: {dst_cid}, no rule found (mask: {mask}, ruleset: \n{adjusted_ruleset})")
+#             continue
+#         cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
+#         step = weight * step_size
+#         if cur_weight - step < 0:
+#             out_of_bounds = True
+#         else:
+#             logger.info(f"loghill underperformer: {dst_cid}, cur_weight (dev/total_underdev): {cur_weight} ({dev}/{total_underdev}), step: {step}")
+#             adjusted_ruleset.loc[(adjusted_ruleset["src_cid"] == region) & (adjusted_ruleset["dst_cid"] == dst_cid) 
+#                              & (adjusted_ruleset["src_svc"] == src_svc) & (adjusted_ruleset["dst_svc"] == dst_svc) 
+#                              & (adjusted_ruleset["src_endpoint"] == src_endpoint) & (adjusted_ruleset["dst_endpoint"] == dst_endpoint), "weight"] -= weight * step_size
+#     for dst_cid in overperformers:
+#         total_overperformance = sum([overperformance[dst_cid] for dst_cid in overperformers])
+#         # logger.info(f"loghill total_overperformance: {total_overperformance}")
+#         # weight = overperformance[dst_cid] / total_overperformance if total_overperformance != 0 else 0
+
+#         total_overdev = sum((overperformance[r] - avg_performance) for r in overperformers)
+#         dev = overperformance[dst_cid] - avg_performance
+
+#         weight = dev / total_overdev if total_overdev > 0 else 0
+#         # make sure we dont go above 1
+#         mask = (
+#             (adjusted_ruleset["src_cid"] == region) &
+#             (adjusted_ruleset["dst_cid"] == dst_cid) &
+#             (adjusted_ruleset["src_svc"] == src_svc) &
+#             (adjusted_ruleset["dst_svc"] == dst_svc) &
+#             (adjusted_ruleset["src_endpoint"] == src_endpoint) &
+#             (adjusted_ruleset["dst_endpoint"] == dst_endpoint)
+#         )
+#         if len(adjusted_ruleset.loc[mask]) == 0:
+#             logger.info(f"loghill overperformer: {dst_cid}, no rule found (mask: {mask}, ruleset: \n{adjusted_ruleset})")
+#             continue
+#         cur_weight = adjusted_ruleset.loc[mask, "weight"].values[0]
+#         step = weight * step_size
+#         if cur_weight + step > 1:
+#             out_of_bounds = True
+#         else:
+#             logger.info(f"loghill overperformer: {dst_cid}, weight (dev/total_overdev): {weight} ({dev}/{total_overdev}), step: {step}")
+#             adjusted_ruleset.loc[(adjusted_ruleset["src_cid"] == region) & (adjusted_ruleset["dst_cid"] == dst_cid) 
+#                                 & (adjusted_ruleset["src_svc"] == src_svc) & (adjusted_ruleset["dst_svc"] == dst_svc) 
+#                                 & (adjusted_ruleset["src_endpoint"] == src_endpoint) & (adjusted_ruleset["dst_endpoint"] == dst_endpoint), "weight"] += weight * step_size
+    
+    adjusted_ruleset["flow"] = (adjusted_ruleset["weight"] * adjusted_ruleset["total"]).round().astype(int)
     # log the old and adjusted rulesets, with just the weights (something in the form of source region -> destination region -> weight for old and new.)
     # hold the dest service (frontend) and the source service (sslateingress) constant.
     logger.info(f"loghill (on {region} {src_traffic_class} {dst_traffic_class})\
                 \nold ruleset: {compute_traffic_matrix(ruleset, src_service=src_svc, dst_service=dst_svc)}\nadjusted ruleset: {compute_traffic_matrix(adjusted_ruleset, src_service=src_svc, dst_service=dst_svc)}")
-    return adjusted_ruleset if not out_of_bounds else ruleset, not out_of_bounds
+    return adjusted_ruleset, out_of_bounds if not out_of_bounds else ruleset, out_of_bounds
 
 
-def get_expected_latency_for_rule(load: int, svc: str, methodpath: str) -> int:
+def get_expected_latency_for_rule(load: int, svc: str, methodpath: str, mm1_override=True) -> int:
+    global global_max_rps_per_svc_mm1
     """
     get_expected_latency_for_rule will calculate the expected e2e latency for a given rule based on the current load conditions.
     """
+
+    if mm1_override:
+        if svc == 'record-service':
+            mm1_a = 0.62
+            mm1_c = 1.05
+            mm1_b = 0.62
+        elif svc == 'sslateingress':
+            mm1_a = 0.001
+            mm1_c = 1.05
+            mm1_b = 5
+        else:
+            raise ValueError(f"Unknown service: {svc}")
+
+        u = load / global_max_rps_per_svc_mm1
+        epsilon = 0.01
+        gamma = 2  # Controls steepness of exponential blow-up
+
+        if u >= mm1_c - epsilon:
+            # Latency at edge of model
+            L_edge = mm1_a / epsilon + mm1_b
+            latency = L_edge * math.exp(gamma * (u - mm1_c + epsilon))
+        else:
+            latency = mm1_a / (mm1_c - u) + mm1_b
+
+        return int(latency)
+
+        
     global e2e_coef_dict
     ep = svc + "@" + methodpath
     if svc not in e2e_coef_dict["us-west-1"]:
@@ -1441,6 +1619,11 @@ def write_latency(svc: str, avg_processing_latency: int, latency_dict: dict):
         historical_svc_latencies[svc] = list()
     historical_svc_latencies[svc].append(avg_processing_latency)
 
+
+def write_expected_vs_actual_perf(src_traffic_class: str, dst_traffic_class: str, src_region: str, dst_region: str, expected: int, actual: int, ruleset_rps: int):
+    global temp_counter
+    with open("expected_vs_actual_perf.csv", "a") as f:
+        f.write(f"{temp_counter},{src_traffic_class},{dst_traffic_class},{src_region},{dst_region},{expected},{actual},{ruleset_rps}\n")
 
 
 @app.post('/hillclimbingReport') # from wasm
@@ -2392,7 +2575,8 @@ def optimizer_entrypoint():
     global currently_globally_oscillating
     global global_processing_latencies
     global completed_rulesets
-    
+    global global_max_rps_per_svc_mm1
+
     if mode != "runtime":
         logger.warning(f"run optimizer only in runtime mode. current mode: {mode}.")
         return
@@ -2430,7 +2614,8 @@ def optimizer_entrypoint():
         f.write(f"objective: {objective}\n")
     if check_root_node_rps_condition(agg_root_node_rps) == False:
         logger.error(f'!!! Skip optimizer !!! all root_node_rps all regions are 0')
-        logger.debug(f'aggreated_rps: {aggregated_rps}')
+        if train_done:
+            logger.error(f'aggreated_rps: {aggregated_rps}')
         return
     
     # for svc in max_capacity_per_service:
@@ -2476,6 +2661,8 @@ def optimizer_entrypoint():
                 total_ep_str_callgraph_rps[hashed_cg_key][parent_ep_str] = total_endpoint_level_rps[parent_ep_str]
                 logger.debug(f"total_ep_str_callgraph_rps[{hashed_cg_key}][{parent_ep_str}]: {total_ep_str_callgraph_rps[hashed_cg_key][parent_ep_str]}")
         
+
+        # this is hardcoded and bad just fyi to future readers
         cur_percentage_df, desc = opt.run_optimizer(\
             coef_dict, \
             aggregated_rps, \
@@ -2492,7 +2679,7 @@ def optimizer_entrypoint():
             inter_cluster_latency, \
             endpoint_size, \
             DOLLAR_PER_MS, \
-            max_rps = 1000, \
+            max_rps=global_max_rps_per_svc_mm1, \
             normalization_dict=normalization_dict)
         state = "empty"
         logger.info(f"optimizer took {int(time.time()-optimizer_start_ts)}s")
@@ -3382,7 +3569,10 @@ def training_phase():
     else: # Train
         with coef_dict_mutex:
             ts = time.time()
-            coef_dict = new_train_latency_function_with_trace("poly", global_stitched_df,   degree=2) # or "mm1"
+            if degree <= 4:
+                coef_dict = new_train_latency_function_with_trace("poly", global_stitched_df, degree=degree)
+            else:
+                coef_dict = new_train_latency_function_with_trace("mm1", global_stitched_df, degree=degree)
             print_coef_dict("training_phase")
             logger.info(f"new_train_latency_function_with_trace took {int(time.time()-ts)}s")
             logger.info(f"coef_dict: {coef_dict['us-west-1']['frontend']['frontend@POST@/cart/checkout']}")
@@ -3950,6 +4140,18 @@ def update_traces():
     
     
 if __name__ == "__main__":
+
+    jumpingInterval = os.getenv("JUMPING_INTERVAL_SECONDS")
+    if jumpingInterval is None:
+        jumpingInterval = 15
+    else:
+        jumpingInterval = int(jumpingInterval)
+
+    jumping_warm_start_thresh = os.getenv("JUMPING_WARM_START_THRESH")
+    if jumping_warm_start_thresh is None:
+        jumping_warm_start_thresh = 3
+    else:
+        jumping_warm_start_thresh = int(jumping_warm_start_thresh)
     scheduler = BackgroundScheduler()
     scheduler.add_job(func=read_config_file, trigger="interval", seconds=1)
     scheduler.add_job(func=write_spans_to_file, trigger="interval", seconds=5)
@@ -3960,7 +4162,7 @@ if __name__ == "__main__":
     scheduler.add_job(func=aggregated_rps_routine, trigger="interval", seconds=1)
     scheduler.add_job(func=optimizer_entrypoint, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_load_conditions, trigger="interval", seconds=10)
-    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=20)
+    scheduler.add_job(func=perform_jumping, trigger="interval", seconds=jumpingInterval)
     scheduler.add_job(func=state_check, trigger="interval", seconds=1)
     # scheduler.add_job(func=write_hillclimb_history_to_file, trigger="interval", seconds=15)
     # scheduler.add_job(func=write_global_hillclimb_history_to_file, trigger="interval", seconds=15)
