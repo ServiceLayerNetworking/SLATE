@@ -77,10 +77,8 @@ inter_cluster_latency['us-west']['us-central'] = 10
 '''
 
 # def run_optimizer(coef_dict, endpoint_level_inflight_req, endpoint_level_rps, placement, svc_to_placement, endpoint_to_placement, endpoint_to_cg_key, ep_str_callgraph_table, traffic_segmentation, objective, ROUTING_RULE, max_capacity_per_service, degree, inter_cluster_latency):
-def run_optimizer(\
-        coef_dict, \
+def run_optimizer(coef_dict, \
         endpoint_level_rps, \
-        total_ep_str_callgraph_rps, \
         placement, \
         svc_to_placement, \
         endpoint_to_placement, \
@@ -93,20 +91,14 @@ def run_optimizer(\
         inter_cluster_latency, \
         endpoint_sizes, \
         DOLLAR_PER_MS, \
-        max_rps=600, \
+        max_rps=1000, \
         normalization_dict=dict()):
         # 'max_rps' will be used in MM1 model as a representation of 1 utilization.
+        
     logger = logging.getLogger(__name__)
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.mkdir(cfg.OUTPUT_DIR)
         logger.debug(f"{cfg.log_prefix} mkdir {cfg.OUTPUT_DIR}")
-
-    cg_root_endpoint_rps = dict()
-    for cg_key in total_ep_str_callgraph_rps:
-        for endpoint in total_ep_str_callgraph_rps[cg_key]:
-            if "sslateingress" in endpoint:
-                cg_root_endpoint_rps[cg_key] = total_ep_str_callgraph_rps[cg_key][endpoint]
-    logger.info(f'cg_root_endpoint_rps: {cg_root_endpoint_rps}')
 
     def collapse_cid_in_endpoint_level_rps(endpoint_level_rps):
         collapsed_endpoint_level_rps = dict()
@@ -141,14 +133,15 @@ def run_optimizer(\
                     request_in_out_weight[cg_key][parent_ep][child_ep] = dict()
                 parent_svc_name = parent_ep.split(cfg.ep_del)[0]
                 child_svc_name = child_ep.split(cfg.ep_del)[0]
+                # TODO: request_in_out_weight[cg_key][parent_ep][child_ep] = in_/out_
+                # logger.debug(f'parent_svc_name: {parent_svc_name}, parent_ep: {parent_ep}, {collapsed_endpoint_level_rps[parent_svc_name]}')
+                # logger.debug(f'child_svc_name: {child_svc_name}, child_ep: {child_ep}, {collapsed_endpoint_level_rps[child_svc_name]}')                
+                # in_ = collapsed_endpoint_level_rps[parent_svc_name][parent_ep]
+                # out_ = collapsed_endpoint_level_rps[child_svc_name][child_ep]
+                # logger.debug(f'request_in_out_weight: {request_in_out_weight[cg_key][parent_ep][child_ep]}, parent_ep: {parent_ep}, child_ep: {child_ep}, in_: {in_}, out_: {out_}')
+                
                 request_in_out_weight[cg_key][parent_ep][child_ep] = 1
-    cg_root_endpoint_rps = dict()
-    for cg_key in total_ep_str_callgraph_rps:
-        for endpoint in total_ep_str_callgraph_rps[cg_key]:
-            if "sslateingress" in endpoint:
-                cg_root_endpoint_rps[cg_key] = total_ep_str_callgraph_rps[cg_key][endpoint]
-    logger.info(f'cg_root_endpoint_rps: {cg_root_endpoint_rps}')
-    
+                
     ##############################################
     # TODO: Problem: how should we the endpoint to each call graph? Otherwise, by simply using the endpoint, we are not able to find root endpoint of the call graph.
     # norm_inout_weight = dict()
@@ -157,6 +150,34 @@ def run_optimizer(\
     # merged_in_out_weight = opt_func.merge(request_in_out_weight, norm_inout_weight, MAX_LOAD)
     # norm_merged_in_out_weight = opt_func.norm(merged_in_out_weight, root_endpoint[cg_key].svc_name)
     ##############################################
+    
+    if traffic_segmentation == False:
+        logger.error(f'further implementation is required for traffic_segmentation False')
+        assert False
+        original_NUM_REQUESTS = NUM_REQUESTS.copy()
+        original_MAX_LOAD = MAX_LOAD.copy()
+        original_callgraph = callgraph.copy()
+        original_request_in_out_weight = request_in_out_weight.copy()
+        merged_cg_key = "M"
+        merged_callgraph = opt_func.merge_callgraph(callgraph)
+        callgraph = dict()
+        callgraph[merged_cg_key] = merged_callgraph
+        request_in_out_weight = dict()
+        request_in_out_weight[merged_cg_key] = merged_in_out_weight
+        norm_inout_weight = dict()
+        norm_inout_weight[merged_cg_key] = norm_merged_in_out_weight
+        merged_NUM_REQUESTS = list()
+        for num_req in NUM_REQUESTS:
+            merged_NUM_REQUESTS.append({merged_cg_key: sum(num_req.values())})
+        NUM_REQUESTS = list()
+        NUM_REQUESTS = merged_NUM_REQUESTS
+        MAX_LOAD = opt_func.get_max_load(NUM_REQUESTS)
+
+    ## depth_dict
+    ## key: cg key, value: dict of {svc: depth}
+    depth_dict = dict()
+    for cg_key in ep_str_callgraph_table:
+        depth_dict[cg_key] = opt_func.get_depth_in_graph(ep_str_callgraph_table[cg_key])
         
     callsize_dict = dict()
     for cg_key in ep_str_callgraph_table:
@@ -265,136 +286,45 @@ def run_optimizer(\
         coefs = row['coef']
         logger.debug(f"target svc,endpoint: {row['svc_name']}, {row['endpoint']}")
         logger.debug(coefs)
-        try:
-            for dependent_ep in coefs:
-                if dependent_ep != 'intercept':
-                    dependent_arc_name = opt_func.get_compute_arc_var_name(dependent_ep, row['src_cid'])
-                    logger.debug(f'dependent_arc_name: {dependent_arc_name}')
-                    logger.debug(f'coefs[{dependent_ep}]: {coefs[dependent_ep]}')
-                    logger.debug(f'dependent_arc_name: {dependent_arc_name}')
-                    if degree == 4: # degree is 4 using compute_load2 = compute_load**2
-                        rh = coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2)
+        for dependent_ep in coefs:
+            if dependent_ep != 'intercept':
+                dependent_arc_name = opt_func.get_compute_arc_var_name(dependent_ep, row['src_cid'])
+                logger.debug(f'dependent_arc_name: {dependent_arc_name}')
+                logger.debug(f'coefs[{dependent_ep}]: {coefs[dependent_ep]}')
+                logger.debug(f'dependent_arc_name: {dependent_arc_name}')
+                if degree == 4: # degree is 4 using compute_load2 = compute_load**2
+                    rh = coefs[dependent_ep] * (compute_load2[dependent_arc_name] ** 2)
+                    rh += coefs['intercept']
+                    lh = compute_latency[index]
+                elif degree == 2:
+                    if len(normalization_dict) > 0:
+                        rh = coefs[dependent_ep] * (normalized_compute_load[dependent_arc_name] ** 2)
                         rh += coefs['intercept']
                         lh = compute_latency[index]
-                    elif degree == 2:
-                        if len(normalization_dict) > 0:
-                            rh = coefs[dependent_ep] * (normalized_compute_load[dependent_arc_name] ** 2)
-                            rh += coefs['intercept']
-                            lh = compute_latency[index]
-                        elif degree == 2:
-                            if len(normalization_dict) > 0:
-                                rh = coefs[dependent_ep] * (normalized_compute_load[dependent_arc_name] ** 2)
-                                rh += coefs['intercept']
-                                lh = compute_latency[index]
-                            else:
-                                rh = coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
-                                rh += coefs['intercept']
-                                lh = compute_latency[index]
-                        elif degree == 1:
-                            rh = coefs[dependent_ep] * compute_load[dependent_arc_name]
-                            rh += coefs['intercept']
-                            lh = compute_latency[index]
-                    elif degree == 1:
-                        rh = coefs[dependent_ep] * compute_load[dependent_arc_name]
+                    else:
+                        rh = coefs[dependent_ep] * (compute_load[dependent_arc_name] ** 2) 
                         rh += coefs['intercept']
                         lh = compute_latency[index]
-                    elif degree == 111: # original mm1 model. not working
-                        a = coefs[dependent_ep]
-                        b = coefs['intercept']
-                        try:
-                            # rh = (a/(max_rps - compute_load[dependent_arc_name])) + b
-                            
-                            # Reformulate as: (latency - b) * (max_rps - compute_load) = a
-                            lh = compute_latency[index] - b
-                            rh = a
-                            gurobi_model.addConstr(lh * (max_rps - compute_load[dependent_arc_name]) == rh, name=f'latency_function_{index}')
-                        except Exception as e:
-                            logger.error(f'Exception: {type(e).__name__}, {e}')
-                            logger.error(f'compute_load[{dependent_arc_name}]: {compute_load[dependent_arc_name]}')
-                            logger.error(f'max_rps: {max_rps}')
-                            logger.error(f"(max_rps - compute_load[{dependent_arc_name}]): {(max_rps - compute_load[dependent_arc_name])}")
-                        lh = compute_latency[index]
-                        # lh = (compute_latency[index] - b) * (max_rps - compute_load[dependent_arc_name])
-                        # rh = a
-                        logger.info(f'MM1 model, a: {a}, b: {b}, max_rps: {max_rps}, compute_load[{dependent_arc_name}]: {compute_load[dependent_arc_name]}')
-                    elif degree == 222:  # mm1 model approximated with piecewise linear function
-                        a = coefs[dependent_ep]
-                        b = coefs['intercept']
-                        
-                        # Create utilization variable (bounded between 0 and 0.95)
-                        utilization = gurobi_model.addVar(name=f"util_{dependent_arc_name}", lb=0, ub=0.95)
-                        
-                        # Link utilization to compute_load
-                        gurobi_model.addConstr(utilization * max_rps == compute_load[dependent_arc_name], 
-                                            name=f"util_def_{dependent_arc_name}")
-                        constraint_file.write(f"utilization * {max_rps}\n")
-                        constraint_file.write("==\n")
-                        constraint_file.write(f"compute_load[{dependent_arc_name}]\n")
-                        constraint_file.write("-"*80)
-                        constraint_file.write("\n")
-                        
-                        # Create piecewise approximation for 1/(1-utilization)
-                        breakpoints = [0, 0.2, 0.4, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95]
-                        values = [1/(1-u) for u in breakpoints]
-                        
-                        # Variable for the 1/(1-utilization) term
-                        inverse_term = gurobi_model.addVar(name=f"inverse_{dependent_arc_name}")
-                        
-                        # Add piecewise linear constraint
-                        gurobi_model.addGenConstrPWL(utilization, inverse_term, breakpoints, values, 
-                                                name=f"pwl_inverse_{dependent_arc_name}")
-                        constraint_file.write(f"PWL Constraint: inverse_term = PWL(utilization)\n")
-                        constraint_file.write(f"Breakpoints: {breakpoints}\n")
-                        constraint_file.write(f"Values: {values}\n")
-                        constraint_file.write("-"*80)
-                        constraint_file.write("\n")
-                        
-                        # Add final latency constraint
-                        factor = a/max_rps
-                        gurobi_model.addConstr(compute_latency[index] == factor * inverse_term + b, 
-                                            name=f"latency_function_{index}")
-                        constraint_file.write(f"compute_latency[{index}]\n")
-                        constraint_file.write("==\n")
-                        constraint_file.write(f"{factor} * inverse_term + {b}\n")
-                        constraint_file.write("-"*80)
-                        constraint_file.write("\n")
-                        
-                        logger.info(f'MM1 model with utilization PWL, a: {a}, b: {b}, max_rps: {max_rps}')
-                    elif degree == 333:
-                        ## hardcoded mm1 parameter for record service
-                        ## TODO: loading from coef.csv in global_controller.py->coef_dict->compute_df->coefs
-                        if 'record-service' in row['svc_name']:
-                            mm1_a = 0.62  # From your MM1 fit
-                            mm1_c = 1.05  # From your MM1 fit
-                            mm1_b = 0.62  # From your MM1 fit
-                        elif 'sslateingress' in row['svc_name']:
-                            mm1_a = 0.001  # From your MM1 fit
-                            mm1_c = 1.05  # From your MM1 fit
-                            mm1_b = 5  # From your MM1 fit
-                        max_safe_util = mm1_c - 0.05  # Keep a safety margin
-                        utilization = gurobi_model.addVar(name=f"util_{dependent_arc_name}", lb=0, ub=max_safe_util)
-                        load_shed = gurobi_model.addVar(name=f"shed_{dependent_arc_name}", lb=0)
-                        gurobi_model.addConstr(utilization * max_rps + load_shed == compute_load[dependent_arc_name],  name=f"util_def_{dependent_arc_name}")
-                        breakpoints = [0, 0.2, 0.4, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.99, 0.999, max_safe_util]
-                        values = [mm1_a/(mm1_c-u) + mm1_b for u in breakpoints]
-                        latency_term = gurobi_model.addVar(name=f"latency_term_{dependent_arc_name}")
-                        gurobi_model.addGenConstrPWL(utilization, latency_term, breakpoints, values, name=f"pwl_mm1_{dependent_arc_name}")
-                        gurobi_model.addConstr(compute_latency[index] == latency_term,  name=f"latency_function_{index}")
-                        logger.info(f'MM1 model for {row["svc_name"]} with custom parameters: a={mm1_a}, c={mm1_c}, b={mm1_b}, max_safe_util={max_safe_util}')
-                        
-                    if degree <= 111:
-                        constraint_file.write(f"{lh}\n")
-                        constraint_file.write("==\n")
-                        constraint_file.write(f"{rh}\n")
-                        constraint_file.write("-"*80)
-                        constraint_file.write("\n")
-                        gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
-        except Exception as e:
-            logger.error(f'Exception: {type(e).__name__}, {e}')
-            logger.error(f'coefs: {coefs}')
-            logger.error(f'index: {index}')
-            assert False
+                elif degree == 1:
+                    rh = coefs[dependent_ep] * compute_load[dependent_arc_name]
+                    rh += coefs['intercept']
+                    lh = compute_latency[index]
+                else: # mm1 model
+                    a = coefs[dependent_ep]
+                    b = coefs['intercept']
+                    rh = (a/(max_rps - compute_load[dependent_arc_name])) + b
+                    lh = compute_latency[index]
+                    # lh = (compute_latency[index] - b) * (max_rps - compute_load[dependent_arc_name])
+                    # rh = a
+                    logger.info(f'MM1 model, a: {a}, b: {b}, max_rps: {max_rps}, compute_load[{dependent_arc_name}]: {compute_load[dependent_arc_name]}')
+                constraint_file.write(f"{lh}\n")
+                constraint_file.write("==\n")
+                constraint_file.write(f"{rh}\n")
+                constraint_file.write("-"*80)
+                constraint_file.write("\n")
+                gurobi_model.addConstr(lh == rh, name=f'latency_function_{index}')
     gurobi_model.update()
+
 
     logger.debug(f'{svc_to_placement}')
     ## Define names of the variables for network arc in gurobi
@@ -412,11 +342,11 @@ def run_optimizer(\
                             network_arc_var_name.append(var_name)
 
     for cg_key in ep_str_callgraph_table:
-        root_endpoint = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
-        for dst_cid in endpoint_to_placement[root_endpoint]:
-            logger.debug(f'root_endpoint: {root_endpoint}')
+        root_node = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
+        for dst_cid in endpoint_to_placement[root_node]:
+            logger.debug(f'root_node: {root_node}')
             logger.debug(f'dst_cid, {dst_cid}')
-            var_name = opt_func.get_network_arc_var_name(opt_func.source_node_name, root_endpoint, opt_func.NONE_CID, dst_cid)
+            var_name = opt_func.get_network_arc_var_name(opt_func.source_node_name, root_node, opt_func.NONE_CID, dst_cid)
             network_arc_var_name.append(var_name)
     
     columns=["src_endpoint", "src_cid", "dst_endpoint", "dst_cid", "min_network_time", "max_network_time", "max_load", "min_load", "min_egress_cost", "max_egress_cost"]
@@ -627,16 +557,7 @@ def run_optimizer(\
     #############################################################
 
     if objective == "avg_latency":
-        if degree == 333: # mm1 model with load shedding
-            load_shed_vars = []
-            for v in gurobi_model.getVars():
-                if v.varName.startswith("shed_"):
-                    load_shed_vars.append(v)
-            shed_penalty = 1000000  # High penalty to avoid shedding unless necessary
-            load_shed_sum = gp.quicksum(load_shed_vars)
-            gurobi_model.setObjective(total_latency_sum + shed_penalty * load_shed_sum, gp.GRB.MINIMIZE)
-        else:
-            gurobi_model.setObjective(total_latency_sum, gp.GRB.MINIMIZE)
+        gurobi_model.setObjective(total_latency_sum, gp.GRB.MINIMIZE)
     elif objective == "end_to_end_latency":
         gurobi_model.setObjective(max_end_to_end_latency, gp.GRB.MINIMIZE)
     elif objective == "egress_cost":
@@ -656,35 +577,55 @@ def run_optimizer(\
 
     temp = dict()
     temp = pd.concat([network_load, compute_load], axis=0)
+    # concat_df = pd.concat(temp, axis=0)
+    # logger.debug("type(concat_df): ", type(concat_df))
+    # logger.debug("concat_df.to_dict()")
+    # concat_dict = concat_df.to_dict()
+    # for k, v in concat_dict.items():
+        # logger.debug(f"key: {k}\nvalue: {v}")
     arcs = dict()
     aggregated_load = dict()
     arcs, aggregated_load = gp.multidict(temp.to_dict())
-    # for k, v in aggregated_load.items():
-    #     logger.info(f"key: {k}\nvalue: {v}")
+    # if cfg.DISPLAY:
+    #     logger.debug("arcs")
+    #     logger.debug(f'{arcs}\n')
+    #     logger.debug("aggregated_load")
+    #     logger.debug(f'{aggregated_load}\n')
+    #     logger.debug("aggregated_load")
+    #     logger.debug(type(aggregated_load))
+    #     for k, v in aggregated_load.items():
+    #         logger.debug(f"key: {k}\nvalue: {v}")
     opt_func.log_timestamp("gurobi add_vars and set objective")
+
     for cid in endpoint_level_rps:
         for svc_name in endpoint_level_rps[cid]:
             for ep in endpoint_level_rps[cid][svc_name]:
                 logger.debug(f'endpoint_level_rps: {cid}, {svc_name}, {ep}, {endpoint_level_rps[cid][svc_name][ep]}')
-                
     ## Constraint 1: SOURCE
     if cfg.LOAD_IN:
         total_coming = 0
         for cg_key in ep_str_callgraph_table:
             root_ep = opt_func.find_root_node(ep_str_callgraph_table[cg_key])
             root_ep_svc_name = root_ep.split(cfg.ep_del)[0]
+            # logger.debug(f'cg_key: {cg_key}')
             for cid in placement:
                 if root_ep_svc_name in placement[cid]:
+                    # logger.debug(f'endpoint_level_rps[{cid}][{root_ep_svc_name}]')
+                    # logger.debug(f'[{root_ep}]: {endpoint_level_rps[cid][root_ep_svc_name][root_ep]}')
                     logger.debug(f"endpoint_level_rps[{cid}]: {endpoint_level_rps[cid]}")
                     try:
                         incoming = endpoint_level_rps[cid][root_ep_svc_name][root_ep]
-                        logger.debug(f"root endpoint_level_rps[{cid}][{root_ep_svc_name}][{root_ep}]: {incoming}")
                     except Exception as e:
                         logger.error(f'endpoint_level_rps,{cid},{root_ep_svc_name},{root_ep}')
                         logger.error(f'Exception: {type(e).__name__}, {e}')
+                        logger.error(f"endpoint_level_rps: {endpoint_level_rps}")
                         assert False
+                    # incoming += endpoint_level_inflight_req[cid][root_ep_svc_name][root_ep]
+                    # logger.debug(f"incoming: {incoming}")
                     total_coming += incoming
+                    # ingress_gw_start_node = f'{svc}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
                     node_name = f'{root_ep}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
+                    # logger.debug(f'node_name: {node_name}')
                     lh = gp.quicksum(aggregated_load.select('*', node_name))
                     rh = incoming
                     gurobi_model.addConstr((lh == rh), name="cluster_"+str(cid)+"_load_in_"+str(root_ep))
@@ -693,15 +634,39 @@ def run_optimizer(\
                     constraint_file.write(f'{rh}\n')
                     constraint_file.write("-"*80)
                     constraint_file.write("\n")
+                    # logger.debug(lh)
+                    # logger.debug("==")
+                    # logger.debug(rh)
+                    # logger.debug("-"*80)
+        # logger.debug("*"*80)
+        # logger.debug(aggregated_load.select(opt_func.source_node_fullname, '*'))
+        # logger.debug("==")
+        # logger.debug(total_coming)
         gurobi_model.addConstr((gp.quicksum(aggregated_load.select(opt_func.source_node_fullname, '*')) == total_coming), name="source")
         gurobi_model.update()
-        
-    ## All the edges in aggregated_load should be less than cg_root_endpoint_rps[cg_key]
 
-    # Start node in-out
+    ## Constraint 2: destination
+    # destination = dict()
+    # destination[opt_func.destination_node_fullname] = MAX_LOAD
+    # dest_keys = destination.keys()
+    # leaf_services = list()
+    # for parent_svc, children in callgraph.items():
+    #     if len(children) == 0: # leaf service
+    #         leaf_services.append(parent_svc)
+    # num_leaf_services = len(leaf_services)
+    # logger.debug(f"{cfg.log_prefix} num_leaf_services: {num_leaf_services}")
+    # logger.debug(f"{cfg.log_prefix} leaf_services: {leaf_services}")
+    # dst_flow = gurobi_model.addConstrs((gp.quicksum(aggregated_load.select('*', dst)) == destination[dst]*num_leaf_services for dst in dest_keys), name="destination")
+    # for dst in dest_keys:
+    #     logger.debug(aggregated_load.select('*', dst))
+    # gurobi_model.update()
+
+    ## Constraint 3: flow conservation
+    # Start node in-out flow conservation
     for cid in endpoint_level_rps:
         for svc_name in endpoint_level_rps[cid]:
             for ep_str in endpoint_level_rps[cid][svc_name]:
+                # start_node = f'{ep_str}{cfg.DELIMITER}{cid}{cfg.DELIMITER}start'
                 start_node = opt_func.get_start_node_name(ep_str, cid)
                 lh = gp.quicksum(aggregated_load.select('*', start_node))
                 rh = gp.quicksum(aggregated_load.select(start_node, '*'))
@@ -711,22 +676,11 @@ def run_optimizer(\
                 constraint_file.write(f'{rh}\n')
                 constraint_file.write("-"*80)
                 constraint_file.write("\n")
+                # logger.debug(lh)
+                # logger.debug("==")
+                # logger.debug(rh)
+                # logger.debug("-"*50)
     gurobi_model.update()
-    
-    # End node in-out
-    # for cid in endpoint_level_rps:
-    #     for svc_name in endpoint_level_rps[cid]:
-    #         for ep_str in endpoint_level_rps[cid][svc_name]:
-    #             end_node = opt_func.get_end_node_name(ep_str, cid)
-    #             lh = gp.quicksum(aggregated_load.select('*', end_node))
-    #             rh = gp.quicksum(aggregated_load.select(end_node, '*'))
-    #             gurobi_model.addConstr((lh == rh), name="flow_conservation-end_node-"+ep_str)
-    #             constraint_file.write(f'{lh}\n')
-    #             constraint_file.write("==\n")
-    #             constraint_file.write(f'{rh}\n')
-    #             constraint_file.write("-"*80)
-    #             constraint_file.write("\n")
-    # gurobi_model.update()
 
     # End node in-out flow conservation
     # case 1 (leaf node to destination): incoming num requests == outgoing num request for all nodes
@@ -742,149 +696,67 @@ def run_optimizer(\
     #             logger.debug("-"*50)
     #             logger.debug("*"*50)
 
-
-
-    ###########################################################################################      
-    ###########################################################################################      
-    ## Max throughput of each traffic class in a service
+    # case 2 
+    # For non-leaf node and end node, incoming to end node == sum of outgoing
     for cg_key in ep_str_callgraph_table:
         for parent_ep in ep_str_callgraph_table[cg_key]:
             children_ep = ep_str_callgraph_table[cg_key][parent_ep]
+            # non-leaf node will only have child
             for parent_cid in endpoint_to_placement[parent_ep]:
                 for child_ep in children_ep:
+                    logger.debug(f'child_ep: {child_ep}')
                     end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
+                    logger.debug(f'non-leaf end_node: {end_node}')
                     outgoing_sum = 0
                     for child_cid in endpoint_to_placement[child_ep]:
                         child_start_node = opt_func.get_start_node_name(child_ep, child_cid)
                         outgoing_sum += aggregated_load.sum(end_node, child_start_node)
+                    # if traffic_segmentation:
+                        # lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_svc][child_svc]
+                    # else:
+                    #     lh = gp.quicksum(aggregated_load.select('*', end_node))*merged_in_out_weight[parent_svc][child_svc]
+                    
+                    # try:
+                    logger.debug(f'request_in_out_weight: {request_in_out_weight}')
                     lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
                     rh = outgoing_sum
                     gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
-                    
                     constraint_file.write(f'{lh}\n')
                     constraint_file.write("==\n")
                     constraint_file.write(f'{rh}\n')
                     constraint_file.write("-"*80)
                     constraint_file.write("\n")
+                    # logger.debug(lh)
+                    # logger.debug('==')
+                    # logger.debug(rh)
+                    # logger.debug("-"*80)
+                    # except Exception as e:
+                    #     logger.error(f'Error: {e}')
+                    #     assert False
     gurobi_model.update()
-    
-    
-    # Add a constraint to bound all Gurobi variables in aggregated_load
-    for cg_key in ep_str_callgraph_table:
-        for parent_ep in ep_str_callgraph_table[cg_key]:
-            for parent_cid in endpoint_to_placement[parent_ep]:
-                end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
-                children_ep = ep_str_callgraph_table[cg_key][parent_ep]
-                for child_ep in children_ep:
-                    for child_cid in endpoint_to_placement[child_ep]:
-                        child_start_node = opt_func.get_start_node_name(child_ep, child_cid)
-                        gurobi_model.addConstr(aggregated_load[end_node, child_start_node] <= cg_root_endpoint_rps[cg_key], name=f"bounded_aggregated_load_{cg_key}_{parent_ep}_{child_ep}")
-                        gurobi_model.addConstr(aggregated_load[end_node, child_start_node] >= 0, name=f"non_negative_aggregated_load_{cg_key}_{parent_ep}_{child_ep}")
-    gurobi_model.update()
-
-    # Add constraints for aggregated_load variables representing (its own ep start_node, its own ep end_node)
-    for cg_key in ep_str_callgraph_table:
-        for parent_ep in ep_str_callgraph_table[cg_key]:
-            for parent_cid in endpoint_to_placement[parent_ep]:
-                start_node = opt_func.get_start_node_name(parent_ep, parent_cid)
-                end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
-                gurobi_model.addConstr(aggregated_load[start_node, end_node] <= cg_root_endpoint_rps[cg_key], name=f"bounded_own_aggregated_load_{cg_key}_{parent_ep}")
-                gurobi_model.addConstr(aggregated_load[start_node, end_node] >= 0, name=f"non_negative_own_aggregated_load_{cg_key}_{parent_ep}")
-    gurobi_model.update()
-    ###########################################################################################      
-    ###########################################################################################      
-
-
-
-    # # case 2 
-    # # For non-leaf node and end node, incoming to end node == sum of outgoing
-    # for cg_key in ep_str_callgraph_table:
-    #     for parent_ep in ep_str_callgraph_table[cg_key]:
-    #         children_ep = ep_str_callgraph_table[cg_key][parent_ep]
-    #         # non-leaf node will only have child
-    #         for parent_cid in endpoint_to_placement[parent_ep]:
-    #             for child_ep in children_ep:
-    #                 logger.debug(f'child_ep: {child_ep}')
-    #                 end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
-    #                 logger.debug(f'non-leaf end_node: {end_node}')
-    #                 outgoing_sum = 0
-    #                 for child_cid in endpoint_to_placement[child_ep]:
-    #                     child_start_node = opt_func.get_start_node_name(child_ep, child_cid)
-    #                     outgoing_sum += aggregated_load.sum(end_node, child_start_node)
-    #                 # if traffic_segmentation:
-    #                     # lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_svc][child_svc]
-    #                 # else:
-    #                 #     lh = gp.quicksum(aggregated_load.select('*', end_node))*merged_in_out_weight[parent_svc][child_svc]
-    #                 logger.debug(f'request_in_out_weight: {request_in_out_weight}')
-    #                 lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
-    #                 rh = outgoing_sum
-    #                 gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
-    #                 constraint_file.write(f'{lh}\n')
-    #                 constraint_file.write("==\n")
-    #                 constraint_file.write(f'{rh}\n')
-    #                 constraint_file.write("-"*80)
-    #                 constraint_file.write("\n")
-    #                 # logger.debug(lh)
-    #                 # logger.debug('==')
-    #                 # logger.debug(rh)
-    #                 # logger.debug("-"*80)
-    #                 # except Exception as e:
-    #                 #     logger.error(f'Error: {e}')
-    #                 #     assert False
-    # gurobi_model.update()
 
     '''
     This constraint also seems redundant.
     The optimizer output varies with and without this constraint. The reason is assumed that there are multiple optimal solutions and how it searches the optimal solution (e.g., order of search exploration) changes with and without this constraint.
     It will be commented out anyway since it it not necessary constraint.
     '''
-    
-    ## Max throughput of each traffic class in a service
-    for cg_key in ep_str_callgraph_table:
-        for parent_ep in ep_str_callgraph_table[cg_key]:
-            children_ep = ep_str_callgraph_table[cg_key][parent_ep]
-            for parent_cid in endpoint_to_placement[parent_ep]:
-                for child_ep in children_ep:
-                    end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
-                    outgoing_sum = 0
-                    for child_cid in endpoint_to_placement[child_ep]:
-                        child_start_node = opt_func.get_start_node_name(child_ep, child_cid)
-                        outgoing_sum += aggregated_load.sum(end_node, child_start_node)
-                    lh = gp.quicksum(aggregated_load.select('*', end_node))*request_in_out_weight[cg_key][parent_ep][child_ep]
-                    rh = outgoing_sum
-                    gurobi_model.addConstr((lh == rh), name="flow_conservation-nonleaf_endnode-"+cg_key)
-                    
-                    constraint_file.write(f'{lh}\n')
-                    constraint_file.write("==\n")
-                    constraint_file.write(f'{rh}\n')
-                    constraint_file.write("-"*80)
-                    constraint_file.write("\n")
-    gurobi_model.update()
-    
-    
-    # Add a constraint to bound all Gurobi variables in aggregated_load
-    for cg_key in ep_str_callgraph_table:
-        for parent_ep in ep_str_callgraph_table[cg_key]:
-            for parent_cid in endpoint_to_placement[parent_ep]:
-                end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
-                children_ep = ep_str_callgraph_table[cg_key][parent_ep]
-                for child_ep in children_ep:
-                    for child_cid in endpoint_to_placement[child_ep]:
-                        child_start_node = opt_func.get_start_node_name(child_ep, child_cid)
-                        gurobi_model.addConstr(aggregated_load[end_node, child_start_node] <= cg_root_endpoint_rps[cg_key], name=f"bounded_aggregated_load_{cg_key}_{parent_ep}_{child_ep}")
-                        gurobi_model.addConstr(aggregated_load[end_node, child_start_node] >= 0, name=f"non_negative_aggregated_load_{cg_key}_{parent_ep}_{child_ep}")
-    gurobi_model.update()
-
-    # Add constraints for aggregated_load variables representing (its own ep start_node, its own ep end_node)
-    for cg_key in ep_str_callgraph_table:
-        for parent_ep in ep_str_callgraph_table[cg_key]:
-            for parent_cid in endpoint_to_placement[parent_ep]:
-                start_node = opt_func.get_start_node_name(parent_ep, parent_cid)
-                end_node = opt_func.get_end_node_name(parent_ep, parent_cid)
-                gurobi_model.addConstr(aggregated_load[start_node, end_node] <= cg_root_endpoint_rps[cg_key], name=f"bounded_own_aggregated_load_{cg_key}_{parent_ep}")
-                gurobi_model.addConstr(aggregated_load[start_node, end_node] >= 0, name=f"non_negative_own_aggregated_load_{cg_key}_{parent_ep}")
-    gurobi_model.update()
-
+    ## Constraint 4: Tree topology
+    # svc_to_cid = opt_func.svc_to_cid(placement)
+    # logger.debug("svc_to_cid: ", svc_to_cid)
+    # for key in callgraph:
+    #     for svc_name in svc_to_cid:
+    #         if svc_name != cfg.ENTRANCE and svc_name in callgraph[key]:
+    #             incoming_sum = 0
+    #             for cid in svc_to_cid[svc_name]:
+    #                 start_node = opt_func.start_node_name(svc_name, cid)
+    #                 incoming_sum += aggregated_load[key].sum('*', start_node)
+    #             node_flow = gurobi_model.addConstr(incoming_sum == MAX_LOAD[key], name="tree_topo_conservation_"+key)
+    #             if cfg.DISPLAY:
+    #                 logger.debug(incoming_sum)
+    #                 logger.debug('==')
+    #                 logger.debug(MAX_LOAD[key])
+    #                 logger.debug("-"*50)
+    # gurobi_model.update()
 
 
     # # Constraint 5: max throughput of service
@@ -900,21 +772,9 @@ def run_optimizer(\
 
     opt_func.log_timestamp("gurobi add constraints and model update")
     gurobi_model.update()
+    # opt_func.print_gurobi_var(gurobi_model)
+    # opt_func.print_gurobi_constraint(gurobi_model)
     gurobi_model.setParam('NonConvex', 2)
-    gurobi_model.setParam('MIPGap', 0.05)  # 5% optimality gap
-    gurobi_model.setParam('SolutionLimit', 5)  # Stop after finding 5 feasible solutions
-    gurobi_model.setParam('Heuristics', 0.8)  # Allocate 80% of time to heuristics
-    gurobi_model.setParam('Aggregate', 1)  # Enable variable aggregation
-    gurobi_model.setParam('Presolve', 2)  # Aggressive presolve
-    gurobi_model.setParam('Cuts', 0)  # Disable cutting planes
-    
-    # gurobi_model.setParam('TimeLimit', 60)  # Stop after 60 seconds
-    
-    # gurobi_model.setParam('NodeLimit', 1000)  # Limit the branching tree
-    # gurobi_model.setParam('FeasibilityTol', 1e-5)
-    # gurobi_model.setParam('IntegralityFocus', 1)  # Relax integer constraints
-
-    
     ts = time.time()
     gurobi_model.optimize()
     solver_runtime = time.time() - ts
@@ -934,7 +794,23 @@ def run_optimizer(\
     df_constr.to_csv(f'constraint.csv')
     substract_time = time.time() - ts
     opt_func.log_timestamp("get var and constraint")
-    if gurobi_model.Status == GRB.OPTIMAL:
+    if gurobi_model.Status != GRB.OPTIMAL:
+        logger.info(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        logger.info(f"XXXX INFEASIBLE MODEL! XXXX")
+        logger.info(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        if cfg.DISPLAY:
+            logger.debug(df_constr)
+        gurobi_model.computeIIS()
+        gurobi_model.write("gurobi_model.ilp")
+        logger.error('\nThe following constraints and variables are in the IIS:')
+        # for c in gurobi_model.getConstrs():
+        #     if c.IISConstr: logger.debug(f'\t{c.constrname}: {gurobi_model.getRow(c)} {c.Sense} {c.RHS}')
+        for v in gurobi_model.getVars():
+            if v.IISLB: logger.error(f'\t{v.varname} ≥ {v.LB}')
+            if v.IISUB: logger.error(f'\t{v.varname} ≤ {v.UB}')
+        logger.info(f'FAIL: INFEASIBLE MODEL')
+        return pd.DataFrame(), "reason: infeasible model"
+    else:
         logger.debug(f"ooooooooooooooooooooooo")
         logger.debug(f"oooo SOLVED MODEL! oooo")
         logger.debug(f"ooooooooooooooooooooooo")
@@ -954,49 +830,8 @@ def run_optimizer(\
         logger.debug(f'Successful run')
         logger.debug(f"solver runtime: {solver_runtime}")
         return percentage_df, "model solved"
-    elif gurobi_model.Status == GRB.INFEASIBLE:
-        logger.info(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
-        logger.info(f"XXXX INFEASIBLE MODEL! XXXX")
-        logger.info(f"XXXXXXXXXXXXXXXXXXXXXXXXXXX")
-        if cfg.DISPLAY:
-            logger.debug(df_constr)
-        gurobi_model.computeIIS()
-        gurobi_model.write("gurobi_model.ilp")
-        logger.error('\nThe following constraints and variables are in the IIS:')
-        # for c in gurobi_model.getConstrs():
-        #     if c.IISConstr: logger.debug(f'\t{c.constrname}: {gurobi_model.getRow(c)} {c.Sense} {c.RHS}')
-        for v in gurobi_model.getVars():
-            if v.IISLB: logger.error(f'\t{v.varname} ≥ {v.LB}')
-            if v.IISUB: logger.error(f'\t{v.varname} ≤ {v.UB}')
-        logger.info(f'FAIL: INFEASIBLE MODEL')
-        return pd.DataFrame(), "reason: infeasible model"
-    elif gurobi_model.Status == GRB.TIME_LIMIT:
-        if gurobi_model.SolCount > 0:  # Check if at least one solution was found
-            logger.info(f"Time limit reached. Returning the best solution found so far:")
-            request_flow = pd.DataFrame(columns=["From", "To", "Flow"])
-            for arc in arcs:
-                if aggregated_load[arc].x > 1e-6:
-                    temp = pd.DataFrame({"From": [arc[0]], "To": [arc[1]], "Flow": [aggregated_load[arc].x]})
-                    request_flow = pd.concat([request_flow, temp], ignore_index=True)
-            request_flow.to_csv(f'request_flow.csv')
-            logger.debug("asdf request_flow")
-            logger.debug(request_flow)
-            
-            percentage_df = opt_func.translate_to_percentage(request_flow)
-            percentage_df.to_csv(f'percentage_df.csv')
-            logger.debug("asdf percentage_df")
-            logger.debug(percentage_df)
-            
-            logger.info(f"Objective value: {gurobi_model.ObjVal}")
-            logger.info(f"solver runtime: {solver_runtime}")
-            return percentage_df, "time limit reached with solution"
-        else:
-            logger.info(f"Time limit reached, but no feasible solution was found.")
-            return pd.DataFrame(), "reason: time limit with no feasible solution"
-    else:
-        logger.info(f"#### Unknown status: {gurobi_model.Status}")
-        return pd.DataFrame(), "reason: unknown status"
-    
+
+
         '''
         Post this line, it is not a part of optimization. It analyzes latency and cost difference between traffic segmentation and non-traffic segmentation.
         '''

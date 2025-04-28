@@ -705,6 +705,7 @@ def stitch_trace_in_df(single_trace, overhead, ep_str_callgraph_table):
 ## Single threaded version
 ##################################################################
 def stitch_time_in_df(given_df, ep_str_callgraph_table):
+    logger.info(f"stitch_time_in_df: {given_df}")
     ret_dfs = []
     overhead = {}
     ts = time.time()

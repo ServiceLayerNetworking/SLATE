@@ -15,9 +15,30 @@
 
 # docker_file="Dockerfile-continuous"
 docker_file="Dockerfile"
-#ghcr_account="adiprerepa"
+
 ghcr_account="gangmuk"
-tag=latest-c8220-apr15
+tag=apr27th-test-merged-version
+
+## Read the current image name and tag from the current slate-controller deployment
+current_image=$(kubectl get deploy slate-controller -o jsonpath='{.spec.template.spec.containers[0].image}')
+
+echo "*************************"
+echo "** Current slate-controller deployment: $current_image"
+echo "*************************"
+
+# ghcr_account="adiprerepa"
+# tag=latest
+
+echo "========================="
+echo "== ghcr_account: ${ghcr_account}"
+echo "== tag: ${tag}"
+echo "========================="
+echo "starting in 3 seconds..."
+sleep 1
+echo "starting in 2 seconds..."
+sleep 1
+echo "starting in 1 seconds..."
+sleep 1
 echo "It is pushing to the '${ghcr_account}' repository..."
 docker build -f ${docker_file} -t ghcr.io/${ghcr_account}/slate-controller:${tag} .
 docker push ghcr.io/${ghcr_account}/slate-controller:${tag}

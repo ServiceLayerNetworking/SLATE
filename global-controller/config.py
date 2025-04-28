@@ -10,7 +10,8 @@ def get_cur_time():
 ############
 # log_prefix="[SLATE]"
 log_prefix=""
-
+LOG_LEVEL = "INFO"  # INFO, DEBUG, WARNING, ERROR, CRITICAL
+# LOG_LEVEL = "DEBUG"
 LOGGING_CONFIG = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -37,7 +38,7 @@ LOGGING_CONFIG = {
     'loggers': {
         '': {  # root logger
             'handlers': ['default', 'error_file'],
-            'level': 'INFO',
+            'level': f'{LOG_LEVEL}',
             'propagate': True
         },
         'gurobipy.gurobipy': {  # specifically targeting the gurobipy.gurobipy logger
