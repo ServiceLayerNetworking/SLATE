@@ -505,8 +505,11 @@ def perform_jumping():
 
     # jumping is performed between parent_svc and child_svc
     parent_svc = "sslateingress"
-    child_svc = "frontend"
-    child_svc = "record-service"
+    if benchmark_name == "cachethrash":
+        child_svc = "record-service"
+    else:
+        child_svc = "frontend"
+    logger.info(f"MAKE SURE IT IS THE RIGHT ONES. parent_svc: {parent_svc}, child_svc: {child_svc}")
 
     logger.info(f"loghill temp_counter {temp_counter} jumping_feature_enabled: {jumping_feature_enabled}, jumping_towards_optimizer: {jumping_towards_optimizer}, currently_globally_oscillating: {currently_globally_oscillating}")
     # snapshot the current optimizer output and processing latencies
@@ -1416,18 +1419,18 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict, 
 
     # todo aditya problem: latency is not being injected right...
     
-    # logger.info(f"calculate_ruleset_overperformance: rules:\n{rules.to_csv()}")
+    logger.info(f"calculate_ruleset_overperformance: rules:\n{rules.to_csv()}")
     if "src_svc" not in rules.columns or "dst_svc" not in rules.columns or "src_cid" not in rules.columns or "dst_cid" not in rules.columns:
+        logger.info(f"src_svc, dst_svc, src_cid, or dst_cid not in rules.columns({rules.columns}), return...")
         return dict()
     filtered_rules = rules[(rules["src_svc"] == parent_svc) & (rules["dst_svc"] == child_svc)]
     dst_traffic_classes = filtered_rules["dst_endpoint"].unique()
-    # logger.info(f"traffic_classes: {dst_traffic_classes}")
+    logger.info(f"dst_traffic_classes: {dst_traffic_classes}")
     overperformance = dict()
-
     # ruleset: rules for a given traffic class from a source region to multiple destination regions.
     for dst_traffic_class in dst_traffic_classes:
         src_regions = filtered_rules[filtered_rules["dst_endpoint"] == dst_traffic_class]["src_cid"].unique()
-        # logger.info(f"traffic_class: {dst_traffic_class}, src_regions: {src_regions}")
+        logger.info(f"traffic_class: {dst_traffic_class}, src_regions: {src_regions}")
         for src_region in src_regions:
             src_rules = filtered_rules[(filtered_rules["src_cid"] == src_region) & (filtered_rules["dst_endpoint"] == dst_traffic_class)]
             dst_regions = src_rules["dst_cid"].unique()
@@ -1436,8 +1439,6 @@ def calculate_ruleset_overperformance(rules: pd.DataFrame, cur_latencies: dict, 
                 logging.info(f"skipping ruleset for src_region: {src_region} as it has less than 2 dst regions({dst_regions})")
                 continue
             logging.info(f"ruleset exists. Try jumping logic. src_region: {src_region} and dst_regions: {dst_regions}")
-            # else:
-            #     logger.info(f"src_region: {src_region}, dst_regions: {dst_regions}")
             overperformance[src_region] = dict()
             for dst_region in dst_regions:
                 # src_traffic_class is src_endpoint
@@ -1883,7 +1884,7 @@ def adjust_ruleset(
 #     return a * load * load + c
 
 ## NOTE: SPECIFICALLY FOR CACHETHRASH app MM1 model
-def get_expected_latency_for_rule(load: int, svc: str, methodpath: str, mm1_override=True) -> int:
+def get_expected_latency_for_rule(load: int, svc: str, methodpath: str, mm1_override=False) -> int:
     global global_max_rps_per_svc_mm1
     """
     get_expected_latency_for_rule will calculate the expected e2e latency for a given rule based on the current load conditions.
