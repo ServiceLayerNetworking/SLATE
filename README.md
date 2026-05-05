@@ -2,6 +2,7 @@
 
 This repository houses all the components of *Service Layer Traffic Engineering (SLATE)*, a system that globally optimizes the flow of requests for end-to-end application latency and cost deployed in multi-region enviroments.
 
+[*See the NSDI '26 Paper*](https://www.usenix.org/conference/nsdi26/presentation/lim) 🚀🚀🚀🚀🚀
 [*See the HotNets '24 Paper*](https://conferences.sigcomm.org/hotnets/2024/papers/hotnets24-107.pdf) 🚀🚀🚀🚀🚀
 
 
